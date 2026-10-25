@@ -37,16 +37,17 @@ pub enum AgentError {
     Corrupt(String),
 }
 
+/// Reads the ids and every agent in one transaction, so a delete in between cannot drop a row.
 pub async fn list(pool: &SqlitePool) -> Result<Vec<AgentRecord>, AgentError> {
-    let mut conn = pool.acquire().await?;
+    let mut tx = pool.begin().await?;
     let ids = sqlx::query_scalar!(
         "SELECT id FROM agents WHERE deleted_at IS NULL ORDER BY created_at, id"
     )
-    .fetch_all(&mut *conn)
+    .fetch_all(&mut *tx)
     .await?;
     let mut records = Vec::with_capacity(ids.len());
     for id in ids {
-        records.push(load(&mut conn, &id).await?.ok_or(AgentError::NotFound)?);
+        records.push(load(&mut tx, &id).await?.ok_or(AgentError::NotFound)?);
     }
     Ok(records)
 }
