@@ -269,6 +269,11 @@ impl Tool for FileList {
             if listed.len() == LIST_LIMIT {
                 break;
             }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // A write aborted mid-way can leave its temp file; it is never a workspace file.
+            if name.starts_with('.') && name.ends_with(".tmp") {
+                continue;
+            }
             let Ok(kind) = entry.file_type().await else {
                 continue;
             };
@@ -280,9 +285,7 @@ impl Tool for FileList {
             } else {
                 "file"
             };
-            listed.push(
-                json!({ "name": entry.file_name().to_string_lossy(), "kind": kind, "bytes": size }),
-            );
+            listed.push(json!({ "name": name, "kind": kind, "bytes": size }));
         }
         Ok(ToolOutput {
             content: json!({ "path": path, "entries": listed }),

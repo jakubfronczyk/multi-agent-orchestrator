@@ -151,6 +151,19 @@ async fn writes_replace_atomically_and_reads_wrap_untrusted_files(pool: SqlitePo
     );
 
     std::fs::write(temp.workspace().join("unrecorded.md"), "no row").expect("plain file");
+    std::fs::write(temp.workspace().join(".left.md.0194.tmp"), "aborted").expect("leftover");
+    let list = orchestrator_server::tools::files::FileList::new(Workspace::new(
+        temp.workspace(),
+        app.pool.clone(),
+    ));
+    let listed = run(&list, &clean, json!({})).await.expect("list");
+    let names: Vec<&str> = listed["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .filter_map(|e| e["name"].as_str())
+        .collect();
+    assert!(!names.iter().any(|n| n.ends_with(".tmp")), "{names:?}");
     let unrecorded = run(&read, &clean, json!({"path": "unrecorded.md"}))
         .await
         .expect("read");
