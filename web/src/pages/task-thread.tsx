@@ -33,6 +33,8 @@ import {
   turnPlan,
 } from "@/lib/thread-view"
 import { useDocumentTitle } from "@/lib/use-document-title"
+import { useTeamNames } from "@/lib/selected-team"
+import { TeamTag } from "@/components/team-tag"
 import { useNow } from "@/lib/use-now"
 
 type Chip =
@@ -97,6 +99,10 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
   const root = state.runs.find((run) => run.id === state.rootRunId)
   const rootAgent = root ? look.byId(root.agent_id) : undefined
   const rootIsLead = rootAgent?.role === "lead"
+  // The task's own team, never the selection; a deleted team's task takes no follow-up.
+  const names = useTeamNames()
+  const teamName = names.nameOf(state.teamId)
+  const teamGone = names.isDeleted(state.teamId)
   // The Lead can be renamed; a direct task's agent is named by its own name.
   const leadName = rootAgent?.name ?? "Lead"
   const latest = state.turns.at(-1)
@@ -142,7 +148,11 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
       return true
     } catch (error) {
       setNotice(
-        isApiError(error, 409) ? busy : `Couldn't send the follow-up. ${error instanceof Error ? error.message : ""}`,
+        isApiError(error, 409) && error.message.includes("team was deleted")
+          ? "This task's team was deleted, so it takes no follow-up."
+          : isApiError(error, 409)
+            ? busy
+            : `Couldn't send the follow-up. ${error instanceof Error ? error.message : ""}`,
       )
       return false
     }
@@ -190,9 +200,11 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
       }
     : running
       ? { placeholder: `${leadName} is working. Stop the task to change course.`, disabled: true, mode: "running" as const }
-      : rootIsLead
-        ? { placeholder: `Give ${leadName} a follow-up`, disabled: false, mode: "follow-up" as const }
-        : { placeholder: "Follow-ups go through the Lead. Start a new task.", disabled: true, mode: "closed" as const }
+      : teamGone
+        ? { placeholder: "This task's team was deleted, so it takes no follow-up.", disabled: true, mode: "closed" as const }
+        : rootIsLead
+          ? { placeholder: `Give ${leadName} a follow-up`, disabled: false, mode: "follow-up" as const }
+          : { placeholder: "Follow-ups go through the Lead. Start a new task.", disabled: true, mode: "closed" as const }
 
   const target: Target | null =
     composer.mode === "note" && card
@@ -281,6 +293,7 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
         <div className="mx-auto flex w-full max-w-[720px] flex-col gap-5 px-4 pt-6 pb-6 md:px-6 md:pt-8">
           <header className="flex flex-wrap items-center gap-3 pb-1">
             <h2 className="m-0 min-w-0 text-lg font-semibold tracking-tight">{title}</h2>
+            {teamName && <TeamTag name={teamName} />}
             <span className="ml-auto text-sm text-muted-foreground tabular-nums">
               {summary?.scenario && state.costMicros === 0 ? "Free scripted demo" : `Cost ${money(state.costMicros)}`}
             </span>

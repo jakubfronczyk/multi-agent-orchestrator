@@ -13,6 +13,7 @@ import { useLiveState } from "@/events/use-live-state"
 import { useAgents } from "@/lib/agents"
 import { explainApproval, explainCall, type Explanation, type Hop } from "@/lib/how-this-happened"
 import { isApiError } from "@/lib/api"
+import { useTeamNames } from "@/lib/selected-team"
 import { asDetail, initThread, reduceThread } from "@/lib/thread-state"
 import { dayTime } from "@/lib/time"
 
@@ -104,7 +105,7 @@ function SheetBody({ callId, rootRunId }: { callId: string; rootRunId: string })
       ? explainCall(call, detail.data, tools.data, look)
       : undefined
 
-  if (explanation) return <ExplanationView explanation={explanation} />
+  if (explanation) return <ExplanationView explanation={explanation} teamId={query.data?.team_id ?? approval?.team_id} />
   const missing = isApiError(detail.error, 404) || (detail.data && approvals.data && !call)
   return (
     <>
@@ -118,8 +119,10 @@ function SheetBody({ callId, rootRunId }: { callId: string; rootRunId: string })
   )
 }
 
-function ExplanationView({ explanation }: { explanation: Explanation }) {
+function ExplanationView({ explanation, teamId }: { explanation: Explanation; teamId: string | undefined }) {
   const location = useLocation()
+  const names = useTeamNames()
+  const teamName = teamId ? names.nameOf(teamId) : undefined
   const inItsTask = location.pathname === `/tasks/${explanation.rootRunId}`
   return (
     <>
@@ -133,6 +136,7 @@ function ExplanationView({ explanation }: { explanation: Explanation }) {
           <b className="block font-medium break-words">{explanation.summary}</b>
           <SheetDescription className="text-sm text-muted-foreground">
             {explanation.byline}, {dayTime(explanation.at)}
+            {teamName && <>. Team: {teamName}</>}
           </SheetDescription>
         </div>
       </div>

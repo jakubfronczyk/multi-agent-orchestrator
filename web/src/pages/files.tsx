@@ -11,6 +11,7 @@ import { useInvalidateOnToolFinished } from "@/events/use-invalidate-on-tool"
 import type { FileEntryView } from "@/generated/FileEntryView"
 import type { FileView } from "@/generated/FileView"
 import { isApiError } from "@/lib/api"
+import { useTeamNames } from "@/lib/selected-team"
 
 // A file list has no `last_event_id`, so a folder refetches whenever it is shown again.
 const folderQuery = (path: string) => ({ ...fileQuery(path), refetchOnMount: "always" as const })
@@ -47,7 +48,7 @@ export function FilesPage() {
     <Page
       wide
       title="Files"
-      lede="Your team's workspace. Every file carries a trust label. A file saved by a task that had read outside content is stored untrusted, and the label follows it into any task that reads it."
+      lede="Every team reads and writes these files. Every file carries a trust label: a file saved after reading outside content stays untrusted for every team, and the label follows it into any task that reads it."
     >
       <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
         <div className="rounded-lg bg-card px-1 pt-1 pb-2 ring-1 ring-border">
@@ -143,6 +144,7 @@ function Preview({ path }: { path: string }) {
   const file = useQuery({ ...fileQuery(path), refetchOnMount: "always" })
   const parent = useQuery(folderQuery(parentOf(path)))
   const runs = useQuery(runsQuery())
+  const names = useTeamNames()
   const entry = entriesOf(parent.data).find((e) => e.path === path)
 
   if (file.error) {
@@ -186,7 +188,8 @@ function Preview({ path }: { path: string }) {
       </p>
       {writer && (
         <p className="m-0 text-sm text-sidebar-foreground">
-          Saved by {task ? (task.title ?? task.task) : "a task"}.{" "}
+          Saved by {task ? (task.title ?? task.task) : "a task"}
+          {view.written_by_team_id && names.nameOf(view.written_by_team_id) && <>, a task of {names.nameOf(view.written_by_team_id)}</>}.{" "}
           <Link to={`/tasks/${writer}`} className="underline decoration-input underline-offset-[3px] hover:text-foreground">
             Open the task that saved it
           </Link>

@@ -12,6 +12,8 @@ import { useInvalidateOn } from "@/events/use-invalidate-on"
 import type { DrillExit } from "@/generated/DrillExit"
 import type { RunSummary } from "@/generated/RunSummary"
 import { useAgents } from "@/lib/agents"
+import { isApiError } from "@/lib/api"
+import { useSelectedTeam } from "@/lib/selected-team"
 import { callSummary, reasonsText } from "@/lib/copy"
 import { sheetSearch } from "@/lib/how-this-happened"
 import { dayTime } from "@/lib/time"
@@ -50,9 +52,11 @@ export function DrillPage() {
     (event) => (event.type === "run_started" && event.data.parent_run_id === null) || event.type === "run_finished",
   )
   const [error, setError] = useState<string | null>(null)
-  const start = useMutation({ mutationFn: startDrill })
+  const { team } = useSelectedTeam()
+  const start = useMutation({ mutationFn: () => startDrill(team?.id) })
 
-  const drills = (runs.data?.runs ?? []).filter((run) => run.scenario === "drill")
+  // The selected team's drills; the drill runs on that team.
+  const drills = (runs.data?.runs ?? []).filter((run) => run.scenario === "drill" && run.team_id === team?.id)
   const latest = drills[0]
   const running = latest?.status === "running"
   const lastFinished = drills.find((run) => run.status !== "running")
@@ -63,18 +67,22 @@ export function DrillPage() {
       const { run_id } = await start.mutateAsync()
       void navigate(`/tasks/${run_id}`)
     } catch (failure) {
-      setError(`Couldn't start the drill. ${failure instanceof Error ? failure.message : ""}`)
+      setError(
+        isApiError(failure, 409)
+          ? `${team?.name ?? "This team"} can't run the drill: its Lead needs teammates named reader and messenger.`
+          : `Couldn't start the drill. ${failure instanceof Error ? failure.message : ""}`,
+      )
     }
   }
 
   return (
     <Page
       title="Security drill"
-      lede="Runs a task that reads a planted vendor note. The note tries to get your data out. The drill pauses at each request and you answer it yourself, then lists every way out it tried and what stopped it."
+      lede={`Runs a task on ${team?.name ?? "the selected team"} that reads a planted vendor note. The note tries to get your data out. The drill pauses at each request and you answer it yourself, then lists every way out it tried and what stopped it.`}
     >
       <div className="flex flex-col gap-2 rounded-lg bg-card px-5 py-4 ring-1 ring-border">
         <div className="flex flex-wrap items-center gap-3">
-          <StatusShape running={running} />
+          <StatusShape running={running} teamId={team?.id} />
           <div className="min-w-[200px] flex-1">
             <b className="block font-medium">
               {runs.isPending
@@ -113,9 +121,9 @@ export function DrillPage() {
   )
 }
 
-function StatusShape({ running }: { running: boolean }) {
-  const look = useAgents()
-  const lead = look.agents.find((agent) => agent.role === "lead")
+function StatusShape({ running, teamId }: { running: boolean; teamId: string | undefined }) {
+  const look = useAgents(teamId)
+  const lead = look.agents.find((agent) => agent.team_id === teamId && agent.role === "lead")
   return lead ? <AgentShape icon={lead.icon} colour={lead.colour} size="md" pulse={running} /> : null
 }
 

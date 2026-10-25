@@ -11,6 +11,7 @@ import { useInvalidateOnToolFinished } from "@/events/use-invalidate-on-tool"
 import type { MemoryEntryView } from "@/generated/MemoryEntryView"
 import type { MemoryScope } from "@/generated/MemoryScope"
 import { useAgents } from "@/lib/agents"
+import { useSelectedTeam, useTeamNames } from "@/lib/selected-team"
 import { dayTime } from "@/lib/time"
 
 type Filter = "all" | MemoryScope
@@ -26,28 +27,43 @@ export function NotesPage() {
   const raw = params.get("scope")
   const filter: Filter = raw === "shared" || raw === "private" ? raw : "all"
   const notes = useQuery(memoryQuery(filter === "all" ? {} : { scope: filter }))
+  const { team: selected } = useSelectedTeam()
+  const names = useTeamNames()
+  // `?team=` opens a deleted team's notes from the switcher, read-only.
+  const teamId = params.get("team") ?? selected?.id
+  const teamName = teamId ? names.nameOf(teamId) : undefined
 
   useInvalidateOnToolFinished(["memory"], "memory_write")
   useInvalidateOnToolFinished(["memory-versions"], "memory_write")
 
-  const entries = notes.data?.entries ?? []
+  const entries = (notes.data?.entries ?? []).filter((note) => note.team_id === teamId)
   return (
     <Page
       title="Team notes"
-      lede="Notes your team keeps between tasks. Every teammate can read shared notes; a private note only the teammate it belongs to. Each change is kept as a version with its own trust label. Lead can read only trusted shared notes. Untrusted ones are invisible to it."
+      lede={`Notes ${teamName ?? "your team"} keeps between tasks. Every teammate of the team can read its shared notes; a private note only the teammate it belongs to. Each change is kept as a version with its own trust label. The Lead can read only trusted shared notes. Untrusted ones are invisible to it.`}
     >
       <FilterPills
         label="Show notes"
         options={FILTERS}
         value={filter}
-        onChange={(next) => setParams(next === "all" ? {} : { scope: next }, { replace: true })}
+        onChange={(next) =>
+          setParams(
+            (current) => {
+              const updated = new URLSearchParams(current)
+              if (next === "all") updated.delete("scope")
+              else updated.set("scope", next)
+              return updated
+            },
+            { replace: true },
+          )
+        }
       />
       {notes.isPending ? null : notes.error ? (
         <p className="m-0 text-sm text-destructive">Couldn't load the notes. {notes.error.message}</p>
       ) : entries.length > 0 ? (
         <div className="flex flex-col gap-3">
           {entries.map((note) => (
-            <NoteCard key={note.id} note={note} />
+            <NoteCard key={note.id} note={note} teamName={teamName} />
           ))}
         </div>
       ) : (
@@ -62,7 +78,7 @@ export function NotesPage() {
   )
 }
 
-function NoteCard({ note }: { note: MemoryEntryView }) {
+function NoteCard({ note, teamName }: { note: MemoryEntryView; teamName: string | undefined }) {
   const look = useAgents()
   const runs = useQuery(runsQuery())
   const [open, setOpen] = useState(false)
@@ -80,7 +96,7 @@ function NoteCard({ note }: { note: MemoryEntryView }) {
           {author?.name ?? note.author_slug}
         </span>
         <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-sidebar-foreground">
-          {note.scope === "shared" ? "Shared with the team" : `Private to ${owner?.name ?? "its teammate"}`}
+          {note.scope === "shared" ? `Shared with ${teamName ?? "the team"}` : `Private to ${owner?.name ?? "its teammate"}`}
         </span>
         <TrustPill trust={note.trust} />
         <span className="ml-auto">
