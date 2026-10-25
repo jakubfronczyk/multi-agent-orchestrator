@@ -191,6 +191,27 @@ pub enum CallStatus {
     Interrupted,
 }
 
+impl CallStatus {
+    /// Whether the model may try the same call again; told to it as `retryable`.
+    pub fn is_retryable(self) -> bool {
+        match self {
+            CallStatus::Timeout => true,
+            CallStatus::Ok
+            | CallStatus::NotOffered
+            | CallStatus::InvalidArgs
+            | CallStatus::Refused
+            | CallStatus::DeniedHuman
+            | CallStatus::Expired
+            | CallStatus::Cancelled
+            | CallStatus::Failed
+            | CallStatus::Internal
+            | CallStatus::ChildFailed
+            | CallStatus::ChildCancelled
+            | CallStatus::Interrupted => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export)]

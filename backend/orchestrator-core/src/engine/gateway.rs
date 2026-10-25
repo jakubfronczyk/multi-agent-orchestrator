@@ -26,7 +26,6 @@ enum Ended {
     Failed {
         status: CallStatus,
         message: String,
-        retryable: bool,
         note: Option<String>,
     },
 }
@@ -94,7 +93,7 @@ pub(super) async fn execute(
         decision: Some(decision),
         reasons: reasons.clone(),
     };
-    emit(inner, ctx, requested).await?;
+    inner.emit(ctx.at, requested).await?;
 
     let ended = match decision {
         Decision::Deny => {
@@ -162,7 +161,7 @@ async fn refuse_early(
         decision: None,
         reasons: vec![rule],
     };
-    emit(inner, ctx, requested).await?;
+    inner.emit(ctx.at, requested).await?;
     let ended = failed(status, &message, None);
     finish(inner, ctx, call_id, Instant::now(), &ended, None).await?;
     Ok(render(&ended))
@@ -197,7 +196,7 @@ async fn ask(
         preview,
         expires_at,
     };
-    if let Err(error) = emit(inner, ctx, requested).await {
+    if let Err(error) = inner.emit(ctx.at, requested).await {
         inner.approvals.forget(approval_id);
         return Err(error);
     }
@@ -212,16 +211,16 @@ async fn ask(
         Waited::Expired => (ApprovalOutcome::Expired, None),
         Waited::Cancelled => (ApprovalOutcome::Cancelled, None),
     };
-    emit(
-        inner,
-        ctx,
-        RunEvent::ApprovalResolved {
-            approval_id,
-            outcome,
-            note,
-        },
-    )
-    .await?;
+    inner
+        .emit(
+            ctx.at,
+            RunEvent::ApprovalResolved {
+                approval_id,
+                outcome,
+                note,
+            },
+        )
+        .await?;
     Ok(waited)
 }
 
@@ -233,7 +232,9 @@ async fn run(
     tool: Arc<dyn Tool>,
     args: Value,
 ) -> Result<Ended, StoreError> {
-    emit(inner, ctx, RunEvent::ToolCallStarted { call_id }).await?;
+    inner
+        .emit(ctx.at, RunEvent::ToolCallStarted { call_id })
+        .await?;
     Ok(invoke(ctx, tool, args).await)
 }
 
@@ -255,7 +256,7 @@ async fn invoke(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
         () = sleep_or_forever(timeout) => {
             // Dropping a JoinHandle only detaches the task; abort stops it.
             abort.abort();
-            return failed_retryable(CallStatus::Timeout, "the tool timed out");
+            return failed(CallStatus::Timeout, "the tool timed out", None);
         }
         () = cancel.cancelled() => {
             abort.abort();
@@ -304,7 +305,7 @@ async fn finish(
         tool,
         args,
     };
-    emit(inner, ctx, finished.clone()).await?;
+    inner.emit(ctx.at, finished.clone()).await?;
     ctx.task.apply(&finished);
     Ok(())
 }
@@ -315,9 +316,9 @@ fn render(ended: &Ended) -> String {
         Ended::Failed {
             status,
             message,
-            retryable,
             note,
         } => {
+            let retryable = status.is_retryable();
             let mut body =
                 json!({"ok": false, "kind": status, "message": message, "retryable": retryable});
             if let Some(note) = note {
@@ -340,20 +341,6 @@ fn failed(status: CallStatus, message: &str, note: Option<String>) -> Ended {
     Ended::Failed {
         status,
         message: message.to_string(),
-        retryable: false,
         note,
     }
-}
-
-fn failed_retryable(status: CallStatus, message: &str) -> Ended {
-    Ended::Failed {
-        status,
-        message: message.to_string(),
-        retryable: true,
-        note: None,
-    }
-}
-
-async fn emit(inner: &Inner, ctx: &RunCtx, event: RunEvent) -> Result<(), StoreError> {
-    inner.store.emit(ctx.at, event).await.map(|_| ())
 }

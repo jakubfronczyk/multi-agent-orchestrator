@@ -122,7 +122,6 @@ impl Engine {
         let budget = request.budget.unwrap_or(self.inner.config.default_budget);
         let task = Arc::new(Task::new(budget, self.inner.config.allowlist.clone()));
         self.inner
-            .store
             .emit(
                 at,
                 RunEvent::RunStarted {
@@ -152,11 +151,7 @@ impl Engine {
                     reason: FailReason::Internal,
                     message: format!("the run stopped unexpectedly: {join_error}"),
                 };
-                if let Err(error) = inner
-                    .store
-                    .emit(at, RunEvent::RunFinished { outcome })
-                    .await
-                {
+                if let Err(error) = inner.emit(at, RunEvent::RunFinished { outcome }).await {
                     tracing::error!(%error, run_id = ?root, "could not record the run's end");
                 }
             }
@@ -183,6 +178,11 @@ impl Engine {
 }
 
 impl Inner {
+    /// The engine's one write path; an error ends the caller's run.
+    async fn emit(&self, at: RunRef, event: RunEvent) -> Result<(), StoreError> {
+        self.store.emit(at, event).await.map(|_| ())
+    }
+
     fn tasks(&self) -> MutexGuard<'_, HashMap<RunId, Arc<Task>>> {
         self.tasks.lock().unwrap_or_else(PoisonError::into_inner)
     }

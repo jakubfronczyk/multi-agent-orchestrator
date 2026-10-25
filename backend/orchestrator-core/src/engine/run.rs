@@ -31,11 +31,7 @@ pub(super) async fn run_agent(inner: Arc<Inner>, ctx: RunCtx) {
             failed(FailReason::Internal, "storage failed during the run")
         }
     };
-    if let Err(error) = inner
-        .store
-        .emit(ctx.at, RunEvent::RunFinished { outcome })
-        .await
-    {
+    if let Err(error) = inner.emit(ctx.at, RunEvent::RunFinished { outcome }).await {
         tracing::error!(%error, run_id = ?ctx.at.run_id, "could not record the run's end");
     }
 }
@@ -65,7 +61,7 @@ async fn run_loop(inner: &Inner, ctx: &RunCtx) -> Result<RunOutcome, StoreError>
         }
         let last = step >= ctx.agent.max_steps();
 
-        emit(inner, ctx, RunEvent::LlmRequested { step }).await?;
+        inner.emit(ctx.at, RunEvent::LlmRequested { step }).await?;
         let request = CompletionRequest {
             model: ctx.agent.model(),
             reasoning_effort: ctx.agent.reasoning_effort(),
@@ -96,7 +92,7 @@ async fn run_loop(inner: &Inner, ctx: &RunCtx) -> Result<RunOutcome, StoreError>
             usage: response.usage,
             cost: response.cost_micros,
         };
-        emit(inner, ctx, responded.clone()).await?;
+        inner.emit(ctx.at, responded.clone()).await?;
         ctx.task.apply(&responded);
         transcript.extend(response.raw.into_iter().map(Item::Provider));
 
@@ -162,16 +158,16 @@ async fn complete_with_retries(
         };
         attempt += 1;
         let message = error.to_string();
-        emit(
-            inner,
-            ctx,
-            RunEvent::LlmRetrying {
-                step,
-                attempt,
-                message,
-            },
-        )
-        .await?;
+        inner
+            .emit(
+                ctx.at,
+                RunEvent::LlmRetrying {
+                    step,
+                    attempt,
+                    message,
+                },
+            )
+            .await?;
         tokio::select! {
             () = cancel.cancelled() => return Ok(Attempt::Cancelled),
             () = tokio::time::sleep(delay) => {}
@@ -193,10 +189,6 @@ async fn complete_in_slot(
     tokio::time::timeout(inner.config.llm_timeout, inner.llm.complete(request))
         .await
         .unwrap_or(Err(LlmError::Timeout))
-}
-
-async fn emit(inner: &Inner, ctx: &RunCtx, event: RunEvent) -> Result<(), StoreError> {
-    inner.store.emit(ctx.at, event).await.map(|_| ())
 }
 
 fn failed(reason: FailReason, message: &str) -> RunOutcome {
