@@ -10,10 +10,8 @@ mod decide;
 
 pub use decide::decide;
 
-/// An agent's setting for one tool. A tool with no decision is off and not offered.
-///
-/// The variant order is the policy: `Allow < Ask < Deny`, and `decide` takes the `max`
-/// as the strictest. Reordering these variants would silently flip every verdict.
+/// An agent's setting for one tool; a tool with no decision is off and not offered.
+/// The order `Allow < Ask < Deny` is the policy: `decide` takes the `max`, so reordering flips verdicts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]

@@ -1,4 +1,4 @@
-//! Tool types the engine reads: the 13 names, each tool's fixed spec and the action it describes.
+//! Tool types the engine reads: the 13 names, each tool's fixed `ToolSpec` and its `Action`.
 //! Policy reads only `ToolSpec`; tool code lives in the server behind the `Tool` trait.
 
 use std::time::Duration;
