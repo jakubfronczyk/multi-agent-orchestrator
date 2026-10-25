@@ -6,5 +6,6 @@ Once any run in a task reads outside content, the whole task is tainted, and eve
 
 - Over-asking is expected: a tainted task asks before writes that had nothing to do with what was read.
 - Taint never clears within a task. The label follows the data across tasks: notes and files a tainted task writes are stored untrusted, and a later task that reads them is tainted too, so outside content cannot be laundered through storage. A tainted task may add notes but never replace a trusted one, so it cannot erase a note the Lead reads.
+- Notes are not raised by taint: a tainted task's note write runs as set, because it is stored untrusted, the Lead never reads it, and it cannot replace a trusted note.
 - A manipulated Lead can still delegate a bad step, but every risky action it triggers asks.
 - A follow-up continues the task, so it starts with the task's taint and refused calls, rebuilt from the event log.

@@ -6,3 +6,4 @@ Storage is one SQLite file in WAL mode, used by one server process. There is one
 
 - Only one instance can run against the database.
 - Storage sits behind the `Store` trait.
+- A storage error is one opaque kind: the engine ends the run on it rather than retrying, since one operator on one file has no busy writer to wait for.

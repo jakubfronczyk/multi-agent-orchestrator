@@ -5,7 +5,7 @@ A team of agents works on a task while a human approves every risky action, and 
 ## Work
 
 **Task**:
-One root run, any follow-ups after it, and every run they delegate. Each is one turn of the Lead. Taint, budget and refused calls belong to the task.
+One root run, any follow-ups after it, and every run they delegate. Each is one turn of the Lead. Taint, budget and refused calls belong to the task. The run limit (12) counts per turn, so each follow-up starts its own.
 _Avoid_: job, session, conversation
 
 **Budget**:
