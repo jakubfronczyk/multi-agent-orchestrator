@@ -192,6 +192,8 @@ async fn a_child_gets_the_preamble_and_only_its_task(pool: SqlitePool) {
     );
 }
 
+/// A run at the depth limit is not offered `delegate`, so no card can ask about a call that
+/// would fail.
 #[sqlx::test]
 async fn delegation_stops_at_the_depth_limit(pool: SqlitePool) {
     let app = app_with(
@@ -211,7 +213,10 @@ async fn delegation_stops_at_the_depth_limit(pool: SqlitePool) {
     let events = task_events(&mut rx, root).await;
 
     assert_eq!(child_starts(&events), 0);
-    assert_eq!(calls_finished(&events, true), [(CallStatus::Failed, false)]);
+    assert_eq!(
+        calls_finished(&events, true),
+        [(CallStatus::NotOffered, false)]
+    );
     assert!(matches!(
         root_outcome(&events),
         RunOutcome::Completed { .. }

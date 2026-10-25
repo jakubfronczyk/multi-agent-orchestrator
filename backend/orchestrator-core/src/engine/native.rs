@@ -163,14 +163,6 @@ pub(super) async fn delegate(
             None,
         ));
     };
-    // A limit is not a policy refusal: no rule applied, so the call ends as failed.
-    if ctx.depth >= inner.config.max_depth {
-        return Ok(Ended::failed(
-            CallStatus::Failed,
-            "depth limit reached; do not retry",
-            None,
-        ));
-    }
     let Some(target) = ctx.task.teammate(&args.agent) else {
         return Ok(Ended::failed(
             CallStatus::Failed,
@@ -178,6 +170,8 @@ pub(super) async fn delegate(
             None,
         ));
     };
+    // The run limit is shared by parallel calls, so a slot is claimed only as the child starts.
+    // A limit is not a policy refusal: no rule applied, so the call ends as failed.
     if !ctx.task.try_start_run(inner.config.max_runs) {
         return Ok(Ended::failed(
             CallStatus::Failed,
