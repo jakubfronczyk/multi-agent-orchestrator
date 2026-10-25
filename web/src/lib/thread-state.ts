@@ -113,6 +113,7 @@ export function reduceThread(state: ThreadState, event: EventEnvelope): ThreadSt
         run_id: event.run_id,
         root_run_id: event.root_run_id,
         agent_id: run.agent_id,
+        team_id: event.team_id,
         tool: event.data.tool,
         args: event.data.args,
         action: event.data.action,
@@ -123,6 +124,7 @@ export function reduceThread(state: ThreadState, event: EventEnvelope): ThreadSt
         result_preview: null,
         child_run_id: null,
         duration_ms: null,
+        tainted: false,
         requested_at: event.ts,
         finished_at: null,
       }
@@ -141,6 +143,7 @@ export function reduceThread(state: ThreadState, event: EventEnvelope): ThreadSt
         result_preview: data.result_preview,
         duration_ms: data.duration_ms,
         child_run_id: data.child_run_id,
+        tainted: data.tainted,
         finished_at: event.ts,
       }))
     }
