@@ -80,7 +80,6 @@ CREATE TABLE tool_calls (
     decision       TEXT,                        -- null when not offered or invalid
     rules          TEXT NOT NULL DEFAULT '[]',  -- JSON Vec<Rule>
     status         TEXT NOT NULL,
-    error_kind     TEXT,
     result_preview TEXT,
     child_run_id   TEXT REFERENCES runs (id),
     duration_ms    INTEGER,

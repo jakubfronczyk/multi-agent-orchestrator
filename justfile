@@ -27,7 +27,8 @@ ci:
     cargo fmt --all --check
     SQLX_OFFLINE=true cargo clippy --workspace --all-targets -- -D warnings
     SQLX_OFFLINE=true cargo test --workspace
-    test -z "$(git status --porcelain -- ../web/src/generated)"
+    git diff --exit-code -- ../web/src/generated
+    test -z "$(git ls-files --others --exclude-standard -- ../web/src/generated)"
     mkdir -p var
     DATABASE_URL={{db}} cargo sqlx database reset -y --source {{migrations}}
     DATABASE_URL={{db}} cargo sqlx prepare --check --workspace -- --all-targets
