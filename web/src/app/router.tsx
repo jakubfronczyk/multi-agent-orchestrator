@@ -1,5 +1,6 @@
 import { createBrowserRouter } from "react-router"
 import { AppShell } from "./app-shell"
+import { ActivityPage } from "@/pages/activity"
 import { FilesPage } from "@/pages/files"
 import { HomePage } from "@/pages/home"
 import { NeedsPage } from "@/pages/needs"
@@ -22,7 +23,7 @@ export const router = createBrowserRouter([
       { path: "/notes", element: <NotesPage /> },
       { path: "/files", element: <FilesPage /> },
       { path: "/sent", element: <SentPage /> },
-      { path: "/activity", element: <Placeholder title="Activity" issue="11" /> },
+      { path: "/activity", element: <ActivityPage /> },
       { path: "/drill", element: <Placeholder title="Security drill" issue="12" /> },
       { path: "*", element: <Placeholder title="Page not found" /> },
     ],

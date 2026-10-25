@@ -10,25 +10,32 @@ import { clockTime } from "@/lib/time"
 import { callLabel, money, TONE_CLASS, type CallNode } from "@/lib/thread-view"
 
 /**
- * One call as a row that opens its "How this happened" sheet. "From outside" appears only
- * when this read put one of the task's taint sources there, never because the tool could.
+ * One call as a row that opens its "How this happened" sheet. Inside a task, "From outside"
+ * appears only when this read put one of the task's taint sources there; a global list without
+ * task taint passes `fromOutside` instead.
  */
 export function CallRow({
   call,
   taintSources,
   childCost,
   subtitle,
+  fromOutside,
+  showAgent,
 }: {
   call: ToolCallView
   taintSources: TaintSource[]
   childCost?: number
   subtitle?: string
+  /** Set where no task taint is at hand (a global list); otherwise worked out from `taintSources`. */
+  fromOutside?: boolean
+  /** Names the agent before the call, for rows not nested under a hand-off. */
+  showAgent?: boolean
 }) {
   const look = useAgents()
   const location = useLocation()
   const agent = look.byId(call.agent_id)
   const label = callLabel(call)
-  const outside = call.status === "ok" && taintedBy(call, taintSources) !== undefined
+  const outside = fromOutside ?? (call.status === "ok" && taintedBy(call, taintSources) !== undefined)
   return (
     <Link
       to={{ pathname: location.pathname, search: sheetSearch(call.id, call.root_run_id) }}
@@ -49,6 +56,7 @@ export function CallRow({
         <span />
       )}
       <span className="min-w-0 break-words">
+        {showAgent && <span className="font-medium">{agent?.name ?? "An agent"}: </span>}
         {callSummary(call.tool, call.action, look.nameOfSlug)}
         {subtitle && <small className="block truncate text-sm text-muted-foreground">{subtitle}</small>}
       </span>
