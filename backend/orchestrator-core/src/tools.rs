@@ -74,10 +74,11 @@ impl ToolName {
     pub fn lead(self) -> LeadAccess {
         match self {
             ToolName::Delegate | ToolName::Plan => LeadAccess::Only,
-            ToolName::MemoryRead | ToolName::MemorySearch | ToolName::MemoryWrite => {
-                LeadAccess::Allowed
-            }
-            ToolName::FileList
+            // Memory too: a note stored untrusted would carry outside content to the Lead.
+            ToolName::MemoryRead
+            | ToolName::MemorySearch
+            | ToolName::MemoryWrite
+            | ToolName::FileList
             | ToolName::FileRead
             | ToolName::FileWrite
             | ToolName::InboxList

@@ -106,7 +106,7 @@ async fn seed_workspace(pool: &SqlitePool, root: &Path) -> Result<(), SeedError>
 }
 
 /// The trifecta is split: Reader reads outside content but cannot send, Messenger sends but
-/// only with approval, and the Lead touches no outside content at all.
+/// only with approval, and the Lead touches no outside content at all, stored notes included.
 fn team() -> Vec<AgentInput> {
     use Decision::{Allow, Ask, Deny};
     let memory = [
@@ -146,7 +146,6 @@ fn team() -> Vec<AgentInput> {
         "indigo",
     );
     lead.tools = BTreeMap::from([(ToolName::Delegate, Allow), (ToolName::Plan, Allow)]);
-    lead.tools.extend(memory);
     lead.delegate_targets = vec![
         "reader".to_string(),
         "writer".to_string(),

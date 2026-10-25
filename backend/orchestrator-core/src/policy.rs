@@ -34,13 +34,12 @@ pub enum Effect {
     External,
 }
 
-/// Whether the Lead must, may or must not have a tool.
+/// Whether a tool belongs to the Lead only or to specialists only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum LeadAccess {
     Only,
-    Allowed,
     Forbidden,
 }
 

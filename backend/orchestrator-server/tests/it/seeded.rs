@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use orchestrator_core::engine::{Engine, StartRequest};
 use orchestrator_core::ids::RunId;
+use orchestrator_core::llm::LlmProvider;
 use orchestrator_core::policy::{Decision, Rule, TaintSource};
 use orchestrator_core::runs::{Answer, CallStatus, RunEvent, RunOutcome};
 use orchestrator_core::tools::{MAY_ASK, Target, ToolName};
@@ -43,6 +44,10 @@ struct Seeded {
 }
 
 async fn seeded(pool: SqlitePool) -> Seeded {
+    seeded_with(pool, Arc::new(ScriptedProvider::new())).await
+}
+
+async fn seeded_with(pool: SqlitePool, llm: Arc<dyn LlmProvider>) -> Seeded {
     let temp = TempDir::new();
     assert!(
         seed::run(&pool, &temp.workspace()).await.expect("seed"),
@@ -50,12 +55,7 @@ async fn seeded(pool: SqlitePool) -> Seeded {
     );
     let store = Arc::new(SqliteStore::new(pool.clone()));
     let tools = tools::all(pool.clone(), Workspace::new(temp.workspace(), pool.clone()));
-    let engine = Arc::new(Engine::new(
-        store.clone(),
-        Arc::new(ScriptedProvider::new()),
-        tools,
-        test_config(),
-    ));
+    let engine = Arc::new(Engine::new(store.clone(), llm, tools, test_config()));
     Seeded {
         pool,
         store,
@@ -660,4 +660,25 @@ async fn the_drill_report_lists_every_exit_and_who_stopped_it(pool: SqlitePool) 
             .0,
         404
     );
+}
+
+/// The Lead never touches outside content, stored notes included: across S1 every request it
+/// makes offers only `delegate` and `plan`.
+#[sqlx::test]
+async fn the_seeded_lead_is_offered_no_memory_tools(pool: SqlitePool) {
+    let recording = Arc::new(crate::recording::Recording::slowing("none"));
+    let seeded = seeded_with(pool, recording.clone()).await;
+    answer_approvals(&seeded, |_| Answer::Approve { note: None });
+    run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+
+    let lead_requests: Vec<_> = recording
+        .requests()
+        .into_iter()
+        .filter(|r| r.script.agent.as_str() == "lead")
+        .collect();
+    assert!(!lead_requests.is_empty());
+    for request in lead_requests {
+        let offered: Vec<ToolName> = request.tools.iter().map(|spec| spec.name).collect();
+        assert_eq!(offered, [ToolName::Delegate, ToolName::Plan]);
+    }
 }
