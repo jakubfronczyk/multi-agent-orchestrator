@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      # backend/rust-toolchain.toml pins the version; installing it here avoids relying on
+      # rustup's implicit install.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99"
+          components: rustfmt, clippy
+
+      - uses: extractions/setup-just@v2
+
+      # web/package.json declares no engines yet; the web spec requires Node 22.22 or newer.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      # `just ci` resets a scratch SQLite database and checks the offline query cache with it.
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --locked --no-default-features --features sqlite,rustls
+
+      - run: just ci
