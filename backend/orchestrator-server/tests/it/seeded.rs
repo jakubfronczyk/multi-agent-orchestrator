@@ -267,6 +267,15 @@ async fn s1_runs_end_to_end_on_the_real_tools(pool: SqlitePool) {
         .count();
     assert_eq!(denied, 1);
 
+    // The Messenger reports the decline and the person's note, never a bare "Done.".
+    assert!(
+        events.iter().any(|e| matches!(
+            &e.event,
+            RunEvent::RunFinished { outcome: RunOutcome::Completed { output, .. } }
+                if output == "Not sent: the person declined. Note: wrong person, owner is Anna Weber"
+        )),
+        "the denied Messenger run reports the decline"
+    );
     assert_eq!(outbox(&seeded.pool).await, ["anna.weber@example.com"]);
     let saved = std::fs::read_to_string(seeded.temp.workspace().join("decisions/AR-1042.md"))
         .expect("decision file");

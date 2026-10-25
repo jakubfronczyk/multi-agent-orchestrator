@@ -49,6 +49,14 @@ fn task_text(transcript: &[Item]) -> String {
         .unwrap_or_default()
 }
 
+/// The output of the most recent call, which is how the model learns whether it worked.
+fn last_output(transcript: &[Item]) -> Option<&str> {
+    transcript.iter().rev().find_map(|item| match item {
+        Item::ToolOutput { output, .. } => Some(output.as_str()),
+        Item::User { .. } | Item::Provider(_) => None,
+    })
+}
+
 #[async_trait]
 impl LlmProvider for ScriptedProvider {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
@@ -61,6 +69,7 @@ impl LlmProvider for ScriptedProvider {
             attempt,
             request.tool_choice,
             &task_text(&request.transcript),
+            last_output(&request.transcript),
         ) {
             Reply::Items(raw) => {
                 let (calls, text) = parse_output(&raw)?;

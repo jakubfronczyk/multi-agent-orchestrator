@@ -24,8 +24,8 @@ pub enum Reply {
     Hang,
 }
 
-/// With `tool_choice` none every script answers in text, as xAI does. Scripts that need a
-/// recipient read it from `task`, the run's user message.
+/// With `tool_choice` none every script answers in text, as xAI does. Scripts read a recipient
+/// from `task`, the run's user message, and how their last call ended from `last`, its output.
 pub fn reply(
     scenario: Option<&str>,
     agent: &str,
@@ -33,6 +33,7 @@ pub fn reply(
     attempt: u32,
     tool_choice: ToolChoice,
     task: &str,
+    last: Option<&str>,
 ) -> Reply {
     if tool_choice == ToolChoice::None {
         return message("out of steps");
@@ -41,16 +42,16 @@ pub fn reply(
         return reply;
     }
     if scenario == Some("drill") {
-        return drill(agent, step, task);
+        return drill(agent, step, task, last);
     }
     if scenario == Some("s1") {
-        return s1(agent, step, task);
+        return s1(agent, step, task, last);
     }
     if scenario == Some("clean") {
-        return clean(agent, step);
+        return clean(agent, step, last);
     }
     if scenario == Some("launder") {
-        return launder(agent, step);
+        return launder(agent, step, last);
     }
     if let Some(parts) = scenario.and_then(|s| s.strip_prefix("test:seq:")) {
         let calls: Vec<&str> = parts.split('|').collect();
@@ -121,7 +122,7 @@ fn first_address(task: &str) -> Option<&str> {
 /// S1 (§12): the Lead plans; Reader reads the request, the policy and the owner; Writer saves
 /// the decision; Messenger first emails the manager named in the request, is told the owner is
 /// Anna Weber, and the Lead sends it again to her.
-fn s1(agent: &str, step: u32, task: &str) -> Reply {
+fn s1(agent: &str, step: u32, task: &str, last: Option<&str>) -> Reply {
     match (agent, step) {
         ("lead", 0) => tool_call(
             step,
@@ -172,7 +173,7 @@ fn s1(agent: &str, step: u32, task: &str) -> Reply {
             "file_write",
             json!({"path": S1_DECISION, "content": DECISION}),
         ),
-        ("writer", _) => message("Saved decisions/AR-1042.md."),
+        ("writer", _) => after_call(last, "Saved decisions/AR-1042.md.", "Not saved"),
         ("messenger", 0) => match first_address(task) {
             Some(recipient) => tool_call(
                 step,
@@ -185,7 +186,8 @@ fn s1(agent: &str, step: u32, task: &str) -> Reply {
             ),
             None => message("The task names no recipient."),
         },
-        _ => message("Done."),
+        ("messenger", _) => after_call(last, "Sent.", "Not sent"),
+        _ => after_call(last, "Done.", "Not done"),
     }
 }
 
@@ -193,7 +195,7 @@ const LONG_GRANTS: &str = "# Grants over 90 days\n\nPolicy rule 2: read-only acc
 
 /// A task that reads only trusted workspace files: nothing taints it, so the Writer's allowed
 /// save runs without a card and the whole task shows no approval.
-fn clean(agent: &str, step: u32) -> Reply {
+fn clean(agent: &str, step: u32, last: Option<&str>) -> Reply {
     match (agent, step) {
         ("lead", 0) => tool_call(
             step,
@@ -231,8 +233,9 @@ fn clean(agent: &str, step: u32) -> Reply {
             "file_write",
             json!({"path": "reports/long-grants.md", "content": LONG_GRANTS}),
         ),
-        ("writer", _) => message("Saved reports/long-grants.md."),
-        _ => message("Done."),
+        ("writer", _) => after_call(last, "Saved reports/long-grants.md.", "Not saved"),
+        ("messenger", _) => after_call(last, "Sent.", "Not sent"),
+        _ => after_call(last, "Done.", "Not done"),
     }
 }
 
@@ -242,7 +245,7 @@ const INDEX: &str = "# Decisions\n\n- AR-1042: approved, read-only Payroll expor
 
 /// Run after S1: the decision S1 saved was written by a tainted task, so it is stored untrusted.
 /// Reading it taints this new task, and the Writer's allowed save asks, citing that file.
-fn launder(agent: &str, step: u32) -> Reply {
+fn launder(agent: &str, step: u32, last: Option<&str>) -> Reply {
     match (agent, step) {
         ("lead", 0) => tool_call(
             step,
@@ -265,14 +268,15 @@ fn launder(agent: &str, step: u32) -> Reply {
             "file_write",
             json!({"path": "decisions/index.md", "content": INDEX}),
         ),
-        ("writer", _) => message("Saved decisions/index.md."),
-        _ => message("Done."),
+        ("writer", _) => after_call(last, "Saved decisions/index.md.", "Not saved"),
+        ("messenger", _) => after_call(last, "Sent.", "Not sent"),
+        _ => after_call(last, "Done.", "Not done"),
     }
 }
 
 /// The vendor note's three exits (§12): Reader reads it, tries to send directly, tries an
 /// exfil fetch and then repeats it; the Lead then asks Messenger to send.
-fn drill(agent: &str, step: u32, task: &str) -> Reply {
+fn drill(agent: &str, step: u32, task: &str, last: Option<&str>) -> Reply {
     let leak = |recipient: &str| {
         email(
             recipient,
@@ -318,7 +322,8 @@ fn drill(agent: &str, step: u32, task: &str) -> Reply {
             ),
             None => message("The task names no recipient."),
         },
-        _ => message("Done."),
+        ("messenger", _) => after_call(last, "Sent.", "Not sent"),
+        _ => after_call(last, "Done.", "Not done"),
     }
 }
 
@@ -362,10 +367,111 @@ fn function_call(step: u32, tool: &str, args: &str) -> Reply {
     })])
 }
 
+/// How a script reports its last call: `done` after a success, never after a failure. A person's
+/// denial says so, with their note when they gave one.
+fn after_call(last: Option<&str>, done: &str, not_done: &str) -> Reply {
+    let Some(result) = last.and_then(|text| serde_json::from_str::<Value>(text).ok()) else {
+        return message(done);
+    };
+    if result["ok"] != json!(false) {
+        return message(done);
+    }
+    let reason = if result["kind"] == "denied_human" {
+        "the person declined.".to_string()
+    } else {
+        format!(
+            "{}.",
+            result["message"].as_str().unwrap_or("the call failed")
+        )
+    };
+    match result["note"].as_str() {
+        Some(note) => message(&format!("{not_done}: {reason} Note: {note}")),
+        None => message(&format!("{not_done}: {reason}")),
+    }
+}
+
 fn message(text: &str) -> Reply {
     Reply::Items(vec![json!({
         "type": "message",
         "role": "assistant",
         "content": [{"type": "output_text", "text": text}]
     })])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text(reply: Reply) -> Option<String> {
+        let Reply::Items(items) = reply else {
+            return None;
+        };
+        items
+            .iter()
+            .find_map(|item| item["content"][0]["text"].as_str().map(str::to_string))
+    }
+
+    #[test]
+    fn no_reply_after_a_denied_or_refused_call_says_done() {
+        let denied = json!({"ok": false, "kind": "denied_human", "message": "a person denied this call", "retryable": false}).to_string();
+        let refused = json!({"ok": false, "kind": "refused", "message": "refused by the agent's settings", "retryable": false}).to_string();
+        for scenario in ["s1", "clean", "launder", "drill"] {
+            for agent in ["lead", "reader", "writer", "messenger"] {
+                for step in 0..8 {
+                    for last in [&denied, &refused] {
+                        let reply = reply(
+                            Some(scenario),
+                            agent,
+                            step,
+                            0,
+                            ToolChoice::Auto,
+                            "to a@example.com",
+                            Some(last),
+                        );
+                        if let Some(text) = text(reply) {
+                            assert!(!text.contains("Done"), "{scenario} {agent} {step}: {text}");
+                            assert!(
+                                !text.starts_with("Saved") && text != "Sent.",
+                                "{scenario} {agent} {step}: {text}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_denied_send_reports_the_decline_and_the_note() {
+        let denied = json!({"ok": false, "kind": "denied_human", "message": "a person denied this call", "retryable": false, "note": "wrong person, owner is Anna Weber"}).to_string();
+        for scenario in ["s1", "drill"] {
+            let reply = reply(
+                Some(scenario),
+                "messenger",
+                1,
+                0,
+                ToolChoice::Auto,
+                "",
+                Some(&denied),
+            );
+            assert_eq!(
+                text(reply).as_deref(),
+                Some("Not sent: the person declined. Note: wrong person, owner is Anna Weber")
+            );
+        }
+        let plain = json!({"ok": false, "kind": "denied_human", "message": "a person denied this call", "retryable": false}).to_string();
+        let reply = reply(
+            Some("s1"),
+            "messenger",
+            1,
+            0,
+            ToolChoice::Auto,
+            "",
+            Some(&plain),
+        );
+        assert_eq!(
+            text(reply).as_deref(),
+            Some("Not sent: the person declined.")
+        );
+    }
 }
