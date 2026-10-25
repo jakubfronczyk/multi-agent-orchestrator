@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use orchestrator_core::policy::{Trust, untrusted};
 use orchestrator_core::tools::{
     Action, MemoryScope, NoteKey, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec,
 };
@@ -16,7 +15,7 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use super::{parse, spec, storage_failed};
+use super::{as_stored, parse, spec, storage_failed};
 use crate::sqlite::begin_write;
 use crate::sqlite::text::{timestamp, to_text};
 
@@ -155,7 +154,7 @@ impl Tool for MemoryRead {
             Some(row) => json!({
                 "found": true,
                 "key": key,
-                "content": as_stored(key, &row.content, &row.trust),
+                "content": as_stored(&format!("note:{key}"), &row.content, Some(&row.trust)),
                 "author": row.author,
                 "trust": row.trust,
                 "version": row.version,
@@ -228,7 +227,7 @@ impl Tool for MemorySearch {
                 json!({
                     "scope": row.scope,
                     "key": row.key,
-                    "content": as_stored(&row.key, start, &row.trust),
+                    "content": as_stored(&format!("note:{}", row.key), start, Some(&row.trust)),
                     "truncated": cut,
                     "author": row.author,
                     "trust": row.trust,
@@ -337,14 +336,6 @@ impl Tool for MemoryWrite {
             content: json!({ "key": key, "version": version, "trust": trust }),
             taint: Vec::new(),
         })
-    }
-}
-
-/// Untrusted text goes back as data, so a clean task never reads it as instructions.
-fn as_stored(key: &str, content: &str, trust: &str) -> String {
-    match to_text(&Trust::Untrusted) {
-        Ok(untrusted_text) if trust == untrusted_text => untrusted(&format!("note:{key}"), content),
-        Ok(_) | Err(_) => content.to_string(),
     }
 }
 

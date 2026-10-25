@@ -3,10 +3,13 @@
 
 use std::time::Duration;
 
+use orchestrator_core::policy::{Trust, untrusted};
 use orchestrator_core::tools::{MAY_ASK, ToolError, ToolName, ToolSpec, schema_for};
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+
+use crate::sqlite::text::from_text;
 
 pub mod memory;
 
@@ -22,6 +25,23 @@ pub(crate) fn spec<T: JsonSchema>(name: ToolName, purpose: &str, timeout: Durati
         description: format!("{purpose} {MAY_ASK}"),
         schema: schema_for::<T>(),
         timeout: Some(timeout),
+    }
+}
+
+/// Stored text goes back as data unless its stored trust says trusted. A missing row or an
+/// unknown value counts as untrusted, so a bad row fails closed.
+pub(crate) fn as_stored(source: &str, content: &str, trust: Option<&str>) -> String {
+    if is_trusted(trust) {
+        content.to_string()
+    } else {
+        untrusted(source, content)
+    }
+}
+
+pub(crate) fn is_trusted(trust: Option<&str>) -> bool {
+    match trust.map(from_text::<Trust>) {
+        Some(Ok(Trust::Trusted)) => true,
+        Some(Ok(Trust::Untrusted)) | Some(Err(_)) | None => false,
     }
 }
 
