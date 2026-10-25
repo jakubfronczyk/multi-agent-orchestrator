@@ -32,6 +32,7 @@ mod runs;
 mod seeded;
 mod taint;
 mod tools;
+mod xai;
 
 /// Upper bound for any wait in a test; reaching it is a failure, not a delay.
 const DEADLINE: Duration = Duration::from_secs(5);

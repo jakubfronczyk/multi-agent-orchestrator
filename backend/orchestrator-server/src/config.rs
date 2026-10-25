@@ -9,6 +9,8 @@ pub const DATA_DIR: &str = "var";
 pub const DATABASE_FILE: &str = "var/orchestrator.db";
 /// The only directory file tools can reach.
 pub const WORKSPACE_DIR: &str = "var/workspace";
+/// The one configuration variable; unset means the scripted demo provider.
+pub const XAI_KEY_VAR: &str = "XAI_API_KEY";
 pub const ADDRESS: &str = "127.0.0.1:8787";
 
 pub fn engine_config() -> orchestrator_core::engine::Config {

@@ -59,7 +59,7 @@ struct PlanStepArgs {
 }
 
 /// The `agent` enum is the caller's live targets, so the schema is built per agent.
-pub(super) fn delegate_spec(targets: &[Arc<AgentSpec>]) -> ToolSpec {
+pub fn delegate_spec(targets: &[Arc<AgentSpec>]) -> ToolSpec {
     let mut schema = schema_for::<DelegateArgs>();
     let slugs: Vec<&str> = targets.iter().map(|t| t.slug().as_str()).collect();
     schema["properties"]["agent"]["enum"] = json!(slugs);
@@ -71,7 +71,7 @@ pub(super) fn delegate_spec(targets: &[Arc<AgentSpec>]) -> ToolSpec {
     }
 }
 
-pub(super) fn plan_spec() -> ToolSpec {
+pub fn plan_spec() -> ToolSpec {
     ToolSpec {
         name: ToolName::Plan,
         description: prompts::plan_description(),

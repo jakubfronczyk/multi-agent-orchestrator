@@ -23,6 +23,7 @@ mod prompts;
 mod run;
 mod task;
 
+pub use native::{delegate_spec, plan_spec};
 pub use task::Task;
 
 /// Limits and timings; tests build their own with millisecond values.

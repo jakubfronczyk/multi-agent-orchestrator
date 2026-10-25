@@ -11,7 +11,9 @@ async-trait.workspace = true
 axum.workspace = true
 chrono.workspace = true
 csv.workspace = true
+dotenvy.workspace = true
 schemars.workspace = true
+secrecy.workspace = true
 orchestrator-core = { path = "../orchestrator-core" }
 reqwest.workspace = true
 serde.workspace = true

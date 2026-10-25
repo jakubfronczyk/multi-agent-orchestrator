@@ -4,6 +4,8 @@
 mod parse;
 mod scripted;
 mod scripts;
+mod xai;
 
 pub use parse::parse_output;
 pub use scripted::ScriptedProvider;
+pub use xai::XaiProvider;
