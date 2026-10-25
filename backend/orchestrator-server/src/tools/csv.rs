@@ -47,10 +47,10 @@ struct CsvArgs {
     /// Rows must match every filter.
     #[serde(default)]
     filter: Vec<Filter>,
-    /// Columns to return; all columns when absent.
+    /// Columns to return; all columns when absent or empty.
     #[serde(default)]
     select: Vec<String>,
-    /// Count matching rows per value of this column.
+    /// Count matching rows per value of this column; empty means no grouping.
     #[serde(default)]
     group_by: Option<String>,
     /// Return only the number of matching rows.
@@ -124,7 +124,15 @@ impl Tool for CsvQuery {
             }
         }
 
-        let result = if let Some(group) = &args.group_by {
+        // Models often send empty defaults for fields they do not use; empty means absent.
+        let group_by = args.group_by.as_deref().filter(|group| !group.is_empty());
+        let select: Vec<&str> = args
+            .select
+            .iter()
+            .map(String::as_str)
+            .filter(|name| !name.is_empty())
+            .collect();
+        let result = if let Some(group) = group_by {
             let index = column(group)?;
             let mut counts: BTreeMap<String, usize> = BTreeMap::new();
             for record in &matching {
@@ -136,10 +144,10 @@ impl Tool for CsvQuery {
         } else if args.count {
             json!({ "count": matching.len() })
         } else {
-            let selected = if args.select.is_empty() {
+            let selected = if select.is_empty() {
                 (0..headers.len()).collect()
             } else {
-                args.select
+                select
                     .iter()
                     .map(|name| column(name))
                     .collect::<Result<Vec<_>, ToolError>>()?

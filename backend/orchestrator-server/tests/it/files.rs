@@ -194,6 +194,15 @@ async fn csv_query_filters_selects_counts_and_groups(pool: SqlitePool) {
     .await
     .expect("query");
     assert_eq!(grouped["counts"]["Anna Weber"], 2);
+    let defaults = run(
+        &csv,
+        &ctx,
+        json!({"path": "data/systems.csv", "group_by": "", "select": [""], "count": false, "filter": []}),
+    )
+    .await
+    .expect("empty fields mean absent");
+    assert_eq!(defaults["total"], 3);
+    assert_eq!(defaults["columns"], json!(["system", "owner", "seats"]));
 
     let unknown = run(
         &csv,
