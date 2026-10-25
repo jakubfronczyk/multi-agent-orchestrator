@@ -6,16 +6,12 @@ use orchestrator_core::runs::{RunEvent, RunOutcome};
 use serde_json::Value;
 use sqlx::SqlitePool;
 
-use crate::{DEADLINE, app, events_until_finished, request, serve};
+use crate::{app, events_until_finished, request, serve, wait_for};
 
 async fn get(client: &reqwest::Client, url: &str) -> (u16, Value) {
     let response = client.get(url).send().await.expect("get");
     let status = response.status().as_u16();
     (status, response.json().await.unwrap_or(Value::Null))
-}
-
-fn id_text(run: RunId) -> String {
-    run.to_string()
 }
 
 #[sqlx::test]
@@ -32,26 +28,21 @@ async fn a_waiting_task_is_listed_read_in_detail_and_cancelled(pool: SqlitePool)
         })
         .await
         .expect("start");
-    loop {
-        let envelope = tokio::time::timeout(DEADLINE, rx.recv())
-            .await
-            .expect("event")
-            .expect("open");
-        if matches!(envelope.event, RunEvent::ApprovalRequested { .. }) {
-            break;
-        }
-    }
+    wait_for(&mut rx, |envelope| {
+        matches!(envelope.event, RunEvent::ApprovalRequested { .. }).then_some(())
+    })
+    .await;
 
     let (status, list) = get(&client, &format!("{base}/api/runs")).await;
     assert_eq!(status, 200);
     let task = &list["runs"][0];
-    assert_eq!(task["id"], id_text(root));
+    assert_eq!(task["id"], root.to_string());
     assert_eq!(task["status"], "running");
     assert_eq!(task["pending_approvals"], 1);
     assert_eq!(task["agents"].as_array().map(Vec::len), Some(1));
     assert!(list["last_event_id"].as_i64().is_some());
 
-    let (status, detail) = get(&client, &format!("{base}/api/runs/{}", id_text(root))).await;
+    let (status, detail) = get(&client, &format!("{base}/api/runs/{root}")).await;
     assert_eq!(status, 200);
     assert_eq!(detail["runs"].as_array().map(Vec::len), Some(1));
     assert_eq!(detail["tool_calls"][0]["tool"], "file_write");
@@ -62,9 +53,9 @@ async fn a_waiting_task_is_listed_read_in_detail_and_cancelled(pool: SqlitePool)
         detail["tool_calls"][0]["id"]
     );
     let (_, cards) = get(&client, &format!("{base}/api/approvals?status=pending")).await;
-    assert_eq!(cards["approvals"][0]["root_run_id"], id_text(root));
+    assert_eq!(cards["approvals"][0]["root_run_id"], root.to_string());
 
-    let cancel = format!("{base}/api/runs/{}/cancel", id_text(root));
+    let cancel = format!("{base}/api/runs/{root}/cancel");
     let response = client.post(&cancel).send().await.expect("cancel");
     assert_eq!(response.status(), 202);
     let events = events_until_finished(&mut rx, root).await;
@@ -87,7 +78,7 @@ async fn unknown_tasks_are_not_found_and_the_limit_is_checked(pool: SqlitePool) 
     let app = app(pool).await;
     let base = serve(&app).await;
     let client = reqwest::Client::new();
-    let unknown = id_text(RunId::new());
+    let unknown = RunId::new().to_string();
 
     assert_eq!(
         get(&client, &format!("{base}/api/runs/{unknown}")).await.0,

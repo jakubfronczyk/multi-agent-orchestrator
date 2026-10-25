@@ -1,4 +1,4 @@
-//! Checkpoint B: every way a call can end, the approval round trip, and the step limit.
+//! Every way a call can end, the approval round trip, and the step limit.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +14,7 @@ use sqlx::SqlitePool;
 use crate::recording::Recording;
 use crate::tools::LEAKED;
 use crate::{
-    App, Config, DEADLINE, app, app_with, app_with_llm, events_until_finished, request, test_config,
+    App, Config, app, app_with, app_with_llm, events_until_finished, request, test_config, wait_for,
 };
 
 fn as_worker(app: &App, scenario: &str) -> StartRequest {
@@ -285,15 +285,11 @@ async fn a_second_answer_over_http_is_a_conflict(pool: SqlitePool) {
         .start(as_worker(&app, r#"test:call:file_write:{"path":"a.md"}"#))
         .await
         .expect("start");
-    let approval: ApprovalId = loop {
-        let envelope = tokio::time::timeout(DEADLINE, rx.recv())
-            .await
-            .expect("event")
-            .expect("open");
-        if let RunEvent::ApprovalRequested { approval_id, .. } = envelope.event {
-            break approval_id;
-        }
-    };
+    let approval: ApprovalId = wait_for(&mut rx, |envelope| match envelope.event {
+        RunEvent::ApprovalRequested { approval_id, .. } => Some(approval_id),
+        _ => None,
+    })
+    .await;
 
     let client = reqwest::Client::new();
     let listed: serde_json::Value = client
@@ -340,7 +336,7 @@ async fn a_second_answer_over_http_is_a_conflict(pool: SqlitePool) {
 /// reaches neither the Lead's model nor the log.
 #[sqlx::test]
 async fn a_tainted_result_never_reaches_the_lead(pool: SqlitePool) {
-    let recording = Arc::new(Recording::slowing("none"));
+    let recording = Arc::new(Recording::new());
     let app = app_with_llm(pool, test_config(), recording.clone()).await;
     let mut rx = app.store.subscribe();
     let run = app

@@ -16,7 +16,6 @@ use super::events::{self, LLM_RESPONDED, PLAN_RECORDED};
 use super::read::{
     ReadError, count, decode, decode_json, decode_time, encode, json_opt, text_opt, time_opt,
 };
-pub use super::tool_calls::{ToolCallFilter, tool_calls};
 use super::tool_calls::{ToolCallRow, ToolCallView};
 
 /// One task, read from its root run; status, outcome and finish are its latest turn's.

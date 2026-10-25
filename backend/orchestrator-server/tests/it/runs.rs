@@ -1,4 +1,4 @@
-//! Checkpoint A: a run starts, calls the model and finishes, and every exit of §7.1 is observable.
+//! A run starts, calls the model and finishes, and every exit of §7.1 is observable.
 
 use orchestrator_core::runs::{FailReason, RunEvent, RunOutcome};
 use serde_json::Value;
@@ -6,7 +6,7 @@ use sqlx::SqlitePool;
 
 use std::time::Duration;
 
-use crate::{DEADLINE, app, app_with, events_until_finished, request, test_config};
+use crate::{DEADLINE, app, app_with, events_until_finished, request, test_config, wait_for};
 
 #[sqlx::test]
 async fn post_runs_streams_the_run_over_sse(pool: SqlitePool) {
@@ -99,15 +99,10 @@ async fn cancel_during_a_model_call_ends_the_run_cancelled(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let run = app.engine.start(request("test:hang")).await.expect("start");
 
-    loop {
-        let envelope = tokio::time::timeout(DEADLINE, rx.recv())
-            .await
-            .expect("event")
-            .expect("open");
-        if matches!(envelope.event, RunEvent::LlmRequested { .. }) {
-            break;
-        }
-    }
+    wait_for(&mut rx, |envelope| {
+        matches!(envelope.event, RunEvent::LlmRequested { .. }).then_some(())
+    })
+    .await;
     assert!(app.engine.cancel(run));
     let events = events_until_finished(&mut rx, run).await;
     assert!(matches!(

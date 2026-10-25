@@ -14,7 +14,18 @@ pub struct Recording {
     requests: Mutex<Vec<CompletionRequest>>,
 }
 
+impl Default for Recording {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Recording {
+    /// Records every request and slows or panics for no agent.
+    pub fn new() -> Self {
+        Self::slowing("")
+    }
+
     pub fn slowing(slow_agent: &'static str) -> Self {
         Self {
             scripted: ScriptedProvider::new(),

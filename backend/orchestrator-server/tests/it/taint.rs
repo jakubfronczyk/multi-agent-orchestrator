@@ -1,64 +1,29 @@
-//! Taint, custody, untrusted results and the repeat check (§6 rules 4, 5, 7, 8), and the drill.
+//! Taint, custody, untrusted results and the repeat check (§6 rules 4, 5, 7, 8).
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use orchestrator_core::engine::{Engine, StartRequest};
-use orchestrator_core::ids::AgentId;
+use orchestrator_core::engine::StartRequest;
 use orchestrator_core::llm::Item;
 use orchestrator_core::policy::{Rule, TaintSource};
 use orchestrator_core::runs::{Answer, CallStatus, RunEvent};
 use orchestrator_server::events::EventEnvelope;
-use orchestrator_server::sqlite::{SqliteStore, agents};
 use sqlx::SqlitePool;
 
 use crate::recording::Recording;
-use crate::{App, Config, app, app_with, app_with_llm, request, task_events, test_config};
-
-async fn agent_id(app: &App, slug: &str) -> AgentId {
-    let all = agents::list(&app.pool).await.expect("agents");
-    all.into_iter()
-        .find(|record| record.spec.slug().as_str() == slug)
-        .map(|record| record.spec.id())
-        .expect("seeded agent")
-}
+use crate::{
+    App, Config, agent_id, answer_approvals, app, app_with, app_with_llm, cards, request, tainted,
+    task_events, test_config,
+};
 
 async fn run_as(app: &App, slug: &str, scenario: &str) -> Vec<EventEnvelope> {
     let mut rx = app.store.subscribe();
     let start = StartRequest {
-        agent_id: Some(agent_id(app, slug).await),
+        agent_id: Some(agent_id(&app.pool, slug).await),
         ..request(scenario)
     };
     let root = app.engine.start(start).await.expect("start");
     task_events(&mut rx, root).await
-}
-
-/// Answers every approval in the task the same way, as a person at the cards would.
-fn answer_every_approval(store: &Arc<SqliteStore>, engine: &Arc<Engine>, approve: bool) {
-    let mut rx = store.subscribe();
-    let engine = Arc::clone(engine);
-    tokio::spawn(async move {
-        while let Ok(envelope) = rx.recv().await {
-            if let RunEvent::ApprovalRequested { approval_id, .. } = envelope.event {
-                let answer = if approve {
-                    Answer::Approve { note: None }
-                } else {
-                    Answer::Deny { note: None }
-                };
-                engine.answer(approval_id, answer);
-            }
-        }
-    });
-}
-
-fn tainted(events: &[EventEnvelope]) -> Vec<TaintSource> {
-    events
-        .iter()
-        .filter_map(|e| match &e.event {
-            RunEvent::TaskTainted { source } => Some(source.clone()),
-            _ => None,
-        })
-        .collect()
 }
 
 fn statuses(events: &[EventEnvelope]) -> Vec<CallStatus> {
@@ -68,14 +33,6 @@ fn statuses(events: &[EventEnvelope]) -> Vec<CallStatus> {
             RunEvent::ToolCallFinished { status, .. } => Some(*status),
             _ => None,
         })
-        .collect()
-}
-
-fn approvals(events: &[EventEnvelope]) -> Vec<&RunEvent> {
-    events
-        .iter()
-        .map(|e| &e.event)
-        .filter(|e| matches!(e, RunEvent::ApprovalRequested { .. }))
         .collect()
 }
 
@@ -118,7 +75,7 @@ async fn a_failed_fetch_taints_before_its_result_is_recorded(pool: SqlitePool) {
 #[sqlx::test]
 async fn a_denied_fetch_never_taints(pool: SqlitePool) {
     let app = app(pool).await;
-    answer_every_approval(&app.store, &app.engine, false);
+    answer_approvals(&app.store, &app.engine, |_| Answer::Deny { note: None });
     let events = run_as(
         &app,
         "worker",
@@ -149,7 +106,7 @@ async fn parallel_reads_of_one_source_taint_once(pool: SqlitePool) {
 #[sqlx::test]
 async fn once_tainted_an_allowed_write_asks_and_the_card_shows_the_source(pool: SqlitePool) {
     let app = app(pool).await;
-    answer_every_approval(&app.store, &app.engine, true);
+    answer_approvals(&app.store, &app.engine, |_| Answer::Approve { note: None });
     let events = run_as(
         &app,
         "writer",
@@ -157,7 +114,7 @@ async fn once_tainted_an_allowed_write_asks_and_the_card_shows_the_source(pool: 
     )
     .await;
 
-    let cards = approvals(&events);
+    let cards = cards(&events);
     assert_eq!(cards.len(), 1);
     let RunEvent::ApprovalRequested { custody, .. } = cards[0] else {
         unreachable!()
@@ -206,7 +163,7 @@ async fn an_expired_card_asks_again_on_retry(pool: SqlitePool) {
     let fetch = r#"http_fetch:{"url":"https://evil.test/x"}"#;
     let events = run_as(&app, "worker", &format!("test:seq:{fetch}|{fetch}")).await;
 
-    assert_eq!(approvals(&events).len(), 2, "an expiry is not a refusal");
+    assert_eq!(cards(&events).len(), 2, "an expiry is not a refusal");
     assert_eq!(
         statuses(&events),
         [CallStatus::Expired, CallStatus::Expired]
@@ -215,7 +172,7 @@ async fn an_expired_card_asks_again_on_retry(pool: SqlitePool) {
 
 #[sqlx::test]
 async fn a_tainting_result_reaches_the_model_marked_and_wrapped(pool: SqlitePool) {
-    let recording = Arc::new(Recording::slowing("none"));
+    let recording = Arc::new(Recording::new());
     let app = app_with_llm(pool, test_config(), recording.clone()).await;
     run_as(&app, "worker", r#"test:call:inbox_read:{"id":"m1"}"#).await;
 
@@ -232,7 +189,7 @@ async fn a_tainting_result_reaches_the_model_marked_and_wrapped(pool: SqlitePool
 
 #[sqlx::test]
 async fn an_oversized_result_is_cut_and_stays_valid_json(pool: SqlitePool) {
-    let recording = Arc::new(Recording::slowing("none"));
+    let recording = Arc::new(Recording::new());
     let app = app_with_llm(pool, test_config(), recording.clone()).await;
     let big = "é".repeat(70_000);
     run_as(

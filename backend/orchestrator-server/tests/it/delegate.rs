@@ -9,7 +9,9 @@ use orchestrator_server::events::EventEnvelope;
 use sqlx::SqlitePool;
 
 use crate::recording::Recording;
-use crate::{Config, DEADLINE, app, app_with, app_with_llm, request, task_events, test_config};
+use crate::{
+    Config, DEADLINE, app, app_with, app_with_llm, request, root_outcome, task_events, test_config,
+};
 
 fn calls_finished(events: &[EventEnvelope], root_only: bool) -> Vec<(CallStatus, bool)> {
     events
@@ -24,13 +26,6 @@ fn calls_finished(events: &[EventEnvelope], root_only: bool) -> Vec<(CallStatus,
             _ => None,
         })
         .collect()
-}
-
-fn root_outcome(events: &[EventEnvelope]) -> RunOutcome {
-    match &events.last().expect("events").event {
-        RunEvent::RunFinished { outcome } => outcome.clone(),
-        other => panic!("last event is {other:?}"),
-    }
 }
 
 fn child_starts(events: &[EventEnvelope]) -> usize {
@@ -164,7 +159,7 @@ async fn parallel_delegated_runs_link_to_the_calls_that_started_them(pool: Sqlit
 
 #[sqlx::test]
 async fn a_child_gets_the_preamble_and_only_its_task(pool: SqlitePool) {
-    let recording = Arc::new(Recording::slowing("none"));
+    let recording = Arc::new(Recording::new());
     let app = app_with_llm(pool, test_config(), recording.clone()).await;
     let mut rx = app.store.subscribe();
     let root = app

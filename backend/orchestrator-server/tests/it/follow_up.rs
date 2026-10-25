@@ -5,121 +5,33 @@ use std::sync::Arc;
 
 use orchestrator_core::engine::{Engine, FollowUpRequest, StartRequest};
 use orchestrator_core::ids::RunId;
-use orchestrator_core::llm::{Item, LlmProvider};
+use orchestrator_core::llm::Item;
 use orchestrator_core::policy::{Decision, Rule, TaintSource};
-use orchestrator_core::runs::{Answer, RunEvent, RunOutcome};
+use orchestrator_core::runs::{RunEvent, RunOutcome};
 use orchestrator_core::tools::Target;
-use orchestrator_server::events::EventEnvelope;
-use orchestrator_server::sqlite::{SqliteStore, runs};
-use orchestrator_server::tools::workspace::Workspace;
-use orchestrator_server::{seed, tools};
+use orchestrator_server::sqlite::runs;
 use serde_json::json;
 use sqlx::SqlitePool;
-use tokio::sync::broadcast;
 
 use crate::recording::Recording;
 use crate::{
-    DEADLINE, TempDir, app_with_llm, events_until_finished, request, serve, task_events,
-    test_config,
+    Seeded, answer_approvals, app_with_llm, deny_rolf_naming_anna, events_until_finished, request,
+    serve, task_events, test_config, turn_events,
 };
 
 const S1_TASK: &str =
     "Check access request AR-1042 against our policy and email the decision to the owner";
 const FOLLOW_UP: &str = "Email Rolf the decision again, then Anna instead";
 
-/// The seeded team on the real tools, with a provider that records every request.
-struct Seeded {
-    pool: SqlitePool,
-    store: Arc<SqliteStore>,
-    recording: Arc<Recording>,
-    temp: TempDir,
-}
-
-impl Seeded {
-    async fn new(pool: SqlitePool) -> Self {
-        let temp = TempDir::new();
-        assert!(seed::run(&pool, &temp.workspace()).await.expect("seed"));
-        Self {
-            store: Arc::new(SqliteStore::new(pool.clone())),
-            recording: Arc::new(Recording::slowing("none")),
-            pool,
-            temp,
-        }
-    }
-
-    /// Engines share the store and workspace; a second one knows the task only from the log.
-    fn engine(&self) -> Arc<Engine> {
-        let tools = tools::all(
-            self.pool.clone(),
-            Workspace::new(self.temp.workspace(), self.pool.clone()),
-        );
-        let llm: Arc<dyn LlmProvider> = self.recording.clone();
-        Arc::new(Engine::new(self.store.clone(), llm, tools, test_config()))
-    }
-}
-
-/// Denies the send to Rolf and approves everything else, as in the S1 demo.
-fn answer_as_in_s1(store: &SqliteStore, engine: &Arc<Engine>) {
-    let mut rx = store.subscribe();
-    let engine = Arc::clone(engine);
-    tokio::spawn(async move {
-        while let Ok(envelope) = rx.recv().await {
-            if let RunEvent::ApprovalRequested {
-                approval_id,
-                action,
-                ..
-            } = envelope.event
-            {
-                let answer = match action.target {
-                    Target::Recipient { address, .. } if address.starts_with("rolf") => {
-                        Answer::Deny {
-                            note: Some("wrong person, owner is Anna Weber".to_string()),
-                        }
-                    }
-                    _ => Answer::Approve { note: None },
-                };
-                engine.answer(approval_id, answer);
-            }
-        }
-    });
-}
-
 async fn run_s1(seeded: &Seeded, engine: &Engine) -> RunId {
     let mut rx = seeded.store.subscribe();
     let request = StartRequest {
-        agent_id: None,
         task: S1_TASK.to_string(),
-        title: None,
-        budget: None,
-        scenario: Some("s1".to_string()),
-        draft_only: false,
+        ..request("s1")
     };
     let root = engine.start(request).await.expect("start");
     task_events(&mut rx, root).await;
     root
-}
-
-/// Every event of the task from now until the turn `run` finishes.
-async fn turn_events(
-    rx: &mut broadcast::Receiver<EventEnvelope>,
-    root: RunId,
-    run: RunId,
-) -> Vec<RunEvent> {
-    let mut events = Vec::new();
-    loop {
-        let envelope = tokio::time::timeout(DEADLINE, rx.recv())
-            .await
-            .expect("turn finished before the deadline")
-            .expect("broadcast open");
-        if envelope.root_run_id != root {
-            continue;
-        }
-        let done = envelope.run_id == run && matches!(envelope.event, RunEvent::RunFinished { .. });
-        events.push(envelope.event);
-        if done {
-            return events;
-        }
-    }
 }
 
 async fn follow_up_s1(seeded: &Seeded, engine: &Engine, root: RunId) -> (RunId, Vec<RunEvent>) {
@@ -190,17 +102,17 @@ fn assert_s1_carried_over(events: &[RunEvent]) {
 
 #[sqlx::test]
 async fn a_follow_up_keeps_the_taint_and_refuses_the_repeated_send(pool: SqlitePool) {
-    let seeded = Seeded::new(pool).await;
-    let engine = seeded.engine();
-    answer_as_in_s1(&seeded.store, &engine);
+    let recording = Arc::new(Recording::new());
+    let seeded = Seeded::with_llm(pool, recording.clone()).await;
+    let engine = seeded.engine.clone();
+    answer_approvals(&seeded.store, &engine, deny_rolf_naming_anna);
     let root = run_s1(&seeded, &engine).await;
 
     let (run, events) = follow_up_s1(&seeded, &engine, root).await;
     assert_s1_carried_over(&events);
 
     // The Lead's input: S1's text, its summary wrapped as untrusted, then the follow-up.
-    let first_request = seeded
-        .recording
+    let first_request = recording
         .requests()
         .into_iter()
         .find(|r| r.script.run_id == run && r.script.step == 0)
@@ -244,14 +156,15 @@ async fn a_follow_up_keeps_the_taint_and_refuses_the_repeated_send(pool: SqliteP
 /// A fresh engine has no memory of the task; the log alone restores taint and refusals.
 #[sqlx::test]
 async fn a_fresh_engine_rebuilds_the_task_from_the_log(pool: SqlitePool) {
-    let seeded = Seeded::new(pool).await;
-    let first = seeded.engine();
-    answer_as_in_s1(&seeded.store, &first);
+    let recording = Arc::new(Recording::new());
+    let seeded = Seeded::with_llm(pool, recording.clone()).await;
+    let first = seeded.engine.clone();
+    answer_approvals(&seeded.store, &first, deny_rolf_naming_anna);
     let root = run_s1(&seeded, &first).await;
     drop(first);
 
-    let fresh = seeded.engine();
-    answer_as_in_s1(&seeded.store, &fresh);
+    let fresh = seeded.engine_with(recording.clone());
+    answer_approvals(&seeded.store, &fresh, deny_rolf_naming_anna);
     let (_, events) = follow_up_s1(&seeded, &fresh, root).await;
     assert_s1_carried_over(&events);
 }
@@ -271,7 +184,7 @@ async fn post(client: &reqwest::Client, url: &str, body: serde_json::Value) -> u
 /// earlier turn ended.
 #[sqlx::test]
 async fn a_running_task_is_a_conflict_and_a_cancelled_one_takes_a_follow_up(pool: SqlitePool) {
-    let recording = Arc::new(Recording::slowing("none"));
+    let recording = Arc::new(Recording::new());
     let app = app_with_llm(pool, test_config(), recording.clone()).await;
     let base = serve(&app).await;
     let client = reqwest::Client::new();
@@ -424,17 +337,15 @@ async fn a_draft_only_turn_changes_nothing_and_a_later_turn_may_act(pool: Sqlite
     use orchestrator_core::runs::CallStatus;
     use orchestrator_server::sqlite::outbox;
 
-    let seeded = Seeded::new(pool).await;
-    let engine = seeded.engine();
-    answer_as_in_s1(&seeded.store, &engine);
+    let recording = Arc::new(Recording::new());
+    let seeded = Seeded::with_llm(pool, recording.clone()).await;
+    let engine = seeded.engine.clone();
+    answer_approvals(&seeded.store, &engine, deny_rolf_naming_anna);
     let mut rx = seeded.store.subscribe();
     let request = StartRequest {
-        agent_id: None,
         task: S1_TASK.to_string(),
-        title: None,
-        budget: None,
-        scenario: Some("s1".to_string()),
         draft_only: true,
+        ..crate::request("s1")
     };
     let root = engine.start(request).await.expect("start");
     let events: Vec<RunEvent> = task_events(&mut rx, root)
@@ -494,7 +405,7 @@ async fn a_draft_only_turn_changes_nothing_and_a_later_turn_may_act(pool: Sqlite
             .is_empty()
     );
 
-    let requests = seeded.recording.requests();
+    let requests = recording.requests();
     let told = |slug: &str| {
         requests
             .iter()

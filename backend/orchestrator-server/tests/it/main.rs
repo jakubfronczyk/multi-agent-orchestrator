@@ -13,13 +13,15 @@ use orchestrator_core::ids::RunId;
 use orchestrator_core::llm::{LlmProvider, Model};
 use orchestrator_core::money::Micros;
 use orchestrator_core::policy::Decision;
-use orchestrator_core::runs::RunEvent;
-use orchestrator_core::tools::ToolName;
+use orchestrator_core::policy::TaintSource;
+use orchestrator_core::runs::{Answer, RunEvent, RunOutcome};
+use orchestrator_core::tools::{Target, ToolName};
 use orchestrator_server::api::{ActiveProvider, AppState, router};
 use orchestrator_server::events::EventEnvelope;
 use orchestrator_server::llm::ScriptedProvider;
 use orchestrator_server::sqlite::{SqliteStore, agents};
 use orchestrator_server::tools::workspace::Workspace;
+use orchestrator_server::{seed, tools as real_tools};
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
@@ -264,6 +266,184 @@ pub async fn task_events(
             return events;
         }
     }
+}
+
+/// Every event of the task from now until the turn `run` finishes.
+pub async fn turn_events(
+    rx: &mut broadcast::Receiver<EventEnvelope>,
+    root: RunId,
+    run: RunId,
+) -> Vec<RunEvent> {
+    let mut events = Vec::new();
+    loop {
+        let envelope = tokio::time::timeout(DEADLINE, rx.recv())
+            .await
+            .expect("turn finished before the deadline")
+            .expect("broadcast open");
+        if envelope.root_run_id != root {
+            continue;
+        }
+        let done = envelope.run_id == run && matches!(envelope.event, RunEvent::RunFinished { .. });
+        events.push(envelope.event);
+        if done {
+            return events;
+        }
+    }
+}
+
+/// Waits for the first event `pick` accepts and returns what it picked.
+pub async fn wait_for<T>(
+    rx: &mut broadcast::Receiver<EventEnvelope>,
+    mut pick: impl FnMut(EventEnvelope) -> Option<T>,
+) -> T {
+    loop {
+        let envelope = tokio::time::timeout(DEADLINE, rx.recv())
+            .await
+            .expect("event before the deadline")
+            .expect("broadcast open");
+        if let Some(picked) = pick(envelope) {
+            return picked;
+        }
+    }
+}
+
+/// Answers each approval as `decide` says from the card's target, as a person at the cards would.
+pub fn answer_approvals(
+    store: &SqliteStore,
+    engine: &Arc<Engine>,
+    decide: impl Fn(&Target) -> Answer + Send + 'static,
+) {
+    let mut rx = store.subscribe();
+    let engine = Arc::clone(engine);
+    tokio::spawn(async move {
+        while let Ok(envelope) = rx.recv().await {
+            if let RunEvent::ApprovalRequested {
+                approval_id,
+                action,
+                ..
+            } = envelope.event
+            {
+                engine.answer(approval_id, decide(&action.target));
+            }
+        }
+    });
+}
+
+/// Denies the send to Rolf and approves everything else.
+pub fn deny_rolf(target: &Target) -> Answer {
+    match target {
+        Target::Recipient { address, .. } if address.starts_with("rolf") => {
+            Answer::Deny { note: None }
+        }
+        _ => Answer::Approve { note: None },
+    }
+}
+
+/// As in the S1 demo: the send to Rolf is denied with a note naming the owner.
+pub fn deny_rolf_naming_anna(target: &Target) -> Answer {
+    match target {
+        Target::Recipient { address, .. } if address.starts_with("rolf") => Answer::Deny {
+            note: Some("wrong person, owner is Anna Weber".to_string()),
+        },
+        _ => Answer::Approve { note: None },
+    }
+}
+
+pub fn tainted(events: &[EventEnvelope]) -> Vec<TaintSource> {
+    events
+        .iter()
+        .filter_map(|e| match &e.event {
+            RunEvent::TaskTainted { source } => Some(source.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+pub fn cards(events: &[EventEnvelope]) -> Vec<&RunEvent> {
+    events
+        .iter()
+        .map(|e| &e.event)
+        .filter(|e| matches!(e, RunEvent::ApprovalRequested { .. }))
+        .collect()
+}
+
+/// The outcome in the task's last event, the root's `run_finished`.
+pub fn root_outcome(events: &[EventEnvelope]) -> &RunOutcome {
+    match &events.last().expect("events").event {
+        RunEvent::RunFinished { outcome } => outcome,
+        other => panic!("last event is {other:?}"),
+    }
+}
+
+pub async fn agent_id(pool: &SqlitePool, slug: &str) -> AgentId {
+    agents::list(pool)
+        .await
+        .expect("agents")
+        .into_iter()
+        .find(|record| record.spec.slug().as_str() == slug)
+        .map(|record| record.spec.id())
+        .expect("seeded agent")
+}
+
+/// The seeded team on the real tools in a fresh workspace.
+pub struct Seeded {
+    pub pool: SqlitePool,
+    pub store: Arc<SqliteStore>,
+    pub engine: Arc<Engine>,
+    pub temp: TempDir,
+}
+
+impl Seeded {
+    pub async fn new(pool: SqlitePool) -> Self {
+        Self::with_llm(pool, Arc::new(ScriptedProvider::new())).await
+    }
+
+    pub async fn with_llm(pool: SqlitePool, llm: Arc<dyn LlmProvider>) -> Self {
+        let temp = TempDir::new();
+        assert!(
+            seed::run(&pool, &temp.workspace()).await.expect("seed"),
+            "an empty database is seeded"
+        );
+        let store = Arc::new(SqliteStore::new(pool.clone()));
+        let engine = engine_on(&pool, &store, &temp, llm);
+        Self {
+            pool,
+            store,
+            engine,
+            temp,
+        }
+    }
+
+    /// Another engine on the same store and workspace; it knows earlier tasks only from the log.
+    pub fn engine_with(&self, llm: Arc<dyn LlmProvider>) -> Arc<Engine> {
+        engine_on(&self.pool, &self.store, &self.temp, llm)
+    }
+
+    pub fn workspace(&self) -> Workspace {
+        Workspace::new(self.temp.workspace(), self.pool.clone())
+    }
+
+    /// Serves the API in scripted mode over this workspace.
+    pub async fn serve(&self) -> String {
+        serve_state(AppState {
+            pool: self.pool.clone(),
+            store: self.store.clone(),
+            engine: self.engine.clone(),
+            provider: ActiveProvider::Scripted,
+            workspace: self.workspace(),
+        })
+        .await
+    }
+}
+
+fn engine_on(
+    pool: &SqlitePool,
+    store: &Arc<SqliteStore>,
+    temp: &TempDir,
+    llm: Arc<dyn LlmProvider>,
+) -> Arc<Engine> {
+    let tools = real_tools::all(pool.clone(), Workspace::new(temp.workspace(), pool.clone()));
+    Arc::new(Engine::new(store.clone(), llm, tools, test_config()))
 }
 
 /// A tool context for a seeded agent, with a real run row behind it.
