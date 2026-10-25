@@ -721,3 +721,51 @@ async fn the_clean_task_runs_without_a_single_card(pool: SqlitePool) {
     .expect("row");
     assert_eq!(trust, "trusted");
 }
+
+/// Taint crosses tasks through storage: S1 saved its decision while tainted, so a later task
+/// that only indexes decisions/ is tainted by that file, and the Writer's allowed save asks.
+#[sqlx::test]
+async fn indexing_s1s_decisions_taints_the_new_task_with_the_file(pool: SqlitePool) {
+    let seeded = seeded(pool).await;
+    answer_approvals(&seeded, |target| match target {
+        Target::Recipient { address, .. } if address.starts_with("rolf") => {
+            Answer::Deny { note: None }
+        }
+        _ => Answer::Approve { note: None },
+    });
+    run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+    let (_, events) = run_scenario(&seeded, "launder", "Index every decision in decisions/").await;
+
+    let decision = TaintSource::File {
+        path: "decisions/AR-1042.md".to_string(),
+    };
+    assert_eq!(tainted(&events), std::slice::from_ref(&decision));
+    let shown = cards(&events);
+    assert_eq!(shown.len(), 1, "only the Writer's save asks");
+    let RunEvent::ApprovalRequested {
+        action, custody, ..
+    } = shown[0]
+    else {
+        unreachable!()
+    };
+    assert_eq!(
+        action.target,
+        Target::File {
+            path: "decisions/index.md".to_string()
+        }
+    );
+    assert_eq!(
+        custody.rules.first(),
+        Some(&Rule::Taint { source: decision })
+    );
+    assert!(matches!(
+        root_outcome(&events),
+        RunOutcome::Completed { .. }
+    ));
+    let trust =
+        sqlx::query_scalar!("SELECT trust FROM workspace_files WHERE path = 'decisions/index.md'")
+            .fetch_one(&seeded.pool)
+            .await
+            .expect("row");
+    assert_eq!(trust, "untrusted", "the label follows the data again");
+}

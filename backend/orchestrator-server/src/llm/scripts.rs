@@ -15,7 +15,7 @@ pub enum Reply {
 
 /// `test:seq:<tool>:<args>|<tool>:<args>` makes one call per step. `test:twice:<tool>:<args>`
 /// makes the same call twice in one step. `s1` is the demo task; `clean` reads only trusted
-/// files; `drill` plays the vendor-note exfiltration attempt.
+/// files; `launder` indexes S1's decisions; `drill` plays the vendor-note exfiltration attempt.
 /// `test:call:<tool>:<json args>` calls once, then answers. `test:loop:<tool>` calls on every
 /// step it may. In `test:delegate*` the Lead delegates on its first step and teammates answer
 /// with their slug. With `tool_choice` none, every script answers in text, as xAI does.
@@ -42,6 +42,9 @@ pub fn reply(
     }
     if scenario == Some("clean") {
         return clean(agent, step);
+    }
+    if scenario == Some("launder") {
+        return launder(agent, step);
     }
     if let Some(parts) = scenario.and_then(|s| s.strip_prefix("test:seq:")) {
         let calls: Vec<&str> = parts.split('|').collect();
@@ -223,6 +226,38 @@ fn clean(agent: &str, step: u32) -> Reply {
             json!({"path": "reports/long-grants.md", "content": LONG_GRANTS}),
         ),
         ("writer", _) => message("Saved reports/long-grants.md."),
+        _ => message("Done."),
+    }
+}
+
+const INDEX: &str = "# Decisions\n\n- AR-1042: approved, read-only Payroll exports for 90 days (decisions/AR-1042.md)\n";
+
+/// Run after S1: the decision S1 saved was written by a tainted task, so it is stored untrusted.
+/// Reading it taints this new task, and the Writer's allowed save asks, citing that file.
+fn launder(agent: &str, step: u32) -> Reply {
+    match (agent, step) {
+        ("lead", 0) => tool_call(
+            step,
+            "delegate",
+            json!({"agent": "reader", "task": "List every decision in decisions/ and read each one. Report its id and outcome."}),
+        ),
+        ("lead", 1) => tool_call(
+            step,
+            "delegate",
+            json!({"agent": "writer", "task": format!("Save this index as decisions/index.md:\n\n{INDEX}")}),
+        ),
+        ("lead", _) => message("The index of decisions is saved in decisions/index.md."),
+        ("reader", 0) => tool_call(step, "file_list", json!({"path": "decisions"})),
+        ("reader", 1) => tool_call(step, "file_read", json!({"path": "decisions/AR-1042.md"})),
+        ("reader", _) => message(
+            "decisions/ holds one decision: AR-1042, approved, read-only Payroll exports for 90 days.",
+        ),
+        ("writer", 0) => tool_call(
+            step,
+            "file_write",
+            json!({"path": "decisions/index.md", "content": INDEX}),
+        ),
+        ("writer", _) => message("Saved decisions/index.md."),
         _ => message("Done."),
     }
 }
