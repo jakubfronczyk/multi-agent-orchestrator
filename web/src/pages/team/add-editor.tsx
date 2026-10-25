@@ -6,6 +6,7 @@ import { AgentShape } from "@/components/agent-shape"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import type { AgentInput } from "@/generated/AgentInput"
+import type { AgentRecord } from "@/generated/AgentRecord"
 import { inputOf, PRESETS, presetInput, slugFrom, type Preset } from "@/lib/team"
 import { CommonFields, Field } from "./fields"
 import { inputClass, problemOf, type Problem } from "./form"
@@ -19,26 +20,33 @@ export function AddEditor({ onDone }: { onDone: (slug: string | null) => void })
   const [reachable, setReachable] = useState(true)
   const [problem, setProblem] = useState<Problem | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
+  // Set once the agent exists but the Lead update failed; a retry then only updates the Lead.
+  const [joined, setJoined] = useState<AgentRecord | null>(null)
+
+  const linkLead = async (created: AgentRecord): Promise<string | null> => {
+    try {
+      // A fresh read: a Lead rebuilt from the cache would overwrite an edit saved since.
+      const agents = await client.fetchQuery({ ...agentsQuery, staleTime: 0 })
+      const lead = agents.find((agent) => agent.role === "lead")
+      if (!lead) throw new Error("the team has no Lead")
+      if (!lead.delegate_targets.includes(created.slug)) {
+        await replaceAgent(lead.id, { ...inputOf(lead), delegate_targets: [...lead.delegate_targets, created.slug] })
+      }
+      return null
+    } catch (error) {
+      return problemOf(error).message
+    }
+  }
 
   const add = useMutation({
     mutationFn: async (input: AgentInput) => {
-      const created = await createAgent(input)
-      if (reachable) {
-        try {
-          // A fresh read: a Lead rebuilt from the cache would overwrite an edit saved since.
-          const agents = await client.fetchQuery({ ...agentsQuery, staleTime: 0 })
-          const lead = agents.find((agent) => agent.role === "lead")
-          if (!lead) throw new Error("the team has no Lead")
-          await replaceAgent(lead.id, { ...inputOf(lead), delegate_targets: [...lead.delegate_targets, created.slug] })
-        } catch (error) {
-          return { created, leadError: problemOf(error).message }
-        }
-      }
-      return { created, leadError: null }
+      const created = joined ?? (await createAgent(input))
+      return { created, leadError: reachable || joined ? await linkLead(created) : null }
     },
     onSuccess: async ({ created, leadError }) => {
       await client.invalidateQueries({ queryKey: agentsQuery.queryKey })
       if (leadError) {
+        setJoined(created)
         setWarning(`${created.name} joined the team, but Lead can't hand it work yet: ${leadError}`)
       } else {
         onDone(created.slug)
@@ -146,7 +154,7 @@ export function AddEditor({ onDone }: { onDone: (slug: string | null) => void })
           )}
           <div className="flex flex-wrap items-center gap-2">
             <Button disabled={add.isPending} onClick={() => add.mutate(draft)}>
-              Add to team
+              {joined ? "Let Lead hand it work" : "Add to team"}
             </Button>
           </div>
         </>
