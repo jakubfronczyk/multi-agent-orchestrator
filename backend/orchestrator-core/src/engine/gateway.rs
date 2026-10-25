@@ -476,9 +476,11 @@ async fn run_tool(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
         }
     };
     match joined {
-        // The Lead never reads outside content: a result naming any source is dropped unseen,
-        // and its sources still taint the task.
-        Ok(Ok(output)) if ctx.agent.role() == Role::Lead && !output.taint.is_empty() => {
+        // The Lead never reads outside content: a result of an outside-reading tool, or one
+        // naming any source, is dropped unseen, and its sources still taint the task.
+        Ok(Ok(output))
+            if ctx.agent.role() == Role::Lead && (name.taints() || !output.taint.is_empty()) =>
+        {
             tracing::error!(
                 run_id = ?ctx.at.run_id,
                 tool = ?name,
