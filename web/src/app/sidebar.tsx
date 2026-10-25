@@ -28,7 +28,8 @@ const NAV: [string, LucideIcon, string][] = [
 const CONNECTION: Record<HubStatus, string> = {
   connecting: "Connecting…",
   open: "Live",
-  reconnecting: "Reconnecting, replaying missed events",
+  reconnecting: "Reconnecting…",
+  offline: "Can't reach the server, retrying",
 }
 
 const DAY_MS = 86_400_000

@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from "react"
 import type { EventEnvelope } from "@/generated/EventEnvelope"
 
-export type HubStatus = "connecting" | "open" | "reconnecting"
+/** `reconnecting`: the browser retries and the server replays the gap; `offline`: the stream
+ * closed, so a new one starts and snapshots are refetched. */
+export type HubStatus = "connecting" | "open" | "reconnecting" | "offline"
 
 type Listener = (event: EventEnvelope) => void
 
@@ -98,8 +100,11 @@ function connect() {
     if (reset || trimmed) resync()
   }
   next.onerror = () => {
-    setStatus("reconnecting")
-    if (next.readyState !== EventSource.CLOSED) return
+    if (next.readyState !== EventSource.CLOSED) {
+      setStatus("reconnecting")
+      return
+    }
+    setStatus("offline")
     next.close()
     // Ids restart after a database reset, so the dedupe point is reset with the buffer; the
     // refetched snapshots then decide which events still apply.

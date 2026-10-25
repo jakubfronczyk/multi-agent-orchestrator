@@ -19,7 +19,7 @@ import type { Turn } from "@/generated/Turn"
 import { useAgents } from "@/lib/agents"
 import { isApiError } from "@/lib/api"
 import { answerChip, QUESTION_TEXT, type ChipAnswer, type QuestionChip } from "@/lib/chips"
-import { actionCopy, capitalize, withAttachments } from "@/lib/copy"
+import { actionCopy, capitalize, TAINT_EFFECT, withAttachments } from "@/lib/copy"
 import { demoCardNote, demoFollowUps } from "@/lib/demo"
 import { initThread, reduceThread, type ThreadState } from "@/lib/thread-state"
 import {
@@ -94,7 +94,10 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
   const runs = useQuery(runsQuery())
   const summary = runs.data?.runs.find((run) => run.id === state.rootRunId)
   const root = state.runs.find((run) => run.id === state.rootRunId)
-  const rootIsLead = root ? look.byId(root.agent_id)?.role === "lead" : false
+  const rootAgent = root ? look.byId(root.agent_id) : undefined
+  const rootIsLead = rootAgent?.role === "lead"
+  // The Lead can be renamed; a direct task's agent is named by its own name.
+  const leadName = rootAgent?.name ?? "Lead"
   const latest = state.turns.at(-1)
   const latestRun = latest && state.runs.find((run) => run.id === latest.run_id)
   const running = latestRun?.status === "running"
@@ -179,15 +182,15 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
     ? {
         placeholder:
           pending.length > 1
-            ? `Reply to "${cardTitle}". Your note goes to Lead with a no.`
-            : "Reply to the card. Your note goes to Lead with a no.",
+            ? `Reply to "${cardTitle}". Your note goes to ${leadName} with a no.`
+            : `Reply to the card. Your note goes to ${leadName} with a no.`,
         disabled: false,
         mode: "note" as const,
       }
     : running
-      ? { placeholder: "Lead is working. Stop the task to change course.", disabled: true, mode: "running" as const }
+      ? { placeholder: `${leadName} is working. Stop the task to change course.`, disabled: true, mode: "running" as const }
       : rootIsLead
-        ? { placeholder: "Give Lead a follow-up", disabled: false, mode: "follow-up" as const }
+        ? { placeholder: `Give ${leadName} a follow-up`, disabled: false, mode: "follow-up" as const }
         : { placeholder: "Follow-ups go through the Lead. Start a new task.", disabled: true, mode: "closed" as const }
 
   const target: Target | null =
@@ -340,7 +343,7 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
             onStop={stop}
             stopping={cancel.isPending}
             placeholder={composer.placeholder}
-            label={composer.mode === "note" ? "Note to Lead with a no" : "Message Lead"}
+            label={composer.mode === "note" ? `Note to ${leadName} with a no` : `Message ${leadName}`}
             disabled={composer.disabled}
             sending={deny.isPending || followUp.isPending}
             action={composer.mode === "running" ? "stop" : "send"}
@@ -391,8 +394,7 @@ function TaintBanner({ sources }: { sources: TaintSource[] }) {
     <div className="sticky top-2 z-[3] flex gap-3 rounded-lg bg-amber-50 px-4 py-3 text-sm ring-1 ring-border dark:bg-card dark:bg-linear-to-r dark:from-amber-950/45 dark:to-amber-950/45">
       <TriangleAlert className="mt-0.5 size-[18px] flex-none text-amber-800 dark:text-amber-300" />
       <div className="min-w-0">
-        <b className="font-semibold">This task read outside content.</b> From here on, every save, send and website
-        fetch in it asks you, whatever the settings.
+        <b className="font-semibold">This task read outside content.</b> {TAINT_EFFECT}
         <div className="mt-2 flex flex-wrap gap-2">
           {sources.map((source) => {
             const text = `${SOURCE_KIND[source.kind]}: ${
@@ -446,11 +448,12 @@ function TurnSection({
   // Planning only until the turn's first call; a Lead that works without a plan is not planning.
   const planning = running && plan === null && actions === 0
   const now = useNow(1000, planning)
+  const name = lead?.name ?? "Lead"
   const heading = planning
-    ? "Lead is planning"
+    ? `${name} is planning`
     : plan
-      ? index === 0 ? "Lead's plan" : "Follow-up plan"
-      : index === 0 ? "Lead's work" : "Follow-up"
+      ? index === 0 ? `${name}'s plan` : "Follow-up plan"
+      : index === 0 ? `${name}'s work` : "Follow-up"
   const cards = turnApprovals(state, approvals, turn)
   const waiting = cards.some((a) => a.status === "pending")
   const ending = turnEnding(turn)
@@ -481,7 +484,7 @@ function TurnSection({
                   <li key={i} className="grid grid-cols-[20px_minmax(0,1fr)] items-center gap-3 px-4 py-2 text-sm">
                     {agent ? <AgentShape icon={agent.icon} colour={agent.colour} /> : <span />}
                     <span>
-                      <b className="font-medium">{step.agent === "self" ? "Lead" : look.nameOfSlug(step.agent)}</b>{" "}
+                      <b className="font-medium">{step.agent === "self" ? name : look.nameOfSlug(step.agent)}</b>{" "}
                       {step.goal}
                     </span>
                   </li>
@@ -520,7 +523,7 @@ function TurnSection({
       ) : running && !waiting && !planning ? (
         <div className="grid grid-cols-[20px_minmax(0,1fr)] items-center gap-3 text-sm text-muted-foreground">
           {lead && <AgentShape icon={lead.icon} colour={lead.colour} size="md" pulse />}
-          Lead is working
+          {name} is working
         </div>
       ) : null}
     </>

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useLocation, useSearchParams } from "react-router"
-import { Check, FlaskConical, House, Shield, X } from "lucide-react"
+import { Check, Clock, FlaskConical, House, Shield, X } from "lucide-react"
 import { approvalsQuery } from "@/api/approvals"
 import { toolsQuery } from "@/api/meta"
 import { runQuery } from "@/api/runs"
@@ -170,6 +170,7 @@ function HopIcon({ hop }: { hop: Hop }) {
     case "rule":
       return <FlaskConical className="size-4" />
     case "decided":
+      if (hop.waiting) return <Clock className="size-4" />
       return hop.stopped ? <Shield className="size-4" /> : <Check className="size-4" />
   }
 }

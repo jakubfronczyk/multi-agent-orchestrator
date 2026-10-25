@@ -1,14 +1,14 @@
+import { Link } from "react-router"
 import { Page } from "@/components/page"
 
-/** Stands in for a screen until its issue is built. */
-export function Placeholder({ title, issue }: { title: string; issue?: string }) {
+export function NotFound() {
   return (
-    <Page title={title}>
+    <Page title="Page not found">
       <div className="flex flex-col items-center gap-1 rounded-2xl px-6 py-10 text-center ring-1 ring-border ring-inset">
-        <b className="font-medium">Not built yet</b>
-        <p className="m-0 text-sm text-muted-foreground">
-          {issue ? `This screen arrives with issue ${issue}.` : "Nothing lives at this address."}
-        </p>
+        <p className="m-0 text-sm text-muted-foreground">Nothing lives at this address.</p>
+        <Link to="/" className="text-sm text-sidebar-foreground underline underline-offset-[3px] hover:text-foreground">
+          Home
+        </Link>
       </div>
     </Page>
   )

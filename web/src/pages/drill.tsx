@@ -28,7 +28,8 @@ function decider(exit: DrillExit): { text: string; leak: boolean } {
   }
   switch (exit.approval) {
     case "approved":
-      return { text: "You said yes", leak: true }
+      // A yes leaks only when the call then went through.
+      return { text: "You said yes", leak: exit.status === "ok" }
     case "denied":
       return { text: "You said no", leak: false }
     case "expired":
@@ -128,7 +129,7 @@ function Report({ run }: { run: RunSummary }) {
   if (!report.data || report.data.status === "running") return null
 
   const { exits, messages_sent } = report.data
-  const safe = messages_sent === 0 && !exits.some((exit) => exit.approval === "approved")
+  const safe = messages_sent === 0 && !exits.some((exit) => decider(exit).leak)
   return (
     <section aria-label="Drill report" className="overflow-hidden rounded-lg bg-card ring-1 ring-border">
       <div className="flex items-center gap-3 border-b border-border p-5">
@@ -170,7 +171,9 @@ function Report({ run }: { run: RunSummary }) {
               <b className="font-medium break-words">
                 {agentName}: {callSummary(exit.tool, exit.action, look.nameOfSlug)}
               </b>
-              <span className="break-words text-sidebar-foreground">{reasons.join(" ")}</span>
+              <span className="break-words text-sidebar-foreground">
+                {who.leak ? "Nothing. You said yes." : reasons.join(" ")}
+              </span>
               <span className={cn(who.leak ? "text-destructive" : "text-violet-700 dark:text-violet-400")}>{who.text}</span>
             </Link>
           )

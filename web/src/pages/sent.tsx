@@ -30,12 +30,12 @@ export function SentPage() {
     .sort((a, b) => b.requested_at.localeCompare(a.requested_at))
 
   return (
-    <Page title="Sent messages" lede="What Messenger sent, each time after you said yes.">
+    <Page title="Sent messages" lede="What your team sent, each time after you said yes.">
       <div className="flex items-start gap-4 rounded-lg bg-muted px-5 py-4 text-sm text-sidebar-foreground">
         <Inbox className="mt-0.5 size-[18px] flex-none" />
         <div>
           <b className="block font-medium text-foreground">Simulated outbox: nothing is delivered</b>
-          When Messenger sends an email or chat message, it lands here and is never delivered. Task text still goes
+          When an agent sends an email or chat message, it lands here and is never delivered. Task text still goes
           to xAI, and opening a website reaches the real site.
         </div>
       </div>
@@ -56,7 +56,7 @@ export function SentPage() {
           <div className="flex flex-col items-center gap-1 rounded-lg px-6 py-10 text-center ring-1 ring-border ring-inset">
             <b className="font-medium">Nothing sent yet</b>
             <p className="m-0 max-w-[44ch] text-sm text-muted-foreground">
-              When Messenger sends an email or chat message after your yes, it shows up here.
+              When an agent sends an email or chat message after your yes, it shows up here.
             </p>
           </div>
         )}
@@ -109,7 +109,7 @@ function SentCard({ message, calls }: { message: OutboxMessage; calls: ToolCallV
       c.action?.target.kind === "recipient" &&
       c.action.target.address === message.recipient,
   )
-  const agent = call ? look.byId(call.agent_id) : look.bySlug("messenger")
+  const agent = call ? look.byId(call.agent_id) : undefined
   const task = runs.data?.runs.find((run) => run.id === message.root_run_id)
   const link = "text-sm text-sidebar-foreground underline decoration-input underline-offset-[3px] hover:text-foreground"
 

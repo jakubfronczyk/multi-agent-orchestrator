@@ -46,7 +46,7 @@ export function NeedsPage() {
   return (
     <Page
       title="Needs your OK"
-      lede="Your team waits here for a yes or no when a setting or rule asks you: before sending, before opening a site not on your list, and before saving once a task has read outside content. If nobody answers before a card runs out, the answer is no."
+      lede="Your team waits here for a yes or no when a setting or rule asks you: before sending, before opening a site not on your list, and before saving a file once a task has read outside content. If nobody answers before a card runs out, the answer is no."
     >
       <section aria-label="Waiting for you">
         {all.isPending ? null : all.error ? (

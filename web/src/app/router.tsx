@@ -10,7 +10,7 @@ import { SentPage } from "@/pages/sent"
 import { TaskThreadPage } from "@/pages/task-thread"
 import { TasksPage } from "@/pages/tasks"
 import { TeamPage } from "@/pages/team/team-page"
-import { Placeholder } from "@/pages/placeholder"
+import { NotFound } from "@/pages/placeholder"
 
 export const router = createBrowserRouter([
   {
@@ -26,7 +26,7 @@ export const router = createBrowserRouter([
       { path: "/sent", element: <SentPage /> },
       { path: "/activity", element: <ActivityPage /> },
       { path: "/drill", element: <DrillPage /> },
-      { path: "*", element: <Placeholder title="Page not found" /> },
+      { path: "*", element: <NotFound /> },
     ],
   },
 ])

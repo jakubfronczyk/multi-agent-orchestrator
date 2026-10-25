@@ -99,7 +99,7 @@ export function AgentEditor({ agent, team, onRemoved }: { agent: AgentRecord; te
       <p className="m-0 rounded-md bg-muted px-4 py-3 text-sm text-sidebar-foreground">
         {isLead
           ? "Lead only plans and hands out work. It can read trusted shared notes but never writes them, and it can't have file, inbox, website or message tools."
-          : "If a task reads something from outside, like an email in your inbox, saving and sending always ask you first, whatever is set here."}
+          : "If a task reads something from outside, like an email in your inbox, file saves and website fetches set to Allow ask you first. Notes it writes are kept untrusted."}
       </p>
 
       {problem && !["name", "description", "system_prompt", "model", "reasoning_effort", "tools", "delegate_targets"].includes(problem.field ?? "") && (

@@ -70,7 +70,8 @@ export function TaskRow({ run }: { run: RunSummary }) {
       <span className={cn("justify-self-end text-sm whitespace-nowrap", TONE_CLASS[status.tone])}>{status.text}</span>
       <span className="justify-self-end text-xs whitespace-nowrap text-muted-foreground tabular-nums">
         {isToday(run.started_at) ? clockTime(run.started_at) : dayTime(run.started_at)},{" "}
-        {run.scenario ? "free demo" : money(run.cost_micros)}
+        {/* A scripted task costs nothing until a free-text follow-up goes to the live model. */}
+        {run.cost_micros === 0 && run.scenario ? "free demo" : money(run.cost_micros)}
       </span>
     </Link>
   )

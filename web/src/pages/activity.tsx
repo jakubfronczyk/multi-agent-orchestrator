@@ -22,7 +22,10 @@ const FILTERS: [Filter, string][] = [
 // and the call list doesn't say whether it was.
 const INBOX_AND_WEB = new Set(["inbox_read", "inbox_list", "http_fetch"])
 
-const FAILED = new Set(["failed", "timeout", "internal", "invalid_args", "child_failed", "not_offered"])
+// The same groups as the row labels (`callLabel`): a call that was not offered or had invalid
+// arguments reads "Not allowed", so it filters there too.
+const REFUSED = new Set(["refused", "not_offered", "invalid_args"])
+const FAILED = new Set(["failed", "timeout", "internal", "child_failed"])
 
 // The server's largest page; the list says so when it is full.
 const LIMIT = 200
@@ -68,7 +71,7 @@ export function ActivityPage() {
   const matches: Record<Filter, (call: ToolCallView) => boolean> = {
     all: () => true,
     asked: (call) => call.decision === "ask",
-    refused: (call) => call.status === "refused",
+    refused: (call) => REFUSED.has(call.status ?? ""),
     failed: (call) => FAILED.has(call.status ?? ""),
     outside: fromOutside,
   }

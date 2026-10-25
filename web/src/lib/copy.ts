@@ -98,6 +98,12 @@ export function readBeforeText(labels: string[]): string {
   return unique.length === 0 ? "Nothing from outside." : `This task read ${listText(unique)}.`
 }
 
+/** What taint changes (core `decide`): only file saves and fetches set to Allow are raised. */
+const TAINT_RAISES = "file saves and website fetches set to Allow ask you first"
+
+/** The banner on a thread that read outside content. */
+export const TAINT_EFFECT = `From here on, ${TAINT_RAISES}, and sends ask as always. Notes it writes are kept untrusted, so Lead can't read them.`
+
 export interface RuleContext {
   agent: string
   tool: string
@@ -115,7 +121,7 @@ export function ruleText(rule: Rule, ctx: RuleContext): string {
     case "off_allowlist":
       return `${rule.host} isn't on your allowed sites.`
     case "taint":
-      return `This task read ${sourceLabel(rule.source)}, so from then on every save, send and website fetch asks you, whatever the settings.`
+      return `This task read ${sourceLabel(rule.source)}, so from then on ${TAINT_RAISES}.`
     case "not_offered":
       return `${ctx.agent} doesn't have ${tool}, so the request was refused.`
     case "invalid_args":

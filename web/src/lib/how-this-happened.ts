@@ -33,6 +33,8 @@ export interface Hop {
   agent?: AgentRecord
   /** A decision that stopped the call, so the hop shows a shield instead of a check. */
   stopped?: boolean
+  /** A card still waiting for an answer, so the hop shows a clock. */
+  waiting?: boolean
   quoted?: boolean
 }
 
@@ -125,6 +127,7 @@ export function explainApproval(
     label: "Who decided",
     lines: [RESOLVED[approval.status](approval)],
     stopped: approval.status !== "approved" && approval.status !== "pending",
+    waiting: approval.status === "pending",
   })
 
   return {
