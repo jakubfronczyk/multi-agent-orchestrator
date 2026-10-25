@@ -142,8 +142,13 @@ pub trait Tool: Send + Sync {
 
     /// What the approval card shows: the arguments, unless the tool renders something clearer.
     async fn preview(&self, args: &Value) -> String {
-        serde_json::to_string_pretty(args).unwrap_or_default()
+        args_preview(args)
     }
+}
+
+/// The approval card's default text: the arguments, pretty-printed.
+pub fn args_preview(args: &Value) -> String {
+    serde_json::to_string_pretty(args).unwrap_or_default()
 }
 
 pub struct ToolSet {

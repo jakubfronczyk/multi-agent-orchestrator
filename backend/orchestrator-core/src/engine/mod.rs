@@ -12,7 +12,7 @@ use crate::agents::{AgentSpec, Role};
 use crate::ids::{AgentId, ApprovalId, RunId};
 use crate::llm::{Item, LlmProvider};
 use crate::money::Micros;
-use crate::runs::{Answer, FailReason, RunEvent, RunOutcome};
+use crate::runs::{Answer, RunEvent};
 use crate::store::{RunRef, Store, StoreError};
 use crate::tools::{ToolSet, ToolSpec};
 
@@ -142,14 +142,7 @@ impl Engine {
         if task_text.is_empty() {
             return Err(StartError::EmptyTask);
         }
-        let team: Vec<Arc<AgentSpec>> = self
-            .inner
-            .store
-            .team()
-            .await?
-            .into_iter()
-            .map(Arc::new)
-            .collect();
+        let team = self.inner.team().await?;
         let agent = match request.agent_id {
             Some(id) => team
                 .iter()
@@ -212,14 +205,7 @@ impl Engine {
         if history.open {
             return Err(FollowUpError::Running);
         }
-        let team: Vec<Arc<AgentSpec>> = self
-            .inner
-            .store
-            .team()
-            .await?
-            .into_iter()
-            .map(Arc::new)
-            .collect();
+        let team = self.inner.team().await?;
         let agent = team
             .iter()
             .find(|agent| agent.id() == history.root_agent && agent.role() == Role::Lead)
@@ -290,10 +276,7 @@ impl Engine {
         tokio::spawn(async move {
             if let Err(join_error) = handle.await {
                 task.cancel_token().cancel();
-                let outcome = RunOutcome::Failed {
-                    reason: FailReason::Internal,
-                    message: format!("the run stopped unexpectedly: {join_error}"),
-                };
+                let outcome = run::stopped(join_error);
                 if let Err(error) = inner.emit(at, RunEvent::RunFinished { outcome }).await {
                     tracing::error!(%error, run_id = ?at.run_id, "could not record the run's end");
                 }
@@ -340,6 +323,10 @@ impl Engine {
 }
 
 impl Inner {
+    async fn team(&self) -> Result<Vec<Arc<AgentSpec>>, StoreError> {
+        Ok(self.store.team().await?.into_iter().map(Arc::new).collect())
+    }
+
     /// The engine's one write path; an error ends the caller's run.
     async fn emit(&self, at: RunRef, event: RunEvent) -> Result<(), StoreError> {
         self.store.emit(at, event).await.map(|_| ())

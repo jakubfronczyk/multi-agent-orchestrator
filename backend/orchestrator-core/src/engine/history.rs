@@ -78,7 +78,7 @@ impl History {
     /// Each earlier turn as the user's text and the Lead's answer. In a tainted task each
     /// answer is wrapped as untrusted, as any derived text is.
     pub fn items(&self, taint: &[TaintSource]) -> Vec<Item> {
-        let source = (!taint.is_empty()).then(|| envelope::source_label(taint));
+        let source = envelope::source_label(taint);
         let mut items = Vec::with_capacity(self.turns.len() * 2);
         for turn in &self.turns {
             items.push(Item::User {

@@ -13,7 +13,9 @@ use crate::llm::FnCall;
 use crate::policy::{Decision, Rule, TaintSource, Trust, decide};
 use crate::runs::{Answer, ApprovalOutcome, CallStatus, Custody, RunEvent};
 use crate::store::StoreError;
-use crate::tools::{Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec};
+use crate::tools::{
+    Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, args_preview,
+};
 
 use super::approvals::Waited;
 use super::run::RunCtx;
@@ -62,9 +64,7 @@ impl Callable {
     async fn preview(&self, args: &Value) -> String {
         match self {
             Callable::Tool(tool) => tool.preview(args).await,
-            Callable::Delegate | Callable::Plan => {
-                serde_json::to_string_pretty(args).unwrap_or_default()
-            }
+            Callable::Delegate | Callable::Plan => args_preview(args),
         }
     }
 
@@ -257,7 +257,7 @@ pub(super) async fn execute(
         refused_or_denied.then_some((name, args)),
     )
     .await?;
-    let untrusted = (!sources.is_empty()).then(|| envelope::source_label(&sources));
+    let untrusted = envelope::source_label(&sources);
     Ok(envelope::render(&ended, untrusted.as_deref()))
 }
 

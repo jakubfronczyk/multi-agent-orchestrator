@@ -10,14 +10,14 @@ use serde_json::{Value, json};
 
 use crate::agents::{AgentSpec, Slug};
 use crate::ids::{RunId, ToolCallId};
-use crate::runs::{CallStatus, FailReason, RunEvent, RunOutcome};
+use crate::runs::{CallStatus, RunEvent, RunOutcome};
 use crate::store::{RunRef, StoreError};
 use crate::tools::{
     Action, PlanStep, Target, ToolError, ToolName, ToolOutput, ToolSpec, parse_args, schema_for,
 };
 
 use super::gateway::Ended;
-use super::run::{RunCtx, spawn_run};
+use super::run::{self, RunCtx, spawn_run};
 use super::{Inner, envelope, prompts};
 
 const TASK_CHARS: usize = 4000;
@@ -232,10 +232,7 @@ pub(super) async fn delegate(
         Err(join_error) => {
             // As the root supervisor does: stop anything the child started before recording it.
             child_cancel.cancel();
-            let outcome = RunOutcome::Failed {
-                reason: FailReason::Internal,
-                message: format!("the run stopped unexpectedly: {join_error}"),
-            };
+            let outcome = run::stopped(join_error);
             inner
                 .emit(
                     child,
@@ -254,7 +251,7 @@ pub(super) async fn delegate(
             run_id: child.run_id,
             truncated,
             output,
-            untrusted: tainted_label(ctx),
+            untrusted: envelope::source_label(&ctx.task.taint_sources()),
         },
         RunOutcome::Failed { message, .. } => {
             Ended::failed(CallStatus::ChildFailed, &message, None)
@@ -265,12 +262,6 @@ pub(super) async fn delegate(
             None,
         ),
     })
-}
-
-fn tainted_label(ctx: &RunCtx) -> Option<String> {
-    ctx.task
-        .is_tainted()
-        .then(|| envelope::source_label(&ctx.task.taint_sources()))
 }
 
 fn target(agent: &str, targets: &[Slug]) -> Result<Slug, ToolError> {

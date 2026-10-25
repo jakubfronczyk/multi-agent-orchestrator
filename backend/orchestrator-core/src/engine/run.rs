@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{StreamExt, stream};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::{AgentSpec, Slug};
@@ -67,10 +67,9 @@ async fn run_agent(inner: Arc<Inner>, ctx: RunCtx) -> RunOutcome {
 
 async fn run_loop(inner: &Arc<Inner>, ctx: &RunCtx) -> Result<RunOutcome, StoreError> {
     // Rule 5: the wrapper exists only in what the model reads; storage and the API keep plain text.
-    let text = if ctx.task_sources.is_empty() {
-        ctx.task_text.clone()
-    } else {
-        prompts::untrusted(&envelope::source_label(&ctx.task_sources), &ctx.task_text)
+    let text = match envelope::source_label(&ctx.task_sources) {
+        Some(label) => prompts::untrusted(&label, &ctx.task_text),
+        None => ctx.task_text.clone(),
     };
     let mut transcript = ctx.history.clone();
     transcript.push(Item::User { text });
@@ -128,16 +127,10 @@ async fn run_loop(inner: &Arc<Inner>, ctx: &RunCtx) -> Result<RunOutcome, StoreE
         transcript.extend(response.raw.into_iter().map(Item::Provider));
 
         let output = response.text.unwrap_or_default();
-        if last {
+        if last || response.calls.is_empty() {
             return Ok(RunOutcome::Completed {
                 output,
-                truncated: true,
-            });
-        }
-        if response.calls.is_empty() {
-            return Ok(RunOutcome::Completed {
-                output,
-                truncated: false,
+                truncated: last,
             });
         }
 
@@ -223,6 +216,14 @@ async fn complete_in_slot(
     tokio::time::timeout(inner.config.llm_timeout, inner.llm.complete(request))
         .await
         .unwrap_or(Err(LlmError::Timeout))
+}
+
+/// The outcome recorded for a run whose task panicked or was aborted.
+pub(super) fn stopped(error: JoinError) -> RunOutcome {
+    failed(
+        FailReason::Internal,
+        &format!("the run stopped unexpectedly: {error}"),
+    )
 }
 
 fn failed(reason: FailReason, message: &str) -> RunOutcome {

@@ -14,8 +14,11 @@ const RESULT_CHARS: usize = 64_000;
 
 /// How sources appear to the model and on a card: `inbox:<id>`, the URL, `note:<key>` or
 /// `file:<path>`, in read order.
-pub(super) fn source_label(sources: &[TaintSource]) -> String {
-    sources
+pub(super) fn source_label(sources: &[TaintSource]) -> Option<String> {
+    if sources.is_empty() {
+        return None;
+    }
+    let label = sources
         .iter()
         .map(|source| match source {
             TaintSource::Inbox { message_id } => format!("inbox:{message_id}"),
@@ -24,7 +27,8 @@ pub(super) fn source_label(sources: &[TaintSource]) -> String {
             TaintSource::File { path } => format!("file:{path}"),
         })
         .collect::<Vec<_>>()
-        .join(", ")
+        .join(", ");
+    Some(label)
 }
 
 /// `untrusted` names this call's sources when its result is outside content.
