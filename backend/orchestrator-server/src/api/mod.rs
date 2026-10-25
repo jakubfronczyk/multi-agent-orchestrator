@@ -9,15 +9,20 @@ use orchestrator_core::engine::Engine;
 use sqlx::SqlitePool;
 
 use crate::sqlite::SqliteStore;
+use crate::tools::files::Workspace;
 use tower_http::trace::TraceLayer;
 
 mod agents;
 mod approvals;
 mod error;
 mod events;
+mod files;
 mod json;
+mod memory;
 mod meta;
+mod outbox;
 mod runs;
+mod tool_calls;
 
 pub use error::{ApiError, ErrorCode};
 pub use meta::ActiveProvider;
@@ -28,6 +33,8 @@ pub struct AppState {
     pub store: Arc<SqliteStore>,
     pub engine: Arc<Engine>,
     pub provider: ActiveProvider,
+    /// Shared with the file tools, so the file view takes the same lock.
+    pub workspace: Workspace,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -39,6 +46,11 @@ pub fn router(state: AppState) -> Router {
         .route("/runs", get(runs::list).post(runs::start))
         .route("/runs/{id}", get(runs::get))
         .route("/runs/{id}/cancel", post(runs::cancel))
+        .route("/tool-calls", get(tool_calls::list))
+        .route("/memory", get(memory::list))
+        .route("/memory/{id}/versions", get(memory::versions))
+        .route("/outbox", get(outbox::list))
+        .route("/files", get(files::view))
         .route("/approvals", get(approvals::list))
         .route("/approvals/{id}", post(approvals::answer))
         .route("/events", get(events::stream))

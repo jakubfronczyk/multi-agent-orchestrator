@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT v.version, v.content, v.author_agent_id, a.slug AS \"author_slug!\", v.run_id,\n                  v.trust, v.created_at\n           FROM memory_versions v JOIN agents a ON a.id = v.author_agent_id\n           WHERE v.entry_id = ?\n           ORDER BY v.version DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "version",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "memory_versions",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "name": "content",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_versions",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "name": "author_agent_id",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_versions",
+            "name": "author_agent_id"
+          }
+        }
+      },
+      {
+        "name": "author_slug!",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agents",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "name": "run_id",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_versions",
+            "name": "run_id"
+          }
+        }
+      },
+      {
+        "name": "trust",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_versions",
+            "name": "trust"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_versions",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "40398fa23ed3ef1c262fea1fd80c16e90db9ae8ad455639c89aa7b1514ae2511"
+}

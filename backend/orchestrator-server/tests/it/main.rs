@@ -19,6 +19,7 @@ use orchestrator_server::api::{ActiveProvider, AppState, router};
 use orchestrator_server::events::EventEnvelope;
 use orchestrator_server::llm::ScriptedProvider;
 use orchestrator_server::sqlite::{SqliteStore, agents};
+use orchestrator_server::tools::files::Workspace;
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
@@ -178,18 +179,29 @@ fn worker() -> AgentInput {
     }
 }
 
-/// Serves the API on a free loopback port in scripted mode and returns its base URL.
+/// Serves the API in scripted mode; the file view finds nothing, since the test tools have no
+/// workspace.
 pub async fn serve(app: &App) -> String {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let base = format!("http://{}", listener.local_addr().expect("address"));
-    let state = AppState {
+    let workspace = Workspace::new(
+        std::env::temp_dir().join("orchestrator-test-no-workspace"),
+        app.pool.clone(),
+    );
+    serve_state(AppState {
         pool: app.pool.clone(),
         store: app.store.clone(),
         engine: app.engine.clone(),
         provider: ActiveProvider::Scripted,
-    };
+        workspace,
+    })
+    .await
+}
+
+/// Serves `state` on a free loopback port and returns its base URL.
+pub async fn serve_state(state: AppState) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("address"));
     tokio::spawn(async move { axum::serve(listener, router(state)).await });
     base
 }

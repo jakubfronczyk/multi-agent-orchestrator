@@ -14,11 +14,12 @@ use orchestrator_core::tools::{
     Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, parse_args,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
+use ts_rs::TS;
 use uuid::Uuid;
 
 use super::sandbox::{relative, resolve};
@@ -30,6 +31,26 @@ const FILE_BYTES: usize = 256 * 1024;
 const LIST_LIMIT: usize = 500;
 const ROW_LIMIT: usize = 200;
 const WRITABLE: [&str; 4] = ["md", "csv", "json", "txt"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum EntryKind {
+    File,
+    Dir,
+    /// Listed but never followed.
+    Symlink,
+}
+
+/// One directory entry; `path` is relative to the workspace root.
+#[derive(Debug, Clone)]
+pub struct Entry {
+    pub name: String,
+    pub path: String,
+    pub kind: EntryKind,
+    pub bytes: u64,
+    pub untrusted: bool,
+}
 
 /// The sandbox root and the database that records each file's trust. One lock pairs them:
 /// writes hold it exclusively, reads share it, so a read never sees new bytes with old trust.
@@ -47,6 +68,80 @@ impl Workspace {
             pool,
             lock: Arc::new(RwLock::new(())),
         }
+    }
+
+    /// What is at `path`, or `None` when nothing is. A symlink anywhere on the path is rejected.
+    pub async fn kind_of(&self, path: &str) -> Result<Option<EntryKind>, ToolError> {
+        let full = resolve(&self.root, path).await?;
+        match tokio::fs::symlink_metadata(&full).await {
+            Ok(meta) if meta.is_dir() => Ok(Some(EntryKind::Dir)),
+            Ok(_) => Ok(Some(EntryKind::File)),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(ToolError::Failed(format!("{path} cannot be read"))),
+        }
+    }
+
+    /// A directory's entries with their trust, at most 500, read under the shared lock.
+    pub async fn list(&self, path: &str) -> Result<Vec<Entry>, ToolError> {
+        let base = display(&relative(path)?);
+        let _shared = self.lock.read().await;
+        let dir = resolve(&self.root, path).await?;
+        let mut entries = tokio::fs::read_dir(&dir)
+            .await
+            .map_err(|_| ToolError::Failed(format!("{path} is not a readable directory")))?;
+        let mut listed = Vec::new();
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|_| ToolError::Failed(format!("{path} cannot be listed")))?
+        {
+            if listed.len() == LIST_LIMIT {
+                break;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // A write aborted mid-way can leave its temp file; it is never a workspace file.
+            if name.starts_with('.') && name.ends_with(".tmp") {
+                continue;
+            }
+            let Ok(kind) = entry.file_type().await else {
+                continue;
+            };
+            let bytes = entry.metadata().await.map(|m| m.len()).unwrap_or(0);
+            let kind = if kind.is_symlink() {
+                EntryKind::Symlink
+            } else if kind.is_dir() {
+                EntryKind::Dir
+            } else {
+                EntryKind::File
+            };
+            let entry_path = if base == "." {
+                name.clone()
+            } else {
+                format!("{base}/{name}")
+            };
+            let untrusted = self
+                .entry_untrusted(&entry_path, kind == EntryKind::Dir)
+                .await?;
+            listed.push(Entry {
+                name,
+                path: entry_path,
+                kind,
+                bytes,
+                untrusted,
+            });
+        }
+        Ok(listed)
+    }
+
+    /// A file's text and its trust; a file with no row counts as untrusted.
+    pub async fn read(&self, path: &str) -> Result<(String, Trust), ToolError> {
+        let (text, trust) = self.read_with_trust(path).await?;
+        let trust = if is_trusted(trust.as_deref()) {
+            Trust::Trusted
+        } else {
+            Trust::Untrusted
+        };
+        Ok((text, trust))
     }
 
     /// A file's text and stored trust, read together under the shared lock.
@@ -274,52 +369,18 @@ impl Tool for FileList {
     async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         let args: ListArgs = parse_args(&args)?;
         let path = args.path.unwrap_or_else(|| ".".to_string());
-        let base = display(&relative(&path)?);
-        let _shared = self.workspace.lock.read().await;
-        let dir = resolve(&self.workspace.root, &path).await?;
-        let mut taint = Vec::new();
-        let mut entries = tokio::fs::read_dir(&dir)
-            .await
-            .map_err(|_| ToolError::Failed(format!("{path} is not a readable directory")))?;
-        let mut listed = Vec::new();
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|_| ToolError::Failed(format!("{path} cannot be listed")))?
-        {
-            if listed.len() == LIST_LIMIT {
-                break;
-            }
-            let name = entry.file_name().to_string_lossy().into_owned();
-            // A write aborted mid-way can leave its temp file; it is never a workspace file.
-            if name.starts_with('.') && name.ends_with(".tmp") {
-                continue;
-            }
-            let Ok(kind) = entry.file_type().await else {
-                continue;
-            };
-            let size = entry.metadata().await.map(|m| m.len()).unwrap_or(0);
-            let kind = if kind.is_symlink() {
-                "symlink"
-            } else if kind.is_dir() {
-                "dir"
-            } else {
-                "file"
-            };
-            let entry_path = if base == "." {
-                name.clone()
-            } else {
-                format!("{base}/{name}")
-            };
-            if self
-                .workspace
-                .entry_untrusted(&entry_path, kind == "dir")
-                .await?
-            {
-                taint.push(TaintSource::File { path: entry_path });
-            }
-            listed.push(json!({ "name": name, "kind": kind, "bytes": size }));
-        }
+        let entries = self.workspace.list(&path).await?;
+        let taint = entries
+            .iter()
+            .filter(|entry| entry.untrusted)
+            .map(|entry| TaintSource::File {
+                path: entry.path.clone(),
+            })
+            .collect();
+        let listed: Vec<Value> = entries
+            .into_iter()
+            .map(|entry| json!({ "name": entry.name, "kind": entry.kind, "bytes": entry.bytes }))
+            .collect();
         Ok(ToolOutput {
             content: json!({ "path": path, "entries": listed }),
             taint,

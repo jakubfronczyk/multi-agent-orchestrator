@@ -13,6 +13,7 @@ use orchestrator_core::llm::{
 use orchestrator_core::tools::ToolName;
 use orchestrator_server::llm::XaiProvider;
 use orchestrator_server::tools;
+use orchestrator_server::tools::files::Workspace;
 use secrecy::SecretString;
 use sqlx::SqlitePool;
 
@@ -74,7 +75,7 @@ async fn live_grok_accepts_every_schema_and_echoes_a_two_turn_exchange(pool: Sql
         .expect("the key and both models are accepted");
 
     let temp = TempDir::new();
-    let set = tools::all(pool, temp.workspace());
+    let set = tools::all(pool.clone(), Workspace::new(temp.workspace(), pool));
     let mut every = vec![delegate_spec(&[reader()]), plan_spec()];
     for name in [
         ToolName::MemoryRead,

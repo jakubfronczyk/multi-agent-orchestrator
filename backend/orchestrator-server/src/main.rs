@@ -9,6 +9,7 @@ use orchestrator_core::llm::LlmProvider;
 use orchestrator_server::api::{self, ActiveProvider, AppState};
 use orchestrator_server::llm::{ScriptedProvider, XaiProvider};
 use orchestrator_server::sqlite::SqliteStore;
+use orchestrator_server::tools::files::Workspace;
 use orchestrator_server::{config, seed, sqlite, tools};
 use secrecy::SecretString;
 use tracing_subscriber::EnvFilter;
@@ -22,16 +23,17 @@ async fn main() -> anyhow::Result<()> {
 
     std::fs::create_dir_all(config::WORKSPACE_DIR)?;
     let pool = sqlite::connect(config::DATABASE_FILE).await?;
-    let workspace = PathBuf::from(config::WORKSPACE_DIR);
-    if seed::run(&pool, &workspace).await? {
+    let workspace_root = PathBuf::from(config::WORKSPACE_DIR);
+    if seed::run(&pool, &workspace_root).await? {
         tracing::info!("seeded the team, the inbox and the workspace");
     }
     let store = Arc::new(SqliteStore::new(pool.clone()));
+    let workspace = Workspace::new(workspace_root, pool.clone());
     let (llm, provider) = provider().await?;
     let engine = Arc::new(Engine::new(
         store.clone(),
         llm,
-        tools::all(pool.clone(), workspace),
+        tools::all(pool.clone(), workspace.clone()),
         config::engine_config(),
     ));
     let listener = tokio::net::TcpListener::bind(config::ADDRESS).await?;
@@ -43,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
             store,
             engine,
             provider,
+            workspace,
         }),
     )
     .await?;

@@ -115,6 +115,65 @@ impl From<ApprovalReadError> for RunReadError {
     }
 }
 
+/// The audit log, newest first; `last_event_id` is read first, as in `RunList`.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct ToolCallList {
+    pub tool_calls: Vec<ToolCallView>,
+    pub last_event_id: Option<EventId>,
+}
+
+/// Audit filters; each one that is set must match.
+#[derive(Debug, Clone, Default)]
+pub struct ToolCallFilter {
+    pub run_id: Option<RunId>,
+    pub agent_id: Option<AgentId>,
+    /// The name as the model sent it.
+    pub tool: Option<String>,
+    pub status: Option<CallStatus>,
+}
+
+/// One `tool_calls` row, shared by every query that returns calls.
+struct ToolCallRow {
+    id: String,
+    run_id: String,
+    agent_id: String,
+    tool: String,
+    args: String,
+    action: Option<String>,
+    decision: Option<String>,
+    rules: String,
+    phase: String,
+    status: Option<String>,
+    result_preview: Option<String>,
+    child_run_id: Option<String>,
+    duration_ms: Option<i64>,
+    requested_at: String,
+    finished_at: Option<String>,
+}
+
+impl ToolCallRow {
+    fn view(self) -> Result<ToolCallView, RunReadError> {
+        Ok(ToolCallView {
+            id: from_text(&self.id).map_err(corrupt)?,
+            run_id: from_text(&self.run_id).map_err(corrupt)?,
+            agent_id: from_text(&self.agent_id).map_err(corrupt)?,
+            tool: self.tool,
+            args: serde_json::from_str(&self.args).map_err(corrupt)?,
+            action: json_opt(self.action.as_deref())?,
+            decision: text_opt(self.decision.as_deref())?,
+            rules: serde_json::from_str(&self.rules).map_err(corrupt)?,
+            phase: from_text(&self.phase).map_err(corrupt)?,
+            status: text_opt(self.status.as_deref())?,
+            result_preview: self.result_preview,
+            child_run_id: text_opt(self.child_run_id.as_deref())?,
+            duration_ms: self.duration_ms,
+            requested_at: parse_timestamp(&self.requested_at).map_err(corrupt)?,
+            finished_at: time_opt(self.finished_at.as_deref())?,
+        })
+    }
+}
+
 #[derive(Deserialize)]
 struct PlanData {
     steps: Vec<PlanStep>,
@@ -207,7 +266,8 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
     };
     let taint_sources = json_opt(root_row.taint_sources.as_deref())?.unwrap_or_default();
 
-    let call_rows = sqlx::query!(
+    let call_rows = sqlx::query_as!(
+        ToolCallRow,
         r#"SELECT t.id, t.run_id, t.agent_id, t.tool, t.args, t.action, t.decision, t.rules,
                   t.phase, t.status, t.result_preview, t.child_run_id, t.duration_ms,
                   t.requested_at, t.finished_at
@@ -249,25 +309,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
         .collect::<Result<Vec<_>, RunReadError>>()?;
     let tool_calls = call_rows
         .into_iter()
-        .map(|row| {
-            Ok(ToolCallView {
-                id: from_text(&row.id).map_err(corrupt)?,
-                run_id: from_text(&row.run_id).map_err(corrupt)?,
-                agent_id: from_text(&row.agent_id).map_err(corrupt)?,
-                tool: row.tool,
-                args: serde_json::from_str(&row.args).map_err(corrupt)?,
-                action: json_opt(row.action.as_deref())?,
-                decision: text_opt(row.decision.as_deref())?,
-                rules: serde_json::from_str(&row.rules).map_err(corrupt)?,
-                phase: from_text(&row.phase).map_err(corrupt)?,
-                status: text_opt(row.status.as_deref())?,
-                result_preview: row.result_preview,
-                child_run_id: text_opt(row.child_run_id.as_deref())?,
-                duration_ms: row.duration_ms,
-                requested_at: parse_timestamp(&row.requested_at).map_err(corrupt)?,
-                finished_at: time_opt(row.finished_at.as_deref())?,
-            })
-        })
+        .map(ToolCallRow::view)
         .collect::<Result<Vec<_>, RunReadError>>()?;
     let plan = json_opt::<PlanData>(plan.as_deref())?.map(|data| data.steps);
     let cost_micros = runs
@@ -284,6 +326,59 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
         cost_micros,
         last_event_id,
     }))
+}
+
+pub async fn tool_calls(
+    pool: &SqlitePool,
+    filter: ToolCallFilter,
+    limit: u32,
+) -> Result<ToolCallList, RunReadError> {
+    let run = filter
+        .run_id
+        .as_ref()
+        .map(to_text)
+        .transpose()
+        .map_err(corrupt)?;
+    let agent = filter
+        .agent_id
+        .as_ref()
+        .map(to_text)
+        .transpose()
+        .map_err(corrupt)?;
+    let status = filter
+        .status
+        .as_ref()
+        .map(to_text)
+        .transpose()
+        .map_err(corrupt)?;
+    let mut tx = pool.begin().await?;
+    let last_event_id = last_event_id(&mut tx).await?;
+    let rows = sqlx::query_as!(
+        ToolCallRow,
+        r#"SELECT id, run_id, agent_id, tool, args, action, decision, rules, phase, status,
+                  result_preview, child_run_id, duration_ms, requested_at, finished_at
+           FROM tool_calls
+           WHERE (?1 IS NULL OR run_id = ?1) AND (?2 IS NULL OR agent_id = ?2)
+             AND (?3 IS NULL OR tool = ?3) AND (?4 IS NULL OR status = ?4)
+           ORDER BY requested_at DESC, id DESC
+           LIMIT ?5"#,
+        run,
+        agent,
+        filter.tool,
+        status,
+        limit
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let tool_calls = rows
+        .into_iter()
+        .map(ToolCallRow::view)
+        .collect::<Result<Vec<_>, RunReadError>>()?;
+    Ok(ToolCallList {
+        tool_calls,
+        last_event_id,
+    })
 }
 
 /// Whether a root run has this id, for telling an unknown task from a finished one.

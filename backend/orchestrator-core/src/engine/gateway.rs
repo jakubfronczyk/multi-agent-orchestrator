@@ -406,6 +406,7 @@ async fn run_tool(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
     };
     match joined {
         Ok(Ok(output)) => Ended::Ok(output),
+        // `Internal` reaches the model as `Failed` with the same text; only the API tells them apart.
         Ok(Err(error)) => Ended::failed(CallStatus::Failed, &error.to_string(), None),
         Err(_) => Ended::failed(CallStatus::Internal, "the tool stopped unexpectedly", None),
     }

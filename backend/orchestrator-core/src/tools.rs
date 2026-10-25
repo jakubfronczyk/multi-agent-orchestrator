@@ -109,6 +109,9 @@ pub enum ToolError {
     InvalidArgs(String),
     #[error("{0}")]
     Failed(String),
+    /// The tool's own infrastructure failed (storage, IO it does not own), not the request.
+    #[error("{0}")]
+    Internal(String),
 }
 
 /// What a running tool knows about its caller. Owned, so a spawned tool needs no borrow.

@@ -1,7 +1,6 @@
 //! The server's tools. Each gets its database pool, paths or HTTP client through its
 //! constructor; core sees only the `Tool` trait and the `ToolSpec`.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,8 +18,8 @@ pub mod messages;
 mod sandbox;
 
 /// The eleven server tools; `delegate` and `plan` are run by the engine itself.
-pub fn all(pool: SqlitePool, workspace_root: PathBuf) -> ToolSet {
-    let workspace = files::Workspace::new(workspace_root, pool.clone());
+/// `workspace` is shared with the API's file view, so both take the same lock.
+pub fn all(pool: SqlitePool, workspace: files::Workspace) -> ToolSet {
     let tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(memory::MemoryRead::new(pool.clone())),
         Arc::new(memory::MemorySearch::new(pool.clone())),
@@ -59,7 +58,7 @@ pub(crate) fn is_trusted(trust: Option<&str>) -> bool {
 /// Storage errors reach the model as a fixed message, so no stored text leaks through one.
 pub(crate) fn storage_failed(error: impl std::fmt::Display) -> ToolError {
     tracing::error!(%error, "tool storage failed");
-    ToolError::Failed("storage failed".to_string())
+    ToolError::Internal("storage failed".to_string())
 }
 
 /// `%`, `_` and the escape character itself match literally.

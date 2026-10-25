@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, run_id, channel, recipient, subject, body, sent_at\n         FROM outbox_messages ORDER BY sent_at DESC, id DESC LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "run_id",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "run_id"
+          }
+        }
+      },
+      {
+        "name": "channel",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "channel"
+          }
+        }
+      },
+      {
+        "name": "recipient",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "recipient"
+          }
+        }
+      },
+      {
+        "name": "subject",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "subject"
+          }
+        }
+      },
+      {
+        "name": "body",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "name": "sent_at",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "sent_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "1ccd045ae9f7fd575914b6d745821651a808901dce2142fc1a86d5b930a1889a"
+}

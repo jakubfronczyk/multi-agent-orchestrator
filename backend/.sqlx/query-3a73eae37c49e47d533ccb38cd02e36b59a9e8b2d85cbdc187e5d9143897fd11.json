@@ -1,0 +1,194 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, run_id, agent_id, tool, args, action, decision, rules, phase, status,\n                  result_preview, child_run_id, duration_ms, requested_at, finished_at\n           FROM tool_calls\n           WHERE (?1 IS NULL OR run_id = ?1) AND (?2 IS NULL OR agent_id = ?2)\n             AND (?3 IS NULL OR tool = ?3) AND (?4 IS NULL OR status = ?4)\n           ORDER BY requested_at DESC, id DESC\n           LIMIT ?5",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "run_id",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "run_id"
+          }
+        }
+      },
+      {
+        "name": "agent_id",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "agent_id"
+          }
+        }
+      },
+      {
+        "name": "tool",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "tool"
+          }
+        }
+      },
+      {
+        "name": "args",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "args"
+          }
+        }
+      },
+      {
+        "name": "action",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "action"
+          }
+        }
+      },
+      {
+        "name": "decision",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "decision"
+          }
+        }
+      },
+      {
+        "name": "rules",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "rules"
+          }
+        }
+      },
+      {
+        "name": "phase",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "phase"
+          }
+        }
+      },
+      {
+        "name": "status",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "name": "result_preview",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "result_preview"
+          }
+        }
+      },
+      {
+        "name": "child_run_id",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "child_run_id"
+          }
+        }
+      },
+      {
+        "name": "duration_ms",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "duration_ms"
+          }
+        }
+      },
+      {
+        "name": "requested_at",
+        "ordinal": 13,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "requested_at"
+          }
+        }
+      },
+      {
+        "name": "finished_at",
+        "ordinal": 14,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "finished_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "3a73eae37c49e47d533ccb38cd02e36b59a9e8b2d85cbdc187e5d9143897fd11"
+}
