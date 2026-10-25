@@ -35,3 +35,25 @@ jobs:
         run: cargo install sqlx-cli --locked --no-default-features --features sqlite,rustls
 
       - run: just ci
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      # web/package.json has no packageManager field, so the version is pinned here to the one
+      # that wrote web/pnpm-lock.yaml.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile && pnpm build && pnpm lint
