@@ -55,7 +55,7 @@ pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport
     let root_text = to_text(&root).map_err(corrupt)?;
     let mut tx = pool.begin().await?;
     let status = sqlx::query_scalar!(
-        "SELECT status FROM runs WHERE id = ?1 AND parent_run_id IS NULL",
+        "SELECT status FROM runs WHERE id = ?1 AND root_run_id = ?1",
         root_text
     )
     .fetch_optional(&mut *tx)

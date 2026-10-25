@@ -35,6 +35,8 @@ pub(super) struct RunCtx {
     pub caller: Option<String>,
     /// Slugs from the root agent to this one, for custody.
     pub agent_path: Vec<Slug>,
+    /// Earlier turns of the task, before `task_text`; empty except on a follow-up.
+    pub history: Vec<Item>,
 }
 
 /// Every run is its own spawned task. The future is boxed because a run can start a child
@@ -70,7 +72,8 @@ async fn run_loop(inner: &Arc<Inner>, ctx: &RunCtx) -> Result<RunOutcome, StoreE
     } else {
         prompts::untrusted(&envelope::source_label(&ctx.task_sources), &ctx.task_text)
     };
-    let mut transcript = vec![Item::User { text }];
+    let mut transcript = ctx.history.clone();
+    transcript.push(Item::User { text });
     let offered = gateway::offered_specs(inner, ctx);
     let instructions = prompts::instructions(&ctx.agent, ctx.caller.as_deref());
     let mut step = 0;
@@ -101,6 +104,7 @@ async fn run_loop(inner: &Arc<Inner>, ctx: &RunCtx) -> Result<RunOutcome, StoreE
             },
             script: ScriptKey {
                 root_run_id: ctx.at.root_run_id,
+                run_id: ctx.at.run_id,
                 agent: ctx.agent.slug().clone(),
                 step,
                 scenario: ctx.scenario.clone(),

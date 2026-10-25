@@ -39,6 +39,7 @@ fn request(
         tool_choice: ToolChoice::Auto,
         script: ScriptKey {
             root_run_id: RunId::new(),
+            run_id: RunId::new(),
             agent: orchestrator_core::agents::Slug::new("lead").expect("slug"),
             step: 0,
             scenario: None,

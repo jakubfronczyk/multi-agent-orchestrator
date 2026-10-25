@@ -6,7 +6,7 @@ import type { RunOutcome } from "./RunOutcome";
 import type { RunStatus } from "./RunStatus";
 
 /**
- * One task, read from its root run.
+ * One task, read from its root run; status, outcome and finish are its latest turn's.
  */
 export type RunSummary = { id: RunId, agent_id: AgentId, title: string | null, task: string, status: RunStatus, outcome: RunOutcome | null, started_at: string, finished_at: string | null, 
 /**

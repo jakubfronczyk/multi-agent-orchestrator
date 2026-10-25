@@ -1,4 +1,5 @@
-//! The engine is the API's only way to change runs: it starts a task and cancels it.
+//! The engine is the API's only way to change runs: it starts a task, continues a finished one
+//! with a follow-up, and cancels it.
 //! Each run is its own spawned task, and a watcher awaits it so a panic still ends the run.
 
 use std::collections::HashMap;
@@ -9,7 +10,7 @@ use tokio::sync::Semaphore;
 
 use crate::agents::{AgentSpec, Role};
 use crate::ids::{AgentId, ApprovalId, RunId};
-use crate::llm::LlmProvider;
+use crate::llm::{Item, LlmProvider};
 use crate::money::Micros;
 use crate::runs::{Answer, FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, Store, StoreError};
@@ -18,6 +19,7 @@ use crate::tools::{ToolSet, ToolSpec};
 mod approvals;
 mod envelope;
 mod gateway;
+mod history;
 mod native;
 mod prompts;
 mod run;
@@ -42,7 +44,7 @@ pub struct Config {
     pub allowlist: Vec<String>,
     /// How many delegations deep a run may be; a root run is at depth 0.
     pub max_depth: u32,
-    /// Runs one task may start, the root included.
+    /// Runs one turn of a task may start, its top-level run included.
     pub max_runs: u32,
 }
 
@@ -54,6 +56,27 @@ pub struct StartRequest {
     pub title: Option<String>,
     pub budget: Option<Micros>,
     pub scenario: Option<String>,
+}
+
+/// The next turn of a finished task, for its Lead.
+#[derive(Debug, Clone)]
+pub struct FollowUpRequest {
+    pub text: String,
+    pub scenario: Option<String>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum FollowUpError {
+    #[error("the text is empty")]
+    EmptyText,
+    #[error("no task has this root run")]
+    UnknownTask,
+    #[error("the task is still running")]
+    Running,
+    #[error("the task's root agent is not the team's Lead")]
+    NotLead,
+    #[error(transparent)]
+    Store(#[from] StoreError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -80,8 +103,11 @@ struct Inner {
     approvals: approvals::ApprovalWaiter,
     /// Caps model calls in flight across all runs.
     llm_slots: Semaphore,
-    /// Live tasks by root run id; an entry leaves when its root run has finished.
+    /// Live tasks by root run id; an entry leaves when its top-level run has finished.
     tasks: Mutex<HashMap<RunId, Arc<Task>>>,
+    /// Held from reading a task's log until its follow-up's `run_started` is recorded, so two
+    /// follow-ups cannot both find the task finished.
+    follow_ups: tokio::sync::Mutex<()>,
 }
 
 impl Engine {
@@ -101,6 +127,7 @@ impl Engine {
                 approvals: approvals::ApprovalWaiter::default(),
                 llm_slots,
                 tasks: Mutex::new(HashMap::new()),
+                follow_ups: tokio::sync::Mutex::new(()),
             }),
         }
     }
@@ -152,19 +179,95 @@ impl Engine {
                 },
             )
             .await?;
-        self.inner.tasks().insert(root, Arc::clone(&task));
+        self.launch(at, agent, task_text, request.scenario, task, Vec::new());
+        Ok(root)
+    }
 
+    /// Starts the Lead's next turn in a finished task (completed, failed, cancelled or
+    /// interrupted). Taint, spending and refused calls are rebuilt from the task's log.
+    pub async fn follow_up(
+        &self,
+        root: RunId,
+        request: FollowUpRequest,
+    ) -> Result<RunId, FollowUpError> {
+        let text = request.text.trim().to_string();
+        if text.is_empty() {
+            return Err(FollowUpError::EmptyText);
+        }
+        let _claim = self.inner.follow_ups.lock().await;
+        let events = self.inner.store.task_events(root).await?;
+        let history = history::History::read(root, &events).ok_or(FollowUpError::UnknownTask)?;
+        if history.open {
+            return Err(FollowUpError::Running);
+        }
+        let team: Vec<Arc<AgentSpec>> = self
+            .inner
+            .store
+            .team()
+            .await?
+            .into_iter()
+            .map(Arc::new)
+            .collect();
+        let agent = team
+            .iter()
+            .find(|agent| agent.id() == history.root_agent && agent.role() == Role::Lead)
+            .map(Arc::clone)
+            .ok_or(FollowUpError::NotLead)?;
+
+        let task = Arc::new(Task::new(
+            history.budget,
+            self.inner.config.allowlist.clone(),
+            team,
+        ));
+        history::replay(&task, &events);
+        let earlier = history.items(&task.taint_sources());
+        let at = RunRef {
+            root_run_id: root,
+            run_id: RunId::new(),
+        };
+        self.inner
+            .emit(
+                at,
+                RunEvent::RunStarted {
+                    agent_id: agent.id(),
+                    parent_run_id: None,
+                    parent_call_id: None,
+                    task: text.clone(),
+                    task_sources: Vec::new(),
+                    title: None,
+                    budget: None,
+                },
+            )
+            .await?;
+        self.launch(at, agent, text, request.scenario, task, earlier);
+        Ok(at.run_id)
+    }
+
+    /// Registers the task as live and spawns its top-level run. A watcher records a panic as
+    /// the run's end and removes the entry, unless a later turn has replaced it.
+    fn launch(
+        &self,
+        at: RunRef,
+        agent: Arc<AgentSpec>,
+        task_text: String,
+        scenario: Option<String>,
+        task: Arc<Task>,
+        history: Vec<Item>,
+    ) {
+        let root = at.root_run_id;
+        self.inner.tasks().insert(root, Arc::clone(&task));
         let ctx = run::RunCtx {
             at,
             agent_path: vec![agent.slug().clone()],
             agent,
             task_text,
             task_sources: Vec::new(),
-            scenario: request.scenario,
+            scenario,
             task: Arc::clone(&task),
             depth: 0,
             cancel: task.cancel_token(),
             caller: None,
+            history,
         };
         let handle = run::spawn_run(Arc::clone(&self.inner), ctx);
         let inner = Arc::clone(&self.inner);
@@ -176,12 +279,17 @@ impl Engine {
                     message: format!("the run stopped unexpectedly: {join_error}"),
                 };
                 if let Err(error) = inner.emit(at, RunEvent::RunFinished { outcome }).await {
-                    tracing::error!(%error, run_id = ?root, "could not record the run's end");
+                    tracing::error!(%error, run_id = ?at.run_id, "could not record the run's end");
                 }
             }
-            inner.tasks().remove(&root);
+            let mut tasks = inner.tasks();
+            if tasks
+                .get(&root)
+                .is_some_and(|live| Arc::ptr_eq(live, &task))
+            {
+                tasks.remove(&root);
+            }
         });
-        Ok(root)
     }
 
     /// False when the approval is not pending: unknown, already answered, expired or cancelled.

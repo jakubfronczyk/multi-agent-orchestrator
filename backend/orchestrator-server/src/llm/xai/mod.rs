@@ -59,7 +59,7 @@ struct Reasoning {
 #[derive(Serialize)]
 #[serde(untagged)]
 enum InputItem<'a> {
-    User {
+    Message {
         role: &'static str,
         content: &'a str,
     },
@@ -178,8 +178,12 @@ fn request_body(request: &CompletionRequest) -> ResponsesRequest<'_> {
         .transcript
         .iter()
         .map(|item| match item {
-            Item::User { text } => InputItem::User {
+            Item::User { text } => InputItem::Message {
                 role: "user",
+                content: text,
+            },
+            Item::Assistant { text } => InputItem::Message {
+                role: "assistant",
                 content: text,
             },
             Item::Provider(raw) => InputItem::Echo(raw),
@@ -353,6 +357,7 @@ mod tests {
             tool_choice: ToolChoice::None,
             script: ScriptKey {
                 root_run_id: RunId::new(),
+                run_id: RunId::new(),
                 agent: Slug::new("lead").expect("slug"),
                 step: 0,
                 scenario: None,

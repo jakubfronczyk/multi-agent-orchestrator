@@ -7,12 +7,17 @@ import type { RunId } from "./RunId";
 import type { RunView } from "./RunView";
 import type { TaintSource } from "./TaintSource";
 import type { ToolCallView } from "./ToolCallView";
+import type { Turn } from "./Turn";
 
 /**
  * One task: its runs in start order (the root first), calls in request order, and the cards
  * still pending. `last_event_id` is read first, as in `RunList`.
  */
-export type RunDetail = { root_run_id: RunId, runs: Array<RunView>, tool_calls: Array<ToolCallView>, pending_approvals: Array<ApprovalView>, 
+export type RunDetail = { root_run_id: RunId, runs: Array<RunView>, 
+/**
+ * The user's messages and the Lead's answers: the root run, then each follow-up.
+ */
+turns: Array<Turn>, tool_calls: Array<ToolCallView>, pending_approvals: Array<ApprovalView>, 
 /**
  * The latest plan recorded in the task.
  */

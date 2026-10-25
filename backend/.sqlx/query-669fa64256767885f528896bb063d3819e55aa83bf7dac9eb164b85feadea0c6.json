@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT 1 AS \"found!: i64\" FROM runs WHERE id = ?1 AND parent_run_id IS NULL",
+  "query": "SELECT 1 AS \"found!: i64\" FROM runs WHERE id = ?1 AND root_run_id = ?1",
   "describe": {
     "columns": [
       {
@@ -17,5 +17,5 @@
       false
     ]
   },
-  "hash": "db4837fa59db1b1902a7cc150d5bc51458fb90dc298776c98d7589bed12b6678"
+  "hash": "669fa64256767885f528896bb063d3819e55aa83bf7dac9eb164b85feadea0c6"
 }

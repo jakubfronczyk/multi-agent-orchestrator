@@ -61,10 +61,12 @@ pub enum ReasoningEffort {
     High,
 }
 
-/// One transcript entry: the user's task text, a provider output item, or a call's output.
+/// One transcript entry: the user's task text, an earlier turn's answer, a provider output
+/// item, or a call's output.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     User { text: String },
+    Assistant { text: String },
     Provider(Value),
     ToolOutput { call_id: String, output: String },
 }
@@ -87,6 +89,7 @@ pub enum ToolChoice {
 #[derive(Debug, Clone)]
 pub struct ScriptKey {
     pub root_run_id: RunId,
+    pub run_id: RunId,
     pub agent: Slug,
     pub step: u32,
     pub scenario: Option<String>,

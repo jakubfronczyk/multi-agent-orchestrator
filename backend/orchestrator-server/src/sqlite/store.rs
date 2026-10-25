@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use chrono::{SubsecRound, Utc};
 use orchestrator_core::agents::AgentSpec;
-use orchestrator_core::ids::EventId;
+use orchestrator_core::ids::{EventId, RunId};
 use orchestrator_core::runs::{ApprovalStatus, CallPhase, RunEvent, RunStatus};
 use orchestrator_core::store::{RunRef, Store, StoreError};
 use serde::Serialize;
@@ -13,7 +13,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use tokio::sync::{Mutex, broadcast};
 
 use super::text::{timestamp, to_text};
-use super::{agents, begin_write};
+use super::{agents, begin_write, events};
 use crate::events::EventEnvelope;
 
 const BROADCAST_CAPACITY: usize = 1024;
@@ -69,6 +69,10 @@ impl Store for SqliteStore {
 
     async fn team(&self) -> Result<Vec<AgentSpec>, StoreError> {
         agents::live_team(&self.pool).await.map_err(failed)
+    }
+
+    async fn task_events(&self, root: RunId) -> Result<Vec<(RunId, RunEvent)>, StoreError> {
+        events::of_task(&self.pool, root).await.map_err(failed)
     }
 }
 

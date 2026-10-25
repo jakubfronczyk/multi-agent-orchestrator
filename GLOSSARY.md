@@ -5,11 +5,15 @@ A team of agents works on a task while a human approves every risky action, and 
 ## Work
 
 **Task**:
-One root run plus every run it delegates, as a tree. Taint, budget and refused calls belong to the task.
+One root run, any follow-ups after it, and every run they delegate. Each is one turn of the Lead. Taint, budget and refused calls belong to the task.
 _Avoid_: job, session, conversation
 
+**Follow-up**:
+The user's next message in a finished task: it starts a new Lead run in the same task, which keeps the task's taint, budget and refused calls.
+_Avoid_: reply, new task, continuation
+
 **Task text**:
-The instruction string given to a run, by the user for the root run or by the parent for a delegated run.
+The instruction string given to a run, by the user for the root run or a follow-up, or by the parent for a delegated run.
 _Avoid_: prompt, task (for the string)
 
 **Run**:

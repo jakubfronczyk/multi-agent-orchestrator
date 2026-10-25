@@ -1,5 +1,5 @@
 //! The provider used without an API key: fixed replies, zero cost, no network.
-//! It counts attempts per (task, agent, step), so every task replays its script from the start.
+//! It counts attempts per (run, agent, step), so every run replays its script from the start.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
@@ -13,7 +13,7 @@ use orchestrator_core::runs::Usage;
 use super::scripts::{Reply, reply};
 use super::xai::parse_output;
 
-/// (root run id, agent slug, step)
+/// (run id, agent slug, step)
 type AttemptKey = (RunId, String, u32);
 
 #[derive(Default)]
@@ -28,7 +28,7 @@ impl ScriptedProvider {
 
     fn next_attempt(&self, request: &CompletionRequest) -> u32 {
         let key = (
-            request.script.root_run_id,
+            request.script.run_id,
             request.script.agent.as_str().to_string(),
             request.script.step,
         );
@@ -39,12 +39,14 @@ impl ScriptedProvider {
     }
 }
 
+/// The run's own user message: the last one, after any earlier turns.
 fn task_text(transcript: &[Item]) -> String {
     transcript
         .iter()
+        .rev()
         .find_map(|item| match item {
             Item::User { text } => Some(text.clone()),
-            Item::Provider(_) | Item::ToolOutput { .. } => None,
+            Item::Assistant { .. } | Item::Provider(_) | Item::ToolOutput { .. } => None,
         })
         .unwrap_or_default()
 }
@@ -53,7 +55,7 @@ fn task_text(transcript: &[Item]) -> String {
 fn last_output(transcript: &[Item]) -> Option<&str> {
     transcript.iter().rev().find_map(|item| match item {
         Item::ToolOutput { output, .. } => Some(output.as_str()),
-        Item::User { .. } | Item::Provider(_) => None,
+        Item::User { .. } | Item::Assistant { .. } | Item::Provider(_) => None,
     })
 }
 

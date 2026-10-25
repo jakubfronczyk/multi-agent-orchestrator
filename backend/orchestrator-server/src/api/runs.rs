@@ -1,10 +1,10 @@
 //! `/api/runs`: start a task (202 with its root run id; progress arrives on SSE), list tasks,
-//! read one task, cancel one. A task is addressed by its root run id.
+//! read one task, follow up on a finished one, cancel one. A task is addressed by its root run id.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use orchestrator_core::engine::{StartError, StartRequest};
+use orchestrator_core::engine::{FollowUpError, FollowUpRequest, StartError, StartRequest};
 use orchestrator_core::ids::{AgentId, RunId};
 use orchestrator_core::money::Micros;
 use serde::{Deserialize, Serialize};
@@ -85,6 +85,47 @@ pub(super) fn start_error(error: StartError) -> ApiError {
             ApiError::internal()
         }
     }
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, optional_fields)]
+pub struct FollowUpBody {
+    pub text: String,
+    /// Which fixed replies to play; set only by demo prompts, so typed text reaches the live model.
+    pub scenario: Option<String>,
+}
+
+/// 202 with the new turn's run id; 409 while any run in the task is live or when its root
+/// agent is not the Lead.
+pub async fn follow_up(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ApiJson(body): ApiJson<FollowUpBody>,
+) -> Result<(StatusCode, Json<StartRunResponse>), ApiError> {
+    let root: RunId = id.parse().map_err(|_| ApiError::not_found())?;
+    let run_id = state
+        .engine
+        .follow_up(
+            root,
+            FollowUpRequest {
+                text: body.text,
+                scenario: body.scenario,
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            FollowUpError::EmptyText => ApiError::invalid("text", "must not be empty"),
+            FollowUpError::UnknownTask => ApiError::not_found(),
+            FollowUpError::Running => ApiError::conflict("this task is still running"),
+            FollowUpError::NotLead => {
+                ApiError::conflict("only a task the Lead started takes follow-ups")
+            }
+            FollowUpError::Store(error) => {
+                tracing::error!(%error, "could not start the follow-up");
+                ApiError::internal()
+            }
+        })?;
+    Ok((StatusCode::ACCEPTED, Json(StartRunResponse { run_id })))
 }
 
 pub async fn list(

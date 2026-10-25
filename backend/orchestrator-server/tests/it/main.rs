@@ -27,6 +27,7 @@ mod delegate;
 mod endpoints;
 mod fetch;
 mod files;
+mod follow_up;
 mod gateway;
 mod memory;
 mod messages;

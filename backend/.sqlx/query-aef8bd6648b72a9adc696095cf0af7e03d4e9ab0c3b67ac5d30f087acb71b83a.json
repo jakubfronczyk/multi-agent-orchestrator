@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT status FROM runs WHERE id = ?1 AND parent_run_id IS NULL",
+  "query": "SELECT status FROM runs WHERE id = ?1 AND root_run_id = ?1",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "2d5c448e3b168b98c6c0dd42a61b43d476596fbb4019ac41f2221f5e7a5df440"
+  "hash": "aef8bd6648b72a9adc696095cf0af7e03d4e9ab0c3b67ac5d30f087acb71b83a"
 }

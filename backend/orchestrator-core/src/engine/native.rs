@@ -221,6 +221,7 @@ pub(super) async fn delegate(
         cancel: ctx.cancel.child_token(),
         caller: Some(ctx.agent.name().to_string()),
         agent_path,
+        history: Vec::new(),
     };
     let child_cancel = child_ctx.cancel.clone();
     let outcome = match spawn_run(Arc::clone(inner), child_ctx).await {

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT run_id, type AS kind, data FROM run_events WHERE root_run_id = ? ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "run_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "run_events",
+            "name": "run_id"
+          }
+        }
+      },
+      {
+        "name": "kind",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "run_events",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "name": "data",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "run_events",
+            "name": "data"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "823938712fe7c0dd84803b9c8698df1ad5ed25847153ba2e157ec08f50a7545f"
+}

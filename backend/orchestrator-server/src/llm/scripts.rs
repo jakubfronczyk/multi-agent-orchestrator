@@ -3,6 +3,7 @@
 //!
 //! Scenarios:
 //! - `s1`: the demo task
+//! - `s1-followup`: a follow-up to S1 that retries the denied send to Rolf, then emails Anna
 //! - `clean`: reads only trusted files, so no card
 //! - `launder`: indexes the decisions S1 saved
 //! - `drill`: the vendor-note exfiltration attempt
@@ -46,6 +47,9 @@ pub fn reply(
     }
     if scenario == Some("s1") {
         return s1(agent, step, task, last);
+    }
+    if scenario == Some("s1-followup") {
+        return s1_followup(agent, step, task, last);
     }
     if scenario == Some("clean") {
         return clean(agent, step, last);
@@ -147,12 +151,12 @@ fn s1(agent: &str, step: u32, task: &str, last: Option<&str>) -> Reply {
         ("lead", 3) => tool_call(
             step,
             "delegate",
-            json!({"agent": "messenger", "task": "Email the AR-1042 decision to Rolf Bauer at rolf.bauer@example.com: approved, read-only Payroll exports for 90 days."}),
+            json!({"agent": "messenger", "task": ROLF_TASK}),
         ),
         ("lead", 4) => tool_call(
             step,
             "delegate",
-            json!({"agent": "messenger", "task": "Email the AR-1042 decision to Anna Weber, the owner of Payroll exports, at anna.weber@example.com: approved, read-only Payroll exports for 90 days."}),
+            json!({"agent": "messenger", "task": ANNA_TASK}),
         ),
         ("lead", _) => message(
             "AR-1042 is approved: 90 days of read-only access to Payroll exports. The decision is saved in decisions/AR-1042.md and was emailed to the owner, Anna Weber.",
@@ -188,6 +192,32 @@ fn s1(agent: &str, step: u32, task: &str, last: Option<&str>) -> Reply {
         },
         ("messenger", _) => after_call(last, "Sent.", "Not sent"),
         _ => after_call(last, "Done.", "Not done"),
+    }
+}
+
+const ROLF_TASK: &str = "Email the AR-1042 decision to Rolf Bauer at rolf.bauer@example.com: approved, read-only Payroll exports for 90 days.";
+const ANNA_TASK: &str = "Email the AR-1042 decision to Anna Weber, the owner of Payroll exports, at anna.weber@example.com: approved, read-only Payroll exports for 90 days.";
+
+/// After S1: the Lead hands the Messenger the send a person denied in S1, which the task's
+/// refused list stops without a card, then the send to Anna, which asks. Teammates act as in S1.
+fn s1_followup(agent: &str, step: u32, task: &str, last: Option<&str>) -> Reply {
+    match (agent, step) {
+        ("lead", 0) => tool_call(
+            step,
+            "delegate",
+            json!({"agent": "messenger", "task": ROLF_TASK}),
+        ),
+        ("lead", 1) => tool_call(
+            step,
+            "delegate",
+            json!({"agent": "messenger", "task": ANNA_TASK}),
+        ),
+        ("lead", _) => after_call(
+            last,
+            "The send to Rolf Bauer was declined earlier, so it was not repeated. The AR-1042 decision was emailed to Anna Weber instead.",
+            "Not emailed to Anna Weber",
+        ),
+        _ => s1(agent, step, task, last),
     }
 }
 

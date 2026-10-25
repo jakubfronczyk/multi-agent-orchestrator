@@ -17,7 +17,7 @@ use super::events::{self, LLM_RESPONDED, PLAN_RECORDED};
 use super::read::{ReadError, corrupt, count, json_opt, text_opt, time_opt};
 use super::text::{from_text, parse_timestamp, to_text};
 
-/// One task, read from its root run.
+/// One task, read from its root run; status, outcome and finish are its latest turn's.
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
 pub struct RunSummary {
@@ -94,6 +94,8 @@ pub struct ToolCallView {
 pub struct RunDetail {
     pub root_run_id: RunId,
     pub runs: Vec<RunView>,
+    /// The user's messages and the Lead's answers: the root run, then each follow-up.
+    pub turns: Vec<Turn>,
     pub tool_calls: Vec<ToolCallView>,
     pub pending_approvals: Vec<ApprovalView>,
     /// The latest plan recorded in the task.
@@ -101,6 +103,19 @@ pub struct RunDetail {
     pub taint_sources: Vec<TaintSource>,
     pub cost_micros: Micros,
     pub last_event_id: Option<EventId>,
+}
+
+/// One top-level run of a task: what the user asked and how the turn ended.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct Turn {
+    pub run_id: RunId,
+    /// Plain text, as the user sent it.
+    pub text: String,
+    /// The Lead's final message; `None` until the turn completes, or when it did not.
+    pub summary: Option<String>,
+    /// `None` while the turn runs.
+    pub outcome: Option<RunOutcome>,
 }
 
 /// The audit log, newest first; `last_event_id` is read first, as in `RunList`.
@@ -167,7 +182,8 @@ struct PlanData {
     steps: Vec<PlanStep>,
 }
 
-/// Root runs, newest first, each with its task's counts and cost, in one query.
+/// Tasks by root run, newest first, each with its counts and cost, in one query. A follow-up
+/// has no parent either, so a root is the run whose id is its own root id.
 pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
     let pending = to_text(&ApprovalStatus::Pending).map_err(corrupt)?;
     let refused = to_text(&CallStatus::Refused).map_err(corrupt)?;
@@ -175,7 +191,7 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
     let mut tx = pool.begin().await?;
     let last_event_id = events::last_id(&mut *tx).await?;
     let rows = sqlx::query!(
-        r#"SELECT r.id, r.agent_id, r.title, r.task, r.status, r.outcome, r.started_at, r.finished_at,
+        r#"SELECT r.id, r.agent_id, r.title, r.task, l.status, l.outcome, r.started_at, l.finished_at,
                   (SELECT COUNT(*) FROM approvals a
                      JOIN tool_calls t ON t.id = a.tool_call_id
                      JOIN runs c ON c.id = t.run_id
@@ -188,7 +204,10 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
                   (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e
                     WHERE e.root_run_id = r.id AND e.type = ?4) AS "cost!: i64"
            FROM runs r
-           WHERE r.parent_run_id IS NULL
+           JOIN runs l ON l.id = (SELECT t.id FROM runs t
+                                   WHERE t.root_run_id = r.id AND t.parent_run_id IS NULL
+                                   ORDER BY t.started_at DESC, t.id DESC LIMIT 1)
+           WHERE r.id = r.root_run_id
            ORDER BY r.started_at DESC, r.id DESC
            LIMIT ?5"#,
         pending,
@@ -302,10 +321,24 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
     let cost_micros = runs
         .iter()
         .fold(Micros(0), |sum, run| sum.saturating_add(run.cost_micros));
+    let turns = runs
+        .iter()
+        .filter(|run| run.parent_run_id.is_none())
+        .map(|run| Turn {
+            run_id: run.id,
+            text: run.task.clone(),
+            summary: match &run.outcome {
+                Some(RunOutcome::Completed { output, .. }) => Some(output.clone()),
+                _ => None,
+            },
+            outcome: run.outcome.clone(),
+        })
+        .collect();
 
     Ok(Some(RunDetail {
         root_run_id: root,
         runs,
+        turns,
         tool_calls,
         pending_approvals,
         plan,
@@ -372,7 +405,7 @@ pub async fn tool_calls(
 pub async fn root_exists(pool: &SqlitePool, root: RunId) -> Result<bool, ReadError> {
     let root = to_text(&root).map_err(corrupt)?;
     let found = sqlx::query_scalar!(
-        r#"SELECT 1 AS "found!: i64" FROM runs WHERE id = ?1 AND parent_run_id IS NULL"#,
+        r#"SELECT 1 AS "found!: i64" FROM runs WHERE id = ?1 AND root_run_id = ?1"#,
         root
     )
     .fetch_optional(pool)

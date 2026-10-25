@@ -25,4 +25,6 @@ pub trait Store: Send + Sync {
     async fn emit(&self, at: RunRef, event: RunEvent) -> Result<EventId, StoreError>;
     /// Every live agent, rebuilt through `AgentSpec::validated`.
     async fn team(&self) -> Result<Vec<AgentSpec>, StoreError>;
+    /// Every event of the task in commit order, each with its run; empty for an unknown root.
+    async fn task_events(&self, root: RunId) -> Result<Vec<(RunId, RunEvent)>, StoreError>;
 }

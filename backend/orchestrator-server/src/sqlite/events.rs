@@ -1,12 +1,12 @@
 //! Event log reads for SSE replay. Events are written only by `Store::emit`.
 
-use orchestrator_core::ids::EventId;
+use orchestrator_core::ids::{EventId, RunId};
 use orchestrator_core::runs::RunEvent;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
 use super::read::{ReadError, corrupt};
-use super::text::{from_text, parse_timestamp};
+use super::text::{from_text, parse_timestamp, to_text};
 use crate::events::EventEnvelope;
 
 /// Stored `type` values the reads filter on; a test checks serde writes the same strings.
@@ -35,19 +35,38 @@ pub async fn since(pool: &SqlitePool, after: EventId) -> Result<Vec<EventEnvelop
     .await?;
     rows.into_iter()
         .map(|row| {
-            let data: Value = serde_json::from_str(&row.data).map_err(corrupt)?;
-            // Rebuilt in the shape `insert_event` split it from.
-            let event: RunEvent = serde_json::from_value(json!({ "type": row.kind, "data": data }))
-                .map_err(corrupt)?;
             Ok(EventEnvelope {
                 id: EventId(row.id),
                 root_run_id: from_text(&row.root_run_id).map_err(corrupt)?,
                 run_id: from_text(&row.run_id).map_err(corrupt)?,
                 ts: parse_timestamp(&row.ts).map_err(corrupt)?,
-                event,
+                event: event(&row.kind, &row.data)?,
             })
         })
         .collect()
+}
+
+/// Every event of the task whose root run is `root`, in id order, each with its run.
+pub async fn of_task(pool: &SqlitePool, root: RunId) -> Result<Vec<(RunId, RunEvent)>, ReadError> {
+    let root = to_text(&root).map_err(corrupt)?;
+    let rows = sqlx::query!(
+        r#"SELECT run_id, type AS kind, data FROM run_events WHERE root_run_id = ? ORDER BY id"#,
+        root
+    )
+    .fetch_all(pool)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            let run = from_text(&row.run_id).map_err(corrupt)?;
+            Ok((run, event(&row.kind, &row.data)?))
+        })
+        .collect()
+}
+
+/// Rebuilt in the shape `insert_event` split it from.
+fn event(kind: &str, data: &str) -> Result<RunEvent, ReadError> {
+    let data: Value = serde_json::from_str(data).map_err(corrupt)?;
+    serde_json::from_value(json!({ "type": kind, "data": data })).map_err(corrupt)
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT r.id, r.agent_id, r.title, r.task, r.status, r.outcome, r.started_at, r.finished_at,\n                  (SELECT COUNT(*) FROM approvals a\n                     JOIN tool_calls t ON t.id = a.tool_call_id\n                     JOIN runs c ON c.id = t.run_id\n                    WHERE c.root_run_id = r.id AND a.status = ?1) AS \"pending!: i64\",\n                  (SELECT json_group_array(DISTINCT c.agent_id) FROM runs c\n                    WHERE c.root_run_id = r.id) AS \"agents!: String\",\n                  (SELECT COUNT(*) FROM tool_calls t\n                     JOIN runs c ON c.id = t.run_id\n                    WHERE c.root_run_id = r.id AND t.status IN (?2, ?3)) AS \"refusals!: i64\",\n                  (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e\n                    WHERE e.root_run_id = r.id AND e.type = ?4) AS \"cost!: i64\"\n           FROM runs r\n           WHERE r.parent_run_id IS NULL\n           ORDER BY r.started_at DESC, r.id DESC\n           LIMIT ?5",
+  "query": "SELECT r.id, r.agent_id, r.title, r.task, l.status, l.outcome, r.started_at, l.finished_at,\n                  (SELECT COUNT(*) FROM approvals a\n                     JOIN tool_calls t ON t.id = a.tool_call_id\n                     JOIN runs c ON c.id = t.run_id\n                    WHERE c.root_run_id = r.id AND a.status = ?1) AS \"pending!: i64\",\n                  (SELECT json_group_array(DISTINCT c.agent_id) FROM runs c\n                    WHERE c.root_run_id = r.id) AS \"agents!: String\",\n                  (SELECT COUNT(*) FROM tool_calls t\n                     JOIN runs c ON c.id = t.run_id\n                    WHERE c.root_run_id = r.id AND t.status IN (?2, ?3)) AS \"refusals!: i64\",\n                  (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e\n                    WHERE e.root_run_id = r.id AND e.type = ?4) AS \"cost!: i64\"\n           FROM runs r\n           JOIN runs l ON l.id = (SELECT t.id FROM runs t\n                                   WHERE t.root_run_id = r.id AND t.parent_run_id IS NULL\n                                   ORDER BY t.started_at DESC, t.id DESC LIMIT 1)\n           WHERE r.id = r.root_run_id\n           ORDER BY r.started_at DESC, r.id DESC\n           LIMIT ?5",
   "describe": {
     "columns": [
       {
@@ -134,5 +134,5 @@
       false
     ]
   },
-  "hash": "eac94da125e1abbe6e68644b11e2656689bfbd774fd8c6f3036148e517d58f40"
+  "hash": "d71040ab28da923b383d031264f8165c2a96b29c0d69ef67dad6ddd2b9efe266"
 }

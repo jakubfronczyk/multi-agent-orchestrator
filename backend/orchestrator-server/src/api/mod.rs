@@ -48,6 +48,7 @@ pub fn router(state: AppState) -> Router {
         .route("/runs", get(runs::list).post(runs::start))
         .route("/runs/{id}", get(runs::get))
         .route("/runs/{id}/cancel", post(runs::cancel))
+        .route("/runs/{id}/messages", post(runs::follow_up))
         .route("/tool-calls", get(tool_calls::list))
         .route("/memory", get(memory::list))
         .route("/memory/{id}/versions", get(memory::versions))
