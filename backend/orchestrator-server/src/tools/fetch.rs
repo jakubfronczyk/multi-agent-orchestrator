@@ -66,8 +66,10 @@ fn parse_url(raw: &str) -> Result<Url, ToolError> {
 }
 
 /// Addresses a fetch must never reach: loopback, private, link-local, unspecified (with the
-/// rest of 0.0.0.0/8), CGNAT 100.64/10, IPv6 unique-local and link-local, and every IPv6 form
-/// that carries an IPv4 address: mapped (::ffff:0:0/96), compatible (::/96) and NAT64 (64:ff9b::/96).
+/// rest of 0.0.0.0/8), CGNAT 100.64/10, IETF 192.0.0/24, multicast, reserved 240/4 with
+/// broadcast, benchmarking 198.18/15, documentation, IPv6 unique-local and link-local, and every
+/// IPv6 form that carries an IPv4 address: mapped (::ffff:0:0/96), compatible (::/96), NAT64
+/// (64:ff9b::/96), 6to4 (2002::/16) and Teredo (2001::/32).
 /// `IpAddr::is_global` is unstable, so the list is explicit.
 pub fn is_blocked(ip: IpAddr) -> bool {
     match ip {
@@ -77,12 +79,17 @@ pub fn is_blocked(ip: IpAddr) -> bool {
 }
 
 fn blocked_v4(ip: Ipv4Addr) -> bool {
-    let [a, b, ..] = ip.octets();
+    let [a, b, c, _] = ip.octets();
     ip.is_loopback()
         || ip.is_private()
         || ip.is_link_local()
+        || ip.is_multicast()
+        || ip.is_documentation()
         || a == 0
+        || a >= 240
+        || (a == 192 && b == 0 && c == 0)
         || (a == 100 && (64..128).contains(&b))
+        || (a == 198 && (18..20).contains(&b))
 }
 
 fn blocked_v6(ip: Ipv6Addr) -> bool {
@@ -92,6 +99,10 @@ fn blocked_v6(ip: Ipv6Addr) -> bool {
     let nat64 = segments[..6] == [0x64, 0xff9b, 0, 0, 0, 0];
     ip.is_loopback()
         || ip.is_unspecified()
+        || ip.is_multicast()
+        || segments[..2] == [0x2001, 0x0db8]
+        || segments[..2] == [0x2001, 0]
+        || first == 0x2002
         || ip.to_ipv4_mapped().is_some()
         || ipv4_compatible
         || nat64
@@ -237,6 +248,18 @@ mod tests {
             "fe80::1",
             "::ffff:127.0.0.1",
             "::ffff:8.8.8.8",
+            "224.0.0.1",
+            "239.255.255.250",
+            "255.255.255.255",
+            "198.18.0.1",
+            "198.19.255.255",
+            "192.0.2.1",
+            "ff02::1",
+            "2001:db8::1",
+            "240.0.0.1",
+            "192.0.0.8",
+            "2002:c000:204::1",
+            "2001:0:4136:e378::1",
         ] {
             let ip: IpAddr = blocked.parse().expect("ip");
             assert!(is_blocked(ip), "{blocked} must be blocked");
@@ -245,6 +268,7 @@ mod tests {
             "8.8.8.8",
             "1.1.1.1",
             "100.128.0.1",
+            "198.20.0.1",
             "2606:4700::1111",
             "2001:4860:4860::8888",
         ] {
