@@ -3,9 +3,10 @@
 
 use std::time::Duration;
 
-use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 
+pub mod agents;
 mod store;
 mod text;
 
@@ -21,4 +22,12 @@ pub async fn connect(path: &str) -> Result<SqlitePool, sqlx::Error> {
     let pool = SqlitePool::connect_with(options).await?;
     sqlx::migrate!().run(&pool).await?;
     Ok(pool)
+}
+
+/// Takes the write lock before any read, so checks and writes see the same state and a
+/// waiting writer is retried by `busy_timeout` instead of failing on a stale snapshot.
+pub(crate) async fn begin_write(
+    pool: &SqlitePool,
+) -> Result<Transaction<'static, Sqlite>, sqlx::Error> {
+    pool.begin_with("BEGIN IMMEDIATE").await
 }

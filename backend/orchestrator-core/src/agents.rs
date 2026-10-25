@@ -1,8 +1,15 @@
-//! Agent identity types and the validation error every constructor returns.
-//! A `Slug` can only be built through `Slug::new`, so an invalid one never exists.
+//! Agents: identity types, the input a user submits and the validated `AgentSpec`.
+//! `AgentSpec::validated` is the only constructor, so an invalid agent never exists.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::ids::AgentId;
+use crate::llm::{Model, ReasoningEffort};
+use crate::policy::{Decision, Effect, LeadAccess};
+use crate::tools::ToolName;
 
 /// A field-level validation failure; the API turns it into `{error: {code, message, field}}`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -53,9 +60,305 @@ impl TryFrom<String> for Slug {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum Role {
+    Lead,
+    Specialist,
+}
+
+impl Role {
+    pub fn max_steps(self) -> u32 {
+        match self {
+            Role::Lead => 12,
+            Role::Specialist => 8,
+        }
+    }
+}
+
+/// What a user submits to create or replace an agent. A tool missing from `tools` is off.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[ts(export, optional_fields)]
+pub struct AgentInput {
+    pub role: Role,
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub system_prompt: String,
+    pub model: Model,
+    pub reasoning_effort: Option<ReasoningEffort>,
+    pub icon: String,
+    pub colour: String,
+    pub tools: BTreeMap<ToolName, Decision>,
+    pub delegate_targets: Vec<String>,
+}
+
+/// A valid agent. Checks that span the team (one Lead, live targets) run in the write's transaction.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct AgentSpec {
+    id: AgentId,
+    role: Role,
+    slug: Slug,
+    name: String,
+    description: String,
+    system_prompt: String,
+    model: Model,
+    reasoning_effort: Option<ReasoningEffort>,
+    max_steps: u32,
+    icon: String,
+    colour: String,
+    tools: BTreeMap<ToolName, Decision>,
+    delegate_targets: Vec<Slug>,
+    version: i64,
+}
+
+impl AgentSpec {
+    pub fn validated(
+        id: AgentId,
+        version: i64,
+        input: AgentInput,
+    ) -> Result<AgentSpec, ValidationError> {
+        let slug = Slug::new(&input.slug)?;
+        let delegate_targets = input
+            .delegate_targets
+            .iter()
+            .map(|target| {
+                Slug::new(target)
+                    .map_err(|error| ValidationError::new("delegate_targets", &error.message))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for (field, value) in [
+            ("name", &input.name),
+            ("description", &input.description),
+            ("system_prompt", &input.system_prompt),
+            ("icon", &input.icon),
+            ("colour", &input.colour),
+        ] {
+            if value.trim().is_empty() {
+                return Err(ValidationError::new(field, "must not be empty"));
+            }
+        }
+
+        match (input.model, input.reasoning_effort) {
+            (Model::Grok420NonReasoning, Some(_)) => {
+                return Err(ValidationError::new(
+                    "reasoning_effort",
+                    "this model takes no reasoning effort",
+                ));
+            }
+            (Model::Grok420NonReasoning, None) | (Model::Grok43, _) => {}
+        }
+
+        for (&tool, &decision) in &input.tools {
+            let allowed_for_role = match (tool.lead(), input.role) {
+                (LeadAccess::Only, Role::Lead) | (LeadAccess::Forbidden, Role::Specialist) => true,
+                (LeadAccess::Allowed, _) => true,
+                (LeadAccess::Only, Role::Specialist) | (LeadAccess::Forbidden, Role::Lead) => false,
+            };
+            if !allowed_for_role {
+                return Err(ValidationError::new(
+                    "tools",
+                    &format!("{tool:?} is not available to this role"),
+                ));
+            }
+            if tool.effect() == Effect::External && decision == Decision::Allow {
+                return Err(ValidationError::new(
+                    "tools",
+                    "external tools can be ask or deny, never allow",
+                ));
+            }
+        }
+
+        match input.role {
+            Role::Specialist if !delegate_targets.is_empty() => {
+                return Err(ValidationError::new(
+                    "delegate_targets",
+                    "only the Lead delegates",
+                ));
+            }
+            Role::Specialist => {}
+            Role::Lead => {
+                let mut seen = BTreeSet::new();
+                for target in &delegate_targets {
+                    if target == &slug || !seen.insert(target.as_str()) {
+                        return Err(ValidationError::new(
+                            "delegate_targets",
+                            "targets must be distinct and not the Lead itself",
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(AgentSpec {
+            id,
+            role: input.role,
+            slug,
+            name: input.name,
+            description: input.description,
+            system_prompt: input.system_prompt,
+            model: input.model,
+            reasoning_effort: input.reasoning_effort,
+            max_steps: input.role.max_steps(),
+            icon: input.icon,
+            colour: input.colour,
+            tools: input.tools,
+            delegate_targets,
+            version,
+        })
+    }
+
+    pub fn id(&self) -> AgentId {
+        self.id
+    }
+
+    pub fn role(&self) -> Role {
+        self.role
+    }
+
+    pub fn slug(&self) -> &Slug {
+        &self.slug
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    pub fn system_prompt(&self) -> &str {
+        &self.system_prompt
+    }
+
+    pub fn model(&self) -> Model {
+        self.model
+    }
+
+    pub fn reasoning_effort(&self) -> Option<ReasoningEffort> {
+        self.reasoning_effort
+    }
+
+    pub fn max_steps(&self) -> u32 {
+        self.max_steps
+    }
+
+    pub fn icon(&self) -> &str {
+        &self.icon
+    }
+
+    pub fn colour(&self) -> &str {
+        &self.colour
+    }
+
+    pub fn tools(&self) -> &BTreeMap<ToolName, Decision> {
+        &self.tools
+    }
+
+    pub fn delegate_targets(&self) -> &[Slug] {
+        &self.delegate_targets
+    }
+
+    pub fn version(&self) -> i64 {
+        self.version
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn input(role: Role, slug: &str) -> AgentInput {
+        AgentInput {
+            role,
+            slug: slug.to_string(),
+            name: "N".to_string(),
+            description: "D".to_string(),
+            system_prompt: "P".to_string(),
+            model: Model::Grok43,
+            reasoning_effort: None,
+            icon: "i".to_string(),
+            colour: "c".to_string(),
+            tools: BTreeMap::new(),
+            delegate_targets: vec![],
+        }
+    }
+
+    fn check(input: AgentInput) -> Result<AgentSpec, ValidationError> {
+        AgentSpec::validated(AgentId::new(), 1, input)
+    }
+
+    #[test]
+    fn agent_validation_rejects_each_broken_rule() {
+        let mut lead_with_file = input(Role::Lead, "lead");
+        lead_with_file
+            .tools
+            .insert(ToolName::FileRead, Decision::Allow);
+
+        let mut specialist_with_plan = input(Role::Specialist, "s");
+        specialist_with_plan
+            .tools
+            .insert(ToolName::Plan, Decision::Allow);
+
+        let mut send_allowed = input(Role::Specialist, "s");
+        send_allowed
+            .tools
+            .insert(ToolName::SendMessage, Decision::Allow);
+
+        let mut specialist_targets = input(Role::Specialist, "s");
+        specialist_targets.delegate_targets = vec!["x".to_string()];
+
+        let mut lead_targets_itself = input(Role::Lead, "lead");
+        lead_targets_itself.delegate_targets = vec!["lead".to_string()];
+
+        let mut effort_on_non_reasoning = input(Role::Specialist, "s");
+        effort_on_non_reasoning.model = Model::Grok420NonReasoning;
+        effort_on_non_reasoning.reasoning_effort = Some(ReasoningEffort::Low);
+
+        let mut empty_prompt = input(Role::Specialist, "s");
+        empty_prompt.system_prompt = "  ".to_string();
+
+        let bad_slug = input(Role::Specialist, "Bad Slug");
+
+        let mut bad_target = input(Role::Lead, "lead");
+        bad_target.delegate_targets = vec!["Not Valid".to_string()];
+
+        for (case, field) in [
+            (lead_with_file, "tools"),
+            (specialist_with_plan, "tools"),
+            (send_allowed, "tools"),
+            (specialist_targets, "delegate_targets"),
+            (lead_targets_itself, "delegate_targets"),
+            (effort_on_non_reasoning, "reasoning_effort"),
+            (empty_prompt, "system_prompt"),
+            (bad_slug, "slug"),
+            (bad_target, "delegate_targets"),
+        ] {
+            assert_eq!(
+                check(case).map(|_| ()).map_err(|e| e.field),
+                Err(field.to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn agent_validation_accepts_the_seed_shapes() {
+        let mut lead = input(Role::Lead, "lead");
+        lead.tools.insert(ToolName::Delegate, Decision::Allow);
+        lead.tools.insert(ToolName::Plan, Decision::Allow);
+        lead.tools.insert(ToolName::MemoryWrite, Decision::Allow);
+        lead.delegate_targets = vec!["reader".to_string()];
+        assert_eq!(check(lead).map(|spec| spec.max_steps()), Ok(12));
+
+        let mut reader = input(Role::Specialist, "reader");
+        reader.tools.insert(ToolName::InboxRead, Decision::Allow);
+        reader.tools.insert(ToolName::SendMessage, Decision::Deny);
+        assert_eq!(check(reader).map(|spec| spec.max_steps()), Ok(8));
+    }
 
     #[test]
     fn slug_accepts_valid_and_rejects_invalid() {

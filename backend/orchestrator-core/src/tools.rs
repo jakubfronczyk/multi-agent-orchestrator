@@ -12,7 +12,7 @@ use ts_rs::TS;
 use crate::agents::{Slug, ValidationError};
 use crate::policy::{Effect, LeadAccess};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum ToolName {

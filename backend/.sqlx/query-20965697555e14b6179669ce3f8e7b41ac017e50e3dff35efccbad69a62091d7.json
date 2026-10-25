@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO agent_tools (agent_id, tool, decision) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "20965697555e14b6179669ce3f8e7b41ac017e50e3dff35efccbad69a62091d7"
+}

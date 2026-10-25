@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT tool, decision FROM agent_tools WHERE agent_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "tool",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agent_tools",
+            "name": "tool"
+          }
+        }
+      },
+      {
+        "name": "decision",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agent_tools",
+            "name": "decision"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ba95afe026224a2a44ff224ce40caac9c949466d1df9006ea5c3dc100f34f9a5"
+}

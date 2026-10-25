@@ -3,6 +3,7 @@
 
 use async_trait::async_trait;
 
+use crate::agents::AgentSpec;
 use crate::ids::{EventId, RunId};
 use crate::runs::RunEvent;
 
@@ -22,4 +23,6 @@ pub enum StoreError {
 #[async_trait]
 pub trait Store: Send + Sync {
     async fn emit(&self, at: RunRef, event: RunEvent) -> Result<EventId, StoreError>;
+    /// Every live agent, rebuilt through `AgentSpec::validated`.
+    async fn team(&self) -> Result<Vec<AgentSpec>, StoreError>;
 }

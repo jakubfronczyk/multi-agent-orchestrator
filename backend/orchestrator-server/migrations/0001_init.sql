@@ -21,6 +21,8 @@ CREATE TABLE agents (
 ) STRICT;
 
 CREATE UNIQUE INDEX agents_live_slug ON agents (slug) WHERE deleted_at IS NULL;
+-- Backstop for the one-Lead check; 'lead' is to_text(Role::Lead).
+CREATE UNIQUE INDEX agents_one_live_lead ON agents (role) WHERE role = 'lead' AND deleted_at IS NULL;
 
 -- No row means the tool is off: not offered to the agent.
 CREATE TABLE agent_tools (

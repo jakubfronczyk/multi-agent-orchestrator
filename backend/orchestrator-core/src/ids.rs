@@ -1,6 +1,8 @@
 //! Typed ids, so a run id can never be passed where an approval id is expected.
 //! Every id is a uuid v7 (time-ordered) except `EventId`, the event log's integer key.
 
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
@@ -19,6 +21,14 @@ impl AgentId {
 impl Default for AgentId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl FromStr for AgentId {
+    type Err = uuid::Error;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(text).map(Self)
     }
 }
 

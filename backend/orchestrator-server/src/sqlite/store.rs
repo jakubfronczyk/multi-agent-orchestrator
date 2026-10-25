@@ -3,6 +3,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, SecondsFormat, SubsecRound, Utc};
+use orchestrator_core::agents::AgentSpec;
 use orchestrator_core::ids::EventId;
 use orchestrator_core::runs::{ApprovalStatus, CallPhase, RunEvent, RunStatus};
 use orchestrator_core::store::{RunRef, Store, StoreError};
@@ -12,6 +13,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use tokio::sync::{Mutex, broadcast};
 
 use super::text::to_text;
+use super::{agents, begin_write};
 use crate::events::EventEnvelope;
 
 const BROADCAST_CAPACITY: usize = 1024;
@@ -46,7 +48,7 @@ impl Store for SqliteStore {
         let now = Utc::now().trunc_subsecs(6);
         let ts = rfc3339(now);
 
-        let mut tx = self.pool.begin().await.map_err(failed)?;
+        let mut tx = begin_write(&self.pool).await.map_err(failed)?;
         // Projections first: run_started creates the runs row the event references.
         project(&mut tx, at, &event, &ts).await?;
         let id = insert_event(&mut tx, at, &event, &ts).await?;
@@ -61,6 +63,10 @@ impl Store for SqliteStore {
             event,
         });
         Ok(id)
+    }
+
+    async fn team(&self) -> Result<Vec<AgentSpec>, StoreError> {
+        agents::live_team(&self.pool).await.map_err(failed)
     }
 }
 

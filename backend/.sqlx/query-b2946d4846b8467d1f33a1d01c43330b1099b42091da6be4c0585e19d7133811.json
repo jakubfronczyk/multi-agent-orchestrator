@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE agents SET delegate_targets = ?, version = version + 1, updated_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "b2946d4846b8467d1f33a1d01c43330b1099b42091da6be4c0585e19d7133811"
+}
