@@ -27,7 +27,8 @@ use super::{escape_like, is_trusted, spec, storage_failed};
 use crate::sqlite::text::{from_text, timestamp, to_text};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
-const FILE_BYTES: usize = 256 * 1024;
+/// The largest file the file tools read or write, and so the largest upload.
+pub const FILE_BYTES: usize = 256 * 1024;
 const LIST_LIMIT: usize = 500;
 const WRITABLE: [&str; 4] = ["md", "csv", "json", "txt"];
 /// The one directory uploads go to.

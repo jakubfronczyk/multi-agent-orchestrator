@@ -9,7 +9,7 @@ use orchestrator_core::runs::RunEvent;
 use orchestrator_server::api::{ActiveProvider, AppState};
 use orchestrator_server::llm::ScriptedProvider;
 use orchestrator_server::sqlite::{SqliteStore, agents};
-use orchestrator_server::tools::files::Workspace;
+use orchestrator_server::tools::files::{FILE_BYTES, Workspace};
 use orchestrator_server::{seed, tools};
 use serde_json::Value;
 use sqlx::SqlitePool;
@@ -137,9 +137,9 @@ async fn bad_uploads_are_refused_before_anything_is_written(pool: SqlitePool) {
     let (status, _) = upload(&served.base, body("other", "x.md", b"x")).await;
     assert_eq!(status, 422, "the field must be named file");
 
-    let big = vec![b'a'; 1024 * 1024 + 1];
+    let big = vec![b'a'; FILE_BYTES + 1];
     let (status, _) = upload(&served.base, body("file", "big.txt", &big)).await;
-    assert_eq!(status, 413);
+    assert_eq!(status, 413, "one byte over the read cap");
     let (status, _) = upload(&served.base, body("file", "bin.txt", &[0xff, 0xfe, 0x00])).await;
     assert_eq!(status, 415, "not UTF-8");
     let (status, _) = upload(&served.base, body("file", "image.png", b"text")).await;
@@ -172,6 +172,22 @@ async fn a_symlinked_uploads_directory_is_refused(pool: SqlitePool) {
     let (status, json) = upload(&served.base, body("file", "notes.md", b"x")).await;
     assert_eq!(status, 422, "{json}");
     assert!(!outside.workspace().join("notes.md").exists());
+}
+
+/// An upload at the cap is stored and read back whole through the file tools' reader.
+#[sqlx::test]
+async fn an_upload_at_the_cap_is_readable(pool: SqlitePool) {
+    let served = served(pool).await;
+    let full = vec![b'a'; FILE_BYTES];
+    let (status, json) = upload(&served.base, body("file", "full.txt", &full)).await;
+    assert_eq!(status, 201, "{json}");
+    let view: Value = reqwest::get(format!("{}/api/files?path=uploads/full.txt", served.base))
+        .await
+        .expect("response")
+        .json()
+        .await
+        .expect("json");
+    assert_eq!(view["content"].as_str().map(str::len), Some(FILE_BYTES));
 }
 
 /// Every way a task can read an upload taints it with the file, as an inbox message would.

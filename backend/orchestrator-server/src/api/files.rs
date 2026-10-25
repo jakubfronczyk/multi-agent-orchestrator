@@ -15,10 +15,8 @@ use ts_rs::TS;
 use super::AppState;
 use super::error::ApiError;
 use super::error::ErrorCode;
-use crate::tools::files::{EntryKind, UploadError};
+use crate::tools::files::{EntryKind, FILE_BYTES, UploadError};
 
-/// The largest upload accepted.
-const UPLOAD_BYTES: usize = 1024 * 1024;
 /// The text formats an upload may have, by extension.
 const UPLOAD_EXTENSIONS: [&str; 4] = ["csv", "md", "txt", "json"];
 const UPLOAD_FIELD: &str = "file";
@@ -112,7 +110,7 @@ pub struct UploadResponse {
 }
 
 /// 201 with the stored path. 422 for a missing field or a bad name, 409 when the name is taken,
-/// 413 over 1 MB, 415 for anything but UTF-8 .csv, .md, .txt or .json.
+/// 413 over 256 KB, 415 for anything but UTF-8 .csv, .md, .txt or .json.
 pub async fn upload(
     State(state): State<AppState>,
     mut multipart: Multipart,
@@ -134,7 +132,7 @@ pub async fn upload(
 
     let mut bytes = Vec::new();
     while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
-        if bytes.len() + chunk.len() > UPLOAD_BYTES {
+        if bytes.len() + chunk.len() > FILE_BYTES {
             return Err(too_large());
         }
         bytes.extend_from_slice(&chunk);
@@ -170,7 +168,7 @@ fn too_large() -> ApiError {
     ApiError::new(
         StatusCode::PAYLOAD_TOO_LARGE,
         ErrorCode::InvalidInput,
-        "the file is larger than 1 MB".to_string(),
+        "the file is larger than 256 KB".to_string(),
         Some(UPLOAD_FIELD.to_string()),
     )
 }
