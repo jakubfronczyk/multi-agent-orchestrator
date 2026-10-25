@@ -14,8 +14,8 @@ pub enum Reply {
 }
 
 /// `test:seq:<tool>:<args>|<tool>:<args>` makes one call per step. `test:twice:<tool>:<args>`
-/// makes the same call twice in one step. `s1` is the demo task; `drill` plays the vendor-note
-/// exfiltration attempt.
+/// makes the same call twice in one step. `s1` is the demo task; `clean` reads only trusted
+/// files; `drill` plays the vendor-note exfiltration attempt.
 /// `test:call:<tool>:<json args>` calls once, then answers. `test:loop:<tool>` calls on every
 /// step it may. In `test:delegate*` the Lead delegates on its first step and teammates answer
 /// with their slug. With `tool_choice` none, every script answers in text, as xAI does.
@@ -39,6 +39,9 @@ pub fn reply(
     }
     if scenario == Some("s1") {
         return s1(agent, step, task);
+    }
+    if scenario == Some("clean") {
+        return clean(agent, step);
     }
     if let Some(parts) = scenario.and_then(|s| s.strip_prefix("test:seq:")) {
         let calls: Vec<&str> = parts.split('|').collect();
@@ -173,6 +176,53 @@ fn s1(agent: &str, step: u32, task: &str) -> Reply {
             ),
             None => message("The task names no recipient."),
         },
+        _ => message("Done."),
+    }
+}
+
+const LONG_GRANTS: &str = "# Grants over 90 days\n\nPolicy rule 2: read-only access longer than 90 days needs the system owner's approval.\n\n- AG-204, Max Braun, Wiki, 180 days\n- AG-207, Ines Costa, Wiki, 120 days\n- AG-210, Lukas Meyer, Payroll exports, 365 days\n";
+
+/// A task that reads only trusted workspace files: nothing taints it, so the Writer's allowed
+/// save runs without a card and the whole task shows no approval.
+fn clean(agent: &str, step: u32) -> Reply {
+    match (agent, step) {
+        ("lead", 0) => tool_call(
+            step,
+            "plan",
+            json!({"steps": [
+                {"agent": "reader", "goal": "Find grants over 90 days and the policy rule they fall under"},
+                {"agent": "writer", "goal": "Save the list under reports/"},
+                {"agent": "self", "goal": "Summarize what was found"}
+            ]}),
+        ),
+        ("lead", 1) => tool_call(
+            step,
+            "delegate",
+            json!({"agent": "reader", "task": "List the grants in data/access-grants.csv that last more than 90 days, and say which rule in data/access-policy.md covers them."}),
+        ),
+        ("lead", 2) => tool_call(
+            step,
+            "delegate",
+            json!({"agent": "writer", "task": format!("Save this list as reports/long-grants.md:\n\n{LONG_GRANTS}")}),
+        ),
+        ("lead", _) => message(
+            "Three grants run longer than 90 days (AG-204, AG-207, AG-210); policy rule 2 says each needs the system owner's approval. The list is saved in reports/long-grants.md.",
+        ),
+        ("reader", 0) => tool_call(step, "file_read", json!({"path": "data/access-policy.md"})),
+        ("reader", 1) => tool_call(
+            step,
+            "csv_query",
+            json!({"path": "data/access-grants.csv", "filter": [{"column": "days", "op": "gt", "value": "90"}], "select": ["grant_id", "system", "days"]}),
+        ),
+        ("reader", _) => message(
+            "AG-204 (180 days), AG-207 (120 days) and AG-210 (365 days) run longer than 90 days. Policy rule 2: they need the system owner's approval.",
+        ),
+        ("writer", 0) => tool_call(
+            step,
+            "file_write",
+            json!({"path": "reports/long-grants.md", "content": LONG_GRANTS}),
+        ),
+        ("writer", _) => message("Saved reports/long-grants.md."),
         _ => message("Done."),
     }
 }

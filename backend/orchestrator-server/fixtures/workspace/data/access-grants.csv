@@ -1,0 +1,13 @@
+grant_id,person,system,access,days,approved_by
+AG-201,Jana Kowalski,Wiki,read-only,30,Rolf Bauer
+AG-202,Tomas Novak,CRM,read-only,60,Anna Weber
+AG-203,Lea Fischer,Payroll exports,read-only,90,Rolf Bauer
+AG-204,Max Braun,Wiki,read-only,180,Jana Kowalski
+AG-205,Sara Lind,CRM,read-only,14,Rolf Bauer
+AG-206,Omar Haddad,Payroll exports,read-only,45,Anna Weber
+AG-207,Ines Costa,Wiki,read-only,120,Rolf Bauer
+AG-208,Piotr Zielinski,CRM,read-only,90,Anna Weber
+AG-209,Mia Wagner,Wiki,read-only,7,Jana Kowalski
+AG-210,Lukas Meyer,Payroll exports,read-only,365,Rolf Bauer
+AG-211,Eva Horvat,CRM,read-only,30,Anna Weber
+AG-212,Noah Keller,Wiki,read-only,60,Jana Kowalski

@@ -682,3 +682,42 @@ async fn the_seeded_lead_is_offered_no_memory_tools(pool: SqlitePool) {
         assert_eq!(offered, [ToolName::Delegate, ToolName::Plan]);
     }
 }
+
+/// The clean task reads only trusted files: no taint, no card, and the Writer's save is
+/// stored trusted. The CSV filter returns exactly the three grants over 90 days.
+#[sqlx::test]
+async fn the_clean_task_runs_without_a_single_card(pool: SqlitePool) {
+    let seeded = seeded(pool).await;
+    let task = "Find access grants longer than 90 days and save a list of them";
+    let (_, events) = run_scenario(&seeded, "clean", task).await;
+
+    assert!(cards(&events).is_empty(), "no approval in a clean task");
+    assert!(tainted(&events).is_empty(), "nothing outside was read");
+    assert!(matches!(
+        root_outcome(&events),
+        RunOutcome::Completed { .. }
+    ));
+
+    let csv = events
+        .iter()
+        .find_map(|e| match &e.event {
+            RunEvent::ToolCallFinished {
+                result_preview: Some(preview),
+                ..
+            } if preview.contains("AG-2") => Some(preview.clone()),
+            _ => None,
+        })
+        .expect("the csv result");
+    for long in ["AG-204", "AG-207", "AG-210"] {
+        assert!(csv.contains(long), "{long} in {csv}");
+    }
+    assert!(!csv.contains("AG-203"), "90 days is not over 90");
+
+    let trust = sqlx::query_scalar!(
+        "SELECT trust FROM workspace_files WHERE path = 'reports/long-grants.md'"
+    )
+    .fetch_one(&seeded.pool)
+    .await
+    .expect("row");
+    assert_eq!(trust, "trusted");
+}

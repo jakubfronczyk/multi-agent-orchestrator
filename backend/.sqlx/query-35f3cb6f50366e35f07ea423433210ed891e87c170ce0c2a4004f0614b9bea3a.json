@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT trust FROM workspace_files WHERE path = 'reports/long-grants.md'",
+  "describe": {
+    "columns": [
+      {
+        "name": "trust",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "trust"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "35f3cb6f50366e35f07ea423433210ed891e87c170ce0c2a4004f0614b9bea3a"
+}

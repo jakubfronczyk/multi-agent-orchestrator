@@ -16,10 +16,14 @@ use crate::sqlite::agents::{self, AgentError};
 use crate::sqlite::text::{timestamp, to_text};
 
 const INBOX: &str = include_str!("../fixtures/inbox.json");
-const WORKSPACE: [(&str, &str); 2] = [
+const WORKSPACE: [(&str, &str); 3] = [
     (
         "data/access-policy.md",
         include_str!("../fixtures/workspace/data/access-policy.md"),
+    ),
+    (
+        "data/access-grants.csv",
+        include_str!("../fixtures/workspace/data/access-grants.csv"),
     ),
     (
         "data/systems.csv",
