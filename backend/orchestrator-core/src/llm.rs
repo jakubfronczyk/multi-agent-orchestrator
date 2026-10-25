@@ -28,10 +28,25 @@ pub enum Provider {
 }
 
 impl Model {
+    pub const ALL: [Model; 2] = [Model::Grok43, Model::Grok420NonReasoning];
+
     /// Every model is listed, so a new model fails to compile until its provider is chosen.
     pub fn provider(self) -> Provider {
         match self {
             Model::Grok43 | Model::Grok420NonReasoning => Provider::Xai,
+        }
+    }
+
+    /// The reasoning efforts the model accepts; empty means it takes none.
+    pub fn efforts(self) -> &'static [ReasoningEffort] {
+        match self {
+            Model::Grok43 => &[
+                ReasoningEffort::None,
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High,
+            ],
+            Model::Grok420NonReasoning => &[],
         }
     }
 }

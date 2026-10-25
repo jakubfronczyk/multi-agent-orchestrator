@@ -1,0 +1,141 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.id, r.parent_run_id, r.agent_id, r.title, r.task, r.status, r.outcome,\n                  r.taint_sources, r.started_at, r.finished_at,\n                  (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e\n                    WHERE e.root_run_id = ?1 AND e.run_id = r.id AND e.type = ?2) AS \"cost!: i64\"\n           FROM runs r\n           WHERE r.root_run_id = ?1\n           ORDER BY r.started_at, r.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "parent_run_id",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "parent_run_id"
+          }
+        }
+      },
+      {
+        "name": "agent_id",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "agent_id"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "name": "task",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "task"
+          }
+        }
+      },
+      {
+        "name": "status",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "name": "outcome",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "outcome"
+          }
+        }
+      },
+      {
+        "name": "taint_sources",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "taint_sources"
+          }
+        }
+      },
+      {
+        "name": "started_at",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "name": "finished_at",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "name": "cost!: i64",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "3437037ee18720c0f6f6017bc4c6674149876dbf0402efed89b7c71c34cabf16"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT a.id, a.tool_call_id, a.custody, a.preview, a.status, a.note, a.expires_at, a.created_at,\n                  a.resolved_at, t.run_id AS \"run_id!\", t.tool AS \"tool!\", t.action\n           FROM approvals a JOIN tool_calls t ON t.id = a.tool_call_id\n           WHERE (?1 IS NULL OR a.status = ?1)\n           ORDER BY a.created_at, a.id",
+  "query": "SELECT a.id, a.tool_call_id, a.custody, a.preview, a.status, a.note, a.expires_at, a.created_at,\n                  a.resolved_at, t.run_id AS \"run_id!\", t.tool AS \"tool!\", t.action\n           FROM approvals a\n           JOIN tool_calls t ON t.id = a.tool_call_id\n           JOIN runs r ON r.id = t.run_id\n           WHERE (?1 IS NULL OR a.status = ?1) AND (?2 IS NULL OR r.root_run_id = ?2)\n           ORDER BY a.created_at, a.id",
   "describe": {
     "columns": [
       {
@@ -137,7 +137,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       false,
@@ -154,5 +154,5 @@
       true
     ]
   },
-  "hash": "7a86c1f7f192476be8acb14641728e623d50e71a7cfcc1e2bbd7e13ed88e7604"
+  "hash": "6a60f850c22f444fbcf4c4ee51c302164d381f21e39f395199e7620b58a51501"
 }

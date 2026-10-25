@@ -40,8 +40,10 @@ pub fn child_message(task: &str, context: Option<&str>, expected_output: Option<
 
 /// Lists each teammate's description, never its tools.
 pub fn delegate_description(targets: &[Arc<AgentSpec>]) -> String {
-    let mut text =
-        "Hand one step to a teammate and get its final answer back. Teammates:".to_string();
+    let mut text = "Hand one step to a teammate and get its final answer back.".to_string();
+    if !targets.is_empty() {
+        text.push_str(" Teammates:");
+    }
     for target in targets {
         text.push_str(&format!(
             "\n- {}: {}",

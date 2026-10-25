@@ -1,7 +1,8 @@
-//! `POST /api/runs` starts a task and answers 202 with its root run id; progress arrives on SSE.
+//! `/api/runs`: start a task (202 with its root run id; progress arrives on SSE), list tasks,
+//! read one task, cancel one. A task is addressed by its root run id.
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use orchestrator_core::engine::{StartError, StartRequest};
 use orchestrator_core::ids::{AgentId, RunId};
@@ -12,6 +13,15 @@ use ts_rs::TS;
 use super::AppState;
 use super::error::ApiError;
 use super::json::ApiJson;
+use crate::sqlite::runs::{self, RunDetail, RunList, RunReadError};
+
+const DEFAULT_LIMIT: u32 = 50;
+const MAX_LIMIT: u32 = 200;
+
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    limit: Option<u32>,
+}
 
 #[derive(Debug, Deserialize, TS)]
 #[ts(export, optional_fields)]
@@ -58,4 +68,53 @@ fn start_error(error: StartError) -> ApiError {
             ApiError::internal()
         }
     }
+}
+
+pub async fn list(
+    State(state): State<AppState>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<RunList>, ApiError> {
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
+    if !(1..=MAX_LIMIT).contains(&limit) {
+        return Err(ApiError::invalid("limit", "use 1 to 200"));
+    }
+    Ok(Json(
+        runs::list(&state.pool, limit).await.map_err(read_error)?,
+    ))
+}
+
+pub async fn get(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<RunDetail>, ApiError> {
+    let root: RunId = id.parse().map_err(|_| ApiError::not_found())?;
+    runs::detail(&state.pool, root)
+        .await
+        .map_err(read_error)?
+        .map(Json)
+        .ok_or_else(ApiError::not_found)
+}
+
+/// 202: the task is being cancelled and its `run_finished` events arrive on SSE.
+pub async fn cancel(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let root: RunId = id.parse().map_err(|_| ApiError::not_found())?;
+    if state.engine.cancel(root) {
+        return Ok(StatusCode::ACCEPTED);
+    }
+    if runs::root_exists(&state.pool, root)
+        .await
+        .map_err(read_error)?
+    {
+        Err(ApiError::conflict("this task has already finished"))
+    } else {
+        Err(ApiError::not_found())
+    }
+}
+
+fn read_error(error: RunReadError) -> ApiError {
+    tracing::error!(%error, "run read failed");
+    ApiError::internal()
 }

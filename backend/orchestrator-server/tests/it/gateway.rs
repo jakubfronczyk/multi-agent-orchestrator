@@ -7,7 +7,6 @@ use orchestrator_core::engine::{Engine, StartRequest};
 use orchestrator_core::ids::ApprovalId;
 use orchestrator_core::policy::{Decision, Rule};
 use orchestrator_core::runs::{Answer, ApprovalOutcome, CallStatus, RunEvent, RunOutcome};
-use orchestrator_server::api::{self, AppState};
 use orchestrator_server::sqlite::SqliteStore;
 use sqlx::SqlitePool;
 
@@ -275,16 +274,7 @@ async fn an_answer_racing_expiry_resolves_the_approval_once(pool: SqlitePool) {
 async fn a_second_answer_over_http_is_a_conflict(pool: SqlitePool) {
     let app = app(pool).await;
     let mut rx = app.store.subscribe();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let base = format!("http://{}", listener.local_addr().expect("address"));
-    let state = AppState {
-        pool: app.pool.clone(),
-        store: app.store.clone(),
-        engine: app.engine.clone(),
-    };
-    tokio::spawn(async move { axum::serve(listener, api::router(state)).await });
+    let base = crate::serve(&app).await;
 
     app.engine
         .start(as_worker(&app, r#"test:call:file_write:{"path":"a.md"}"#))

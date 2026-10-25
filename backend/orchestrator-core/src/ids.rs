@@ -50,6 +50,14 @@ impl Default for RunId {
     }
 }
 
+impl FromStr for RunId {
+    type Err = uuid::Error;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(text).map(Self)
+    }
+}
+
 /// The same text as the serde form.
 impl fmt::Display for RunId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -15,6 +15,7 @@ use orchestrator_core::money::Micros;
 use orchestrator_core::policy::Decision;
 use orchestrator_core::runs::RunEvent;
 use orchestrator_core::tools::ToolName;
+use orchestrator_server::api::{ActiveProvider, AppState, router};
 use orchestrator_server::events::EventEnvelope;
 use orchestrator_server::llm::ScriptedProvider;
 use orchestrator_server::sqlite::{SqliteStore, agents};
@@ -22,6 +23,7 @@ use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
 mod delegate;
+mod endpoints;
 mod fetch;
 mod files;
 mod gateway;
@@ -174,6 +176,22 @@ fn worker() -> AgentInput {
         delegate_targets: vec![],
         ..lead()
     }
+}
+
+/// Serves the API on a free loopback port in scripted mode and returns its base URL.
+pub async fn serve(app: &App) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("address"));
+    let state = AppState {
+        pool: app.pool.clone(),
+        store: app.store.clone(),
+        engine: app.engine.clone(),
+        provider: ActiveProvider::Scripted,
+    };
+    tokio::spawn(async move { axum::serve(listener, router(state)).await });
+    base
 }
 
 pub fn request(scenario: &str) -> StartRequest {

@@ -365,6 +365,19 @@ async fn every_real_tool_keeps_the_contract(pool: SqlitePool) {
     }
 }
 
+/// `/tools` lists what the engine reports: all 13 tools once, in `ToolName` order.
+#[sqlx::test]
+async fn the_engine_reports_every_tool_once_in_order(pool: SqlitePool) {
+    let seeded = seeded(pool).await;
+    let names: Vec<ToolName> = seeded
+        .engine
+        .tool_specs()
+        .iter()
+        .map(|spec| spec.name)
+        .collect();
+    assert_eq!(names, ALL_TOOLS);
+}
+
 async fn run_as(seeded: &Seeded, slug: &str, scenario: &str) -> Vec<EventEnvelope> {
     let id = sqlx::query_scalar!("SELECT id FROM agents WHERE slug = ?", slug)
         .fetch_one(&seeded.pool)

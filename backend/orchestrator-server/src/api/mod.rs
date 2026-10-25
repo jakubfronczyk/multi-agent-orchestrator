@@ -16,21 +16,29 @@ mod approvals;
 mod error;
 mod events;
 mod json;
+mod meta;
 mod runs;
 
 pub use error::{ApiError, ErrorCode};
+pub use meta::ActiveProvider;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: SqlitePool,
     pub store: Arc<SqliteStore>,
     pub engine: Arc<Engine>,
+    pub provider: ActiveProvider,
 }
 
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/agents", get(agents::list).post(agents::create))
-        .route("/runs", post(runs::start))
+        .route("/health", get(meta::health))
+        .route("/models", get(meta::models))
+        .route("/tools", get(meta::tools))
+        .route("/runs", get(runs::list).post(runs::start))
+        .route("/runs/{id}", get(runs::get))
+        .route("/runs/{id}/cancel", post(runs::cancel))
         .route("/approvals", get(approvals::list))
         .route("/approvals/{id}", post(approvals::answer))
         .route("/events", get(events::stream))

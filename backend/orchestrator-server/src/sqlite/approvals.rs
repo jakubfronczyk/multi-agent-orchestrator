@@ -5,7 +5,7 @@ use orchestrator_core::ids::{ApprovalId, EventId, RunId, ToolCallId};
 use orchestrator_core::runs::{ApprovalStatus, Custody};
 use orchestrator_core::tools::Action;
 use serde::Serialize;
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use ts_rs::TS;
 
 use super::text::{from_text, parse_timestamp, to_text};
@@ -52,21 +52,36 @@ pub async fn list(
     let last_event_id = sqlx::query_scalar!(r#"SELECT MAX(id) AS "id?: i64" FROM run_events"#)
         .fetch_one(&mut *tx)
         .await?;
+    let approvals = views(&mut tx, status, None).await?;
+    tx.commit().await?;
+    Ok(ApprovalList {
+        approvals,
+        last_event_id: last_event_id.map(EventId),
+    })
+}
+
+/// Cards with `status`, or every card when `None`; only one task's when `root` is set.
+pub(crate) async fn views(
+    conn: &mut SqliteConnection,
+    status: Option<ApprovalStatus>,
+    root: Option<RunId>,
+) -> Result<Vec<ApprovalView>, ApprovalReadError> {
     let status = status.as_ref().map(to_text).transpose().map_err(corrupt)?;
+    let root = root.as_ref().map(to_text).transpose().map_err(corrupt)?;
     let rows = sqlx::query!(
         r#"SELECT a.id, a.tool_call_id, a.custody, a.preview, a.status, a.note, a.expires_at, a.created_at,
                   a.resolved_at, t.run_id AS "run_id!", t.tool AS "tool!", t.action
-           FROM approvals a JOIN tool_calls t ON t.id = a.tool_call_id
-           WHERE (?1 IS NULL OR a.status = ?1)
+           FROM approvals a
+           JOIN tool_calls t ON t.id = a.tool_call_id
+           JOIN runs r ON r.id = t.run_id
+           WHERE (?1 IS NULL OR a.status = ?1) AND (?2 IS NULL OR r.root_run_id = ?2)
            ORDER BY a.created_at, a.id"#,
-        status
+        status,
+        root
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut *conn)
     .await?;
-    tx.commit().await?;
-
-    let approvals = rows
-        .into_iter()
+    rows.into_iter()
         .map(|row| {
             Ok(ApprovalView {
                 id: from_text(&row.id).map_err(corrupt)?,
@@ -93,11 +108,7 @@ pub async fn list(
                     .map_err(corrupt)?,
             })
         })
-        .collect::<Result<Vec<_>, ApprovalReadError>>()?;
-    Ok(ApprovalList {
-        approvals,
-        last_event_id: last_event_id.map(EventId),
-    })
+        .collect()
 }
 
 /// The stored status, or `None` when no approval has this id.

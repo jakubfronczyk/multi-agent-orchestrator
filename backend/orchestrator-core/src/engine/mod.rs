@@ -13,7 +13,7 @@ use crate::llm::LlmProvider;
 use crate::money::Micros;
 use crate::runs::{Answer, FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, Store, StoreError};
-use crate::tools::ToolSet;
+use crate::tools::{ToolSet, ToolSpec};
 
 mod approvals;
 mod envelope;
@@ -187,6 +187,16 @@ impl Engine {
     }
 
     /// Cancels every run in the task; false when no live task has this root.
+    /// Every tool, in `ToolName` order. `delegate` is listed without targets; each Lead's
+    /// schema names its own.
+    pub fn tool_specs(&self) -> Vec<ToolSpec> {
+        let mut specs = vec![delegate_spec(&[]), plan_spec()];
+        specs.extend(self.inner.tools.specs().cloned());
+        specs.sort_by_key(|spec| spec.name);
+        specs
+    }
+
+    /// False when no live task has this root run id.
     pub fn cancel(&self, root: RunId) -> bool {
         match self.inner.tasks().get(&root) {
             Some(task) => {

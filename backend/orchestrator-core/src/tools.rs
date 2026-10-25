@@ -149,6 +149,10 @@ impl ToolSet {
         Self { tools }
     }
 
+    pub fn specs(&self) -> impl Iterator<Item = &ToolSpec> {
+        self.tools.iter().map(|tool| tool.spec())
+    }
+
     pub fn get(&self, name: ToolName) -> Option<Arc<dyn Tool>> {
         self.tools
             .iter()

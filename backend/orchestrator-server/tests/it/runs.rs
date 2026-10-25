@@ -2,7 +2,6 @@
 
 use futures_util::StreamExt;
 use orchestrator_core::runs::{FailReason, RunEvent, RunOutcome};
-use orchestrator_server::api::{self, AppState};
 use serde_json::Value;
 use sqlx::SqlitePool;
 
@@ -13,16 +12,7 @@ use crate::{DEADLINE, app, app_with, events_until_finished, request, test_config
 #[sqlx::test]
 async fn post_runs_streams_the_run_over_sse(pool: SqlitePool) {
     let app = app(pool).await;
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let base = format!("http://{}", listener.local_addr().expect("address"));
-    let state = AppState {
-        pool: app.pool,
-        store: app.store,
-        engine: app.engine,
-    };
-    tokio::spawn(async move { axum::serve(listener, api::router(state)).await });
+    let base = crate::serve(&app).await;
 
     let client = reqwest::Client::new();
     let mut sse = client

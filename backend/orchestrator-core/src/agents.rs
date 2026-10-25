@@ -142,14 +142,15 @@ impl AgentSpec {
             }
         }
 
-        match (input.model, input.reasoning_effort) {
-            (Model::Grok420NonReasoning, Some(_)) => {
-                return Err(ValidationError::new(
-                    "reasoning_effort",
-                    "this model takes no reasoning effort",
-                ));
-            }
-            (Model::Grok420NonReasoning, None) | (Model::Grok43, _) => {}
+        if let Some(effort) = input.reasoning_effort
+            && !input.model.efforts().contains(&effort)
+        {
+            let message = if input.model.efforts().is_empty() {
+                "this model takes no reasoning effort"
+            } else {
+                "this model does not take this reasoning effort"
+            };
+            return Err(ValidationError::new("reasoning_effort", message));
         }
 
         for (&tool, &decision) in &input.tools {

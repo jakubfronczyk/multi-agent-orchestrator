@@ -29,8 +29,6 @@ const BASE_URL: &str = "https://api.x.ai/v1";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// `cost_in_usd_ticks` counts 10^10 ticks per USD; dividing by 10^4 gives micros.
 const TICKS_PER_MICRO: i64 = 10_000;
-/// Every model this app offers must be listed by `/v1/models` for the key to be accepted.
-const REQUIRED_MODELS: [Model; 2] = [Model::Grok43, Model::Grok420NonReasoning];
 /// Marks a 429 caused by the key's own token cap, not the team's rate limit.
 const KEY_CAP_MARKER: &str = "API key's token limit";
 
@@ -162,7 +160,8 @@ impl XaiProvider {
             .json()
             .await
             .map_err(|_| "xAI's model list is unreadable".to_string())?;
-        for model in REQUIRED_MODELS {
+        // Every model this app offers must be listed for the key to be accepted.
+        for model in Model::ALL {
             let id = model_id(model);
             if !listed.data.iter().any(|entry| entry.id == id) {
                 return Err(format!("xAI does not list the model {id}"));
