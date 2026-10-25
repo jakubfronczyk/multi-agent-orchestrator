@@ -8,6 +8,10 @@ A team of agents works on a task while a human approves every risky action, and 
 One root run, any follow-ups after it, and every run they delegate. Each is one turn of the Lead. Taint, budget and refused calls belong to the task.
 _Avoid_: job, session, conversation
 
+**Budget**:
+The most a task may spend on model calls. It is checked before each call, so parallel runs can each go past it by the one call they had started. A call that timed out is not counted, since the provider never reported its cost.
+_Avoid_: limit, quota
+
 **Follow-up**:
 The user's next message in a finished task: it starts a new Lead run in the same task, which keeps the task's taint, budget and refused calls.
 _Avoid_: reply, new task, continuation
