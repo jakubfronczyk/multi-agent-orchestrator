@@ -120,18 +120,25 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
   const cancel = useMutation({
     mutationFn: () => cancelRun(state.rootRunId),
     // 409: it finished meanwhile; its run_finished event updates the thread either way.
-    onError: () => undefined,
+    onError: (error) => {
+      if (!isApiError(error, 409)) setNotice(`Couldn't stop the task. ${error.message}`)
+    },
   })
+  const stop = () => {
+    if (!cancel.isPending) cancel.mutate()
+  }
 
-  const sendFollowUp = async (body: { text: string; scenario?: string; draft_only?: boolean }) => {
+  /** `busy` is the 409 text: a typed follow-up keeps its text, a chip has none. */
+  const sendFollowUp = async (
+    body: { text: string; scenario?: string; draft_only?: boolean },
+    busy = "The task is still running. Your text is kept; send it once it finishes.",
+  ) => {
     try {
       await followUp.mutateAsync(body)
       return true
     } catch (error) {
       setNotice(
-        isApiError(error, 409)
-          ? "The task is still running. Your text is kept; send it once it finishes."
-          : `Couldn't send the follow-up. ${error instanceof Error ? error.message : ""}`,
+        isApiError(error, 409) ? busy : `Couldn't send the follow-up. ${error instanceof Error ? error.message : ""}`,
       )
       return false
     }
@@ -218,6 +225,14 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
   }
   const visibleChips = chips.filter((chip) => !used.has(chipLabel(chip)))
 
+  const markUsed = (label: string, on: boolean) =>
+    setUsed((current) => {
+      const next = new Set(current)
+      if (on) next.add(label)
+      else next.delete(label)
+      return next
+    })
+
   const pickChip = async (chip: Chip) => {
     const label = chipLabel(chip)
     if (chip.kind === "question") {
@@ -225,10 +240,16 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
     } else if (chip.kind === "fill") {
       setText(chip.text)
       setIntent(target)
-    } else if (!(await sendFollowUp({ text: chip.text, scenario: chip.scenario }))) {
+    } else {
+      if (followUp.isPending) return
+      // Hidden before the request, so a second click can't send it again; shown again on failure.
+      markUsed(label, true)
+      setNotice(null)
+      const busy = "The task is still running. Pick this again once it finishes."
+      if (!(await sendFollowUp({ text: chip.text, scenario: chip.scenario }, busy))) markUsed(label, false)
       return
     }
-    setUsed((current) => new Set([...current, label]))
+    markUsed(label, true)
   }
 
   // Follows new content while the reader is at the bottom; opens at the bottom.
@@ -279,7 +300,8 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
               index={index}
               state={state}
               approvals={approvals}
-              onCancel={() => cancel.mutate()}
+              onCancel={stop}
+              cancelling={cancel.isPending}
             />
           ))}
 
@@ -315,7 +337,8 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
               if (swap) setSwap(null)
             }}
             onSubmit={submit}
-            onStop={() => cancel.mutate()}
+            onStop={stop}
+            stopping={cancel.isPending}
             placeholder={composer.placeholder}
             label={composer.mode === "note" ? "Note to Lead with a no" : "Message Lead"}
             disabled={composer.disabled}
@@ -404,12 +427,14 @@ function TurnSection({
   state,
   approvals,
   onCancel,
+  cancelling,
 }: {
   turn: Turn
   index: number
   state: ThreadState
   approvals: ApprovalView[]
   onCancel: () => void
+  cancelling: boolean
 }) {
   const look = useAgents()
   const run = state.runs.find((r) => r.id === turn.run_id)
@@ -478,7 +503,7 @@ function TurnSection({
           )}
           {running && (
             <footer className="flex justify-end px-2 pt-1 pb-2">
-              <Button variant="ghost" size="sm" className="text-sidebar-foreground" onClick={onCancel}>
+              <Button variant="ghost" size="sm" className="text-sidebar-foreground" disabled={cancelling} onClick={onCancel}>
                 Cancel task
               </Button>
             </footer>

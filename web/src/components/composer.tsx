@@ -47,6 +47,7 @@ export function Composer({
   onChange,
   onSubmit,
   onStop,
+  stopping,
   placeholder,
   label,
   disabled,
@@ -62,6 +63,8 @@ export function Composer({
   onChange: (text: string) => void
   onSubmit: (text: string, options: SubmitOptions) => Promise<boolean>
   onStop?: () => void
+  /** A stop was sent and has not answered yet. */
+  stopping?: boolean
   placeholder: string
   label: string
   disabled?: boolean
@@ -80,26 +83,46 @@ export function Composer({
   const [attachError, setAttachError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  // Set synchronously, so a second Enter in the same frame finds it before `sending` updates.
+  const inFlight = useRef(false)
+  // This composer's uploads by file identity: a removed chip's file is still in uploads/, so
+  // picking it again reuses the upload instead of a POST that would conflict.
+  const uploads = useRef(new Map<string, UploadResponse>())
   const client = useQueryClient()
   const canSend = !disabled && !sending && !uploading && value.trim().length > 0
 
   const submit = async () => {
-    if (!canSend) return
-    // Attachments count only while the composer offers them; a note to a card carries none.
-    const ok = await onSubmit(value.trim(), {
-      draftOnly: modePicker === true && mode === "draft",
-      attachments: attach ? attachments : [],
-    })
-    if (ok) setAttachments([])
+    if (!canSend || inFlight.current) return
+    inFlight.current = true
+    try {
+      // Attachments count only while the composer offers them; a note to a card carries none.
+      const ok = await onSubmit(value.trim(), {
+        draftOnly: modePicker === true && mode === "draft",
+        attachments: attach ? attachments : [],
+      })
+      if (ok) setAttachments([])
+    } finally {
+      inFlight.current = false
+    }
   }
+
+  const add = (file: UploadResponse) =>
+    setAttachments((current) => (current.some((f) => f.path === file.path) ? current : [...current, file]))
 
   const pick = async (file: File | undefined) => {
     if (!file) return
     setAttachError(null)
+    const key = `${file.name}:${file.size}:${file.lastModified}`
+    const earlier = uploads.current.get(key)
+    if (earlier) {
+      add(earlier)
+      return
+    }
     setUploading(true)
     try {
       const uploaded = await uploadFile(file)
-      setAttachments((current) => [...current, uploaded])
+      uploads.current.set(key, uploaded)
+      add(uploaded)
       // The upload is now in the workspace under uploads/.
       void client.invalidateQueries({ queryKey: ["files"] })
     } catch (error) {
@@ -221,8 +244,9 @@ export function Composer({
             <button
               type="button"
               aria-label="Stop the task"
+              disabled={stopping}
               onClick={onStop}
-              className="grid size-9 flex-none place-items-center rounded-full bg-primary text-primary-foreground hover:opacity-90"
+              className="grid size-9 flex-none place-items-center rounded-full bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
             >
               <Square className="size-3.5 fill-current" />
             </button>
