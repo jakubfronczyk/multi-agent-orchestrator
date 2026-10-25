@@ -7,8 +7,9 @@ import { agentsQuery } from "@/api/agents"
 import { healthQuery } from "@/api/meta"
 import { runsQuery } from "@/api/runs"
 import { AgentShape } from "@/components/agent-shape"
-import { useHubStatus, type HubStatus } from "@/events/event-hub"
+import { isChildRun, useHubStatus, type HubStatus } from "@/events/event-hub"
 import { useInvalidateOn } from "@/events/use-invalidate-on"
+import type { EventEnvelope } from "@/generated/EventEnvelope"
 import type { RunSummary } from "@/generated/RunSummary"
 import { isMac } from "@/lib/platform"
 import { Appearance } from "./appearance"
@@ -60,15 +61,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const agents = useQuery(agentsQuery)
   const status = useHubStatus()
 
-  // Any run_finished: a follow-up turn ends with its own run id, not the root's; a child's is
-  // one cheap extra refetch.
+  // A follow-up turn ends with its own run id, not the root's, so only known delegated runs are
+  // skipped; a run whose start this app never saw refetches.
+  const turnFinished = (event: EventEnvelope) => event.type === "run_finished" && !isChildRun(event.run_id)
   useInvalidateOn(runsQuery().queryKey, (event) =>
-    event.type === "run_started" ? event.data.parent_run_id === null : event.type === "run_finished",
+    event.type === "run_started" ? event.data.parent_run_id === null : turnFinished(event),
   )
   useInvalidateOn(
     approvalsQuery("pending").queryKey,
-    (event) =>
-      event.type === "approval_requested" || event.type === "approval_resolved" || event.type === "run_finished",
+    (event) => event.type === "approval_requested" || event.type === "approval_resolved" || turnFinished(event),
   )
 
   const list = runs.data?.runs ?? []

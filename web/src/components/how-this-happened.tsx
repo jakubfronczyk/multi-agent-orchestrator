@@ -9,9 +9,11 @@ import { AgentShape } from "@/components/agent-shape"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { useInvalidateOn } from "@/events/use-invalidate-on"
+import { useLiveState } from "@/events/use-live-state"
 import { useAgents } from "@/lib/agents"
 import { explainApproval, explainCall, type Explanation, type Hop } from "@/lib/how-this-happened"
 import { isApiError } from "@/lib/api"
+import { asDetail, initThread, reduceThread } from "@/lib/thread-state"
 import { dayTime } from "@/lib/time"
 
 /**
@@ -78,11 +80,13 @@ export function HowThisHappenedSheet() {
 
 function SheetBody({ callId, rootRunId }: { callId: string; rootRunId: string }) {
   const look = useAgents()
-  const detail = useQuery(runQuery(rootRunId))
+  const query = useQuery(runQuery(rootRunId))
+  // Folded like the thread, never refetched per event: the thread may share this query.
+  const state = useLiveState(query.data, initThread, reduceThread)
+  const detail = { data: state && asDetail(state), error: query.error }
   const approvals = useQuery(approvalsQuery())
   const tools = useQuery(toolsQuery)
 
-  useInvalidateOn(runQuery(rootRunId).queryKey, (event) => event.root_run_id === rootRunId)
   useInvalidateOn(
     approvalsQuery().queryKey,
     (event) => event.type === "approval_requested" || event.type === "approval_resolved",

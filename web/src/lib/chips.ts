@@ -1,8 +1,7 @@
 import type { ApprovalView } from "@/generated/ApprovalView"
-import type { RunDetail } from "@/generated/RunDetail"
 import { callSummary } from "./copy"
 import { explainApproval, type Lookups } from "./how-this-happened"
-import type { ThreadState } from "./thread-state"
+import { asDetail, type ThreadState } from "./thread-state"
 import { callLabel } from "./thread-view"
 
 // Question chips are answered here, from the task's record. Nothing a chip says is ever sent
@@ -20,21 +19,6 @@ export const QUESTION_TEXT: Record<QuestionChip, string> = {
 export interface ChipAnswer {
   question: string
   lines: string[]
-}
-
-/** The RunDetail shape `explainApproval` reads, rebuilt from the folded state. */
-function asDetail(state: ThreadState): RunDetail {
-  return {
-    root_run_id: state.rootRunId,
-    runs: state.runs,
-    turns: state.turns,
-    tool_calls: state.calls,
-    pending_approvals: [],
-    plan: state.plan,
-    taint_sources: state.taintSources,
-    cost_micros: state.costMicros,
-    last_event_id: null,
-  }
 }
 
 export function answerChip(

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { EventEnvelope } from "@/generated/EventEnvelope"
 import type { EventId } from "@/generated/EventId"
-import { bufferedAfter, subscribe } from "./event-hub"
+import { bufferedAfter, covers, subscribe } from "./event-hub"
 
 interface Snapshot {
   last_event_id: EventId | null
@@ -16,7 +16,8 @@ interface Live<S, V> {
 /**
  * A REST snapshot with every later event folded on top: buffered events above its
  * `last_event_id` first, then live ones. Each event applies at most once per snapshot; a new
- * snapshot (a refetch) restarts the fold from it.
+ * snapshot (a refetch) restarts the fold from it. While the buffer has a hole above the
+ * snapshot, it shows unfolded until the hub's resync brings a newer one.
  */
 export function useLiveState<S extends Snapshot, V>(
   snapshot: S | undefined,
@@ -30,7 +31,7 @@ export function useLiveState<S extends Snapshot, V>(
 
   const build = (source: S | undefined): Live<S, V> => {
     if (!source) return { source, value: undefined, appliedUpTo: 0 }
-    const events = bufferedAfter(source.last_event_id)
+    const events = covers(source.last_event_id) ? bufferedAfter(source.last_event_id) : []
     return {
       source,
       value: events.reduce(reduce, init(source)),
@@ -48,6 +49,7 @@ export function useLiveState<S extends Snapshot, V>(
     const apply = (events: EventEnvelope[]) =>
       setLive((current) => {
         if (current.source !== snapshot || current.value === undefined) return current
+        if (!covers(current.appliedUpTo)) return current
         const fresh = events.filter((event) => event.id > current.appliedUpTo)
         if (fresh.length === 0) return current
         return {
@@ -56,9 +58,11 @@ export function useLiveState<S extends Snapshot, V>(
           appliedUpTo: fresh.at(-1)!.id,
         }
       })
-    // Catches events that arrived between the render that built the state and this subscription.
-    apply(bufferedAfter(snapshot.last_event_id))
-    return subscribe((event) => apply([event]))
+    // Reads the buffer each time, so events that arrived between the render that built the
+    // state and this subscription, or before the buffer covered it, are not skipped.
+    const catchUp = () => apply(bufferedAfter(snapshot.last_event_id))
+    catchUp()
+    return subscribe(catchUp)
   }, [snapshot])
 
   return current.value

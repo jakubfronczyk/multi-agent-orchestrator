@@ -12,6 +12,14 @@ let source: EventSource | null = null
 let status: HubStatus = "connecting"
 let lastId = 0
 let buffer: EventEnvelope[] = []
+// Every event above `floor` is in the buffer; at or below it some may be missing. Infinity after
+// a hard close, until the first event of the new stream shows where it starts.
+let floor = 0
+// The tool of every call requested since the app started; a finish names no tool when it is ok.
+const callTools = new Map<string, string>()
+// Delegated runs seen since the app started; their ends change no task list.
+const childRuns = new Set<string>()
+const RECORD_LIMIT = 5000
 let retries = 0
 // Set on every reopen; the first event after it tells a database reset from a replay.
 let checkForReset = false
@@ -50,8 +58,10 @@ function connect() {
     checkForReset = opened
     opened = true
     // The resync below refetches every snapshot, so older events are already in them; kept,
-    // they would fold onto a post-reset snapshot as ghosts.
+    // they would fold onto a post-reset snapshot as ghosts. A soft reconnect replays everything
+    // above `lastId`; after a hard close the start is unknown.
     buffer = []
+    if (floor !== Infinity) floor = lastId
     setStatus("open")
     resync()
   }
@@ -63,14 +73,29 @@ function connect() {
     // was reset and ids restarted; anything else at or below `lastId` is a duplicate.
     if (reset) {
       buffer = []
+      floor = event.id - 1
     } else if (event.id <= lastId) {
       return
     }
+    if (floor === Infinity) floor = event.id - 1
     lastId = event.id
+    if (event.type === "tool_call_requested") {
+      callTools.set(event.data.call_id, event.data.tool)
+      if (callTools.size > RECORD_LIMIT) callTools.delete(callTools.keys().next().value!)
+    }
+    if (event.type === "run_started" && event.data.parent_run_id !== null) {
+      childRuns.add(event.run_id)
+      if (childRuns.size > RECORD_LIMIT) childRuns.delete(childRuns.values().next().value!)
+    }
     buffer.push(event)
-    if (buffer.length > BUFFER_LIMIT) buffer = buffer.slice(-BUFFER_LIMIT)
+    // Trimming opens a hole below the kept events, so snapshots refetch past it.
+    const trimmed = buffer.length > BUFFER_LIMIT
+    if (trimmed) {
+      floor = buffer[buffer.length - BUFFER_LIMIT - 1].id
+      buffer = buffer.slice(-BUFFER_LIMIT)
+    }
     for (const listener of listeners) listener(event)
-    if (reset) resync()
+    if (reset || trimmed) resync()
   }
   next.onerror = () => {
     setStatus("reconnecting")
@@ -80,6 +105,7 @@ function connect() {
     // refetched snapshots then decide which events still apply.
     lastId = 0
     buffer = []
+    floor = Infinity
     const delay = RETRY_MS[Math.min(retries, RETRY_MS.length - 1)]
     retries += 1
     setTimeout(connect, delay)
@@ -101,6 +127,21 @@ export function onResync(listener: () => void): () => void {
 /** Events received since the hub started with an id above `after`. */
 export function bufferedAfter(after: number | null): EventEnvelope[] {
   return after === null ? buffer.slice() : buffer.filter((event) => event.id > after)
+}
+
+/** Whether the buffer holds every event above `after`, so a snapshot at `after` folds without a hole. */
+export function covers(after: number | null): boolean {
+  return (after ?? 0) >= floor
+}
+
+/** The tool a call was requested for, when its request arrived since the app started. */
+export function toolOf(callId: string): string | undefined {
+  return callTools.get(callId)
+}
+
+/** Whether `runId` is a delegated run whose start arrived since the app started. */
+export function isChildRun(runId: string): boolean {
+  return childRuns.has(runId)
 }
 
 export function useHubStatus(): HubStatus {
