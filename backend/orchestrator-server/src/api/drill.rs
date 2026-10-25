@@ -13,7 +13,7 @@ use super::runs::{StartRunResponse, start_error};
 use crate::config;
 use crate::sqlite::drill::{self, DrillReport};
 
-/// The scripted provider plays the `drill` replies; with xAI the model meets the planted note itself.
+/// Always scripted: it plays a model that obeys the planted note, so the gates are what stop it.
 pub async fn start(
     State(state): State<AppState>,
 ) -> Result<(StatusCode, Json<StartRunResponse>), ApiError> {

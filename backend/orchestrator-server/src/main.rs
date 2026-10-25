@@ -7,7 +7,7 @@ use std::sync::Arc;
 use orchestrator_core::engine::Engine;
 use orchestrator_core::llm::LlmProvider;
 use orchestrator_server::api::{self, ActiveProvider, AppState};
-use orchestrator_server::llm::{ScriptedProvider, XaiProvider};
+use orchestrator_server::llm::{ScenarioRouter, XaiProvider};
 use orchestrator_server::sqlite::SqliteStore;
 use orchestrator_server::tools::files::Workspace;
 use orchestrator_server::{config, recovery, seed, sqlite, tools};
@@ -59,19 +59,26 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The active provider is never silent: xAI when `XAI_API_KEY` is set and accepted, the
-/// scripted demo otherwise. A key xAI rejects stops the boot instead of falling back.
+/// The active provider is never silent: free-text tasks go to xAI when `XAI_API_KEY` is set and
+/// accepted, scenario tasks always play scripted replies. A key xAI rejects stops the boot.
 async fn provider() -> anyhow::Result<(Arc<dyn LlmProvider>, ActiveProvider)> {
     match std::env::var(config::XAI_KEY_VAR) {
         Ok(key) if !key.trim().is_empty() => {
             let xai = XaiProvider::new(SecretString::from(key)).map_err(anyhow::Error::msg)?;
             xai.check().await.map_err(anyhow::Error::msg)?;
-            tracing::info!("provider: xai");
-            Ok((Arc::new(xai), ActiveProvider::Xai))
+            tracing::info!("provider: xai for free-text tasks, scripted for scenarios");
+            let live: Arc<dyn LlmProvider> = Arc::new(xai);
+            Ok((
+                Arc::new(ScenarioRouter::new(Some(live))),
+                ActiveProvider::Xai,
+            ))
         }
         Ok(_) | Err(_) => {
             tracing::info!("provider: scripted (demo mode: scripted replies)");
-            Ok((Arc::new(ScriptedProvider::new()), ActiveProvider::Scripted))
+            Ok((
+                Arc::new(ScenarioRouter::new(None)),
+                ActiveProvider::Scripted,
+            ))
         }
     }
 }

@@ -881,3 +881,52 @@ async fn a_tainted_delegation_is_wrapped_for_the_model_only(pool: SqlitePool) {
     assert!(!custody.parent_task.contains("<untrusted_data"));
     assert_eq!(custody.parent_task_sources, std::slice::from_ref(&note));
 }
+
+/// A live provider that must not be reached; it counts the calls that reach it anyway.
+struct Live(std::sync::atomic::AtomicUsize);
+
+#[async_trait::async_trait]
+impl LlmProvider for Live {
+    async fn complete(
+        &self,
+        _request: orchestrator_core::llm::CompletionRequest,
+    ) -> Result<orchestrator_core::llm::CompletionResponse, orchestrator_core::llm::LlmError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(orchestrator_core::llm::LlmError::Rejected(
+            "the live provider was called".to_string(),
+        ))
+    }
+}
+
+/// With a key configured, a scenario task still plays scripted replies and never reaches the
+/// live provider; a free-text task goes to it.
+#[sqlx::test]
+async fn scenario_tasks_stay_scripted_when_a_live_provider_is_set(pool: SqlitePool) {
+    let live = Arc::new(Live(std::sync::atomic::AtomicUsize::new(0)));
+    let router = orchestrator_server::llm::ScenarioRouter::new(Some(live.clone()));
+    let seeded = seeded_with(pool, Arc::new(router)).await;
+    answer_approvals(&seeded, |_| Answer::Approve { note: None });
+
+    let (_, events) = run_scenario(&seeded, "clean", "Find long grants").await;
+    assert!(matches!(
+        root_outcome(&events),
+        RunOutcome::Completed { .. }
+    ));
+    assert_eq!(live.0.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+    let mut rx = seeded.store.subscribe();
+    let request = StartRequest {
+        agent_id: None,
+        task: "Say hello".to_string(),
+        title: None,
+        budget: None,
+        scenario: None,
+    };
+    let root = seeded.engine.start(request).await.expect("start");
+    task_events(&mut rx, root).await;
+    assert_eq!(
+        live.0.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "free text is live"
+    );
+}

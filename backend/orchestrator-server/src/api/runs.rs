@@ -32,7 +32,7 @@ pub struct StartRunRequest {
     pub task: String,
     pub title: Option<String>,
     pub budget_micros: Option<Micros>,
-    /// Scripted mode only: which fixed replies to play.
+    /// Which fixed replies to play; a task with a scenario always uses the scripted provider.
     pub scenario: Option<String>,
 }
 

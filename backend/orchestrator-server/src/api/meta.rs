@@ -22,7 +22,10 @@ pub enum ActiveProvider {
 #[derive(Debug, Serialize, TS)]
 #[ts(export)]
 pub struct Health {
+    /// Who answers free-text tasks.
     pub provider: ActiveProvider,
+    /// Who answers tasks started with a scenario (s1, clean, launder, drill): always scripted.
+    pub scenarios: ActiveProvider,
 }
 
 /// No prices: cost comes from each xAI reply, not from a table (§11).
@@ -60,6 +63,7 @@ pub struct ToolList {
 pub async fn health(State(state): State<AppState>) -> Json<Health> {
     Json(Health {
         provider: state.provider,
+        scenarios: ActiveProvider::Scripted,
     })
 }
 

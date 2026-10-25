@@ -4,6 +4,6 @@ import type { Micros } from "./Micros";
 
 export type StartRunRequest = { agent_id?: AgentId, task: string, title?: string, budget_micros?: Micros, 
 /**
- * Scripted mode only: which fixed replies to play.
+ * Which fixed replies to play; a task with a scenario always uses the scripted provider.
  */
 scenario?: string, };
