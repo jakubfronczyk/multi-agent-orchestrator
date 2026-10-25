@@ -148,6 +148,52 @@ async fn ask_waits_and_runs_after_approval(pool: SqlitePool) {
     assert!(completed(&events));
 }
 
+/// A call that reaches the gateway after the task is cancelled is logged and ends cancelled
+/// without starting: the fifth call waits for a slot behind the card until the cancel.
+#[sqlx::test]
+async fn a_call_after_the_cancel_never_starts(pool: SqlitePool) {
+    let app = app(pool).await;
+    let (mut rx, mut asked) = (app.store.subscribe(), app.store.subscribe());
+    let read = r#"memory_read:{"q":1}"#;
+    let scenario =
+        format!(r#"test:batch:file_write:{{"path":"a.md"}}|{read}|{read}|{read}|{read}"#);
+    let run = app
+        .engine
+        .start(as_worker(&app, &scenario))
+        .await
+        .expect("start");
+    wait_for(&mut asked, |e| {
+        matches!(e.event, RunEvent::ApprovalRequested { .. }).then_some(())
+    })
+    .await;
+    assert!(app.engine.cancel(run));
+    let events = events_until_finished(&mut rx, run).await;
+
+    let fifth = events
+        .iter()
+        .filter_map(|e| match e {
+            RunEvent::ToolCallRequested { call_id, .. } => Some(*call_id),
+            _ => None,
+        })
+        .nth(4)
+        .expect("the fifth call is logged");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, RunEvent::ToolCallStarted { call_id } if *call_id == fifth))
+    );
+    assert!(events.iter().any(|e| matches!(
+        e,
+        RunEvent::ToolCallFinished { call_id, status: CallStatus::Cancelled, .. } if *call_id == fifth
+    )));
+    assert!(matches!(
+        events.last(),
+        Some(RunEvent::RunFinished {
+            outcome: RunOutcome::Cancelled
+        })
+    ));
+}
+
 /// Tool code on the run's own task cannot end the run: a panicking preview falls back to the
 /// arguments, and a panicking check refuses the call.
 #[sqlx::test]

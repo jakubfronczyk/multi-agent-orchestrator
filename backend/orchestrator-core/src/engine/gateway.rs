@@ -214,7 +214,7 @@ pub(super) async fn execute(
         Decision::Ask => {
             ask_then_run(inner, ctx, call_id, checked, &args, &action, &reasons).await?
         }
-        Decision::Allow => (run(inner, ctx, call_id, checked).await?, true),
+        Decision::Allow => run(inner, ctx, call_id, checked).await?,
     };
 
     // Rule 4: taint is committed before any model sees the result, whatever the outcome.
@@ -275,9 +275,7 @@ async fn ask_then_run(
     let preview = checked.preview(args).await;
     Ok(
         match ask(inner, ctx, call_id, action, preview, reasons).await? {
-            Waited::Answered(Answer::Approve { .. }) => {
-                (run(inner, ctx, call_id, checked).await?, true)
-            }
+            Waited::Answered(Answer::Approve { .. }) => run(inner, ctx, call_id, checked).await?,
             Waited::Answered(Answer::Deny { note }) => (
                 Ended::failed(CallStatus::DeniedHuman, "a person denied this call", note),
                 false,
@@ -290,10 +288,7 @@ async fn ask_then_run(
                 ),
                 false,
             ),
-            Waited::Cancelled => (
-                Ended::failed(CallStatus::Cancelled, "the task was cancelled", None),
-                false,
-            ),
+            Waited::Cancelled => (cancelled(), false),
         },
     )
 }
@@ -430,21 +425,30 @@ async fn ask(
     Ok(waited)
 }
 
-/// Runs an approved or allowed call.
+/// Runs an approved or allowed call; the flag is whether it reached the tool. A cancelled task
+/// starts nothing, so no call is logged as started after the cancel.
 async fn run(
     inner: &Arc<Inner>,
     ctx: &RunCtx,
     call_id: ToolCallId,
     checked: Checked,
-) -> Result<Ended, StoreError> {
+) -> Result<(Ended, bool), StoreError> {
+    if ctx.cancel.is_cancelled() {
+        return Ok((cancelled(), false));
+    }
     inner
         .emit(ctx.at, RunEvent::ToolCallStarted { call_id })
         .await?;
-    match checked {
-        Checked::Tool(tool, args) => Ok(run_tool(ctx, tool, args).await),
-        Checked::Delegate(args) => native::delegate(inner, ctx, call_id, args).await,
-        Checked::Plan(steps) => native::plan(inner, ctx, steps).await,
-    }
+    let ended = match checked {
+        Checked::Tool(tool, args) => run_tool(ctx, tool, args).await,
+        Checked::Delegate(args) => native::delegate(inner, ctx, call_id, args).await?,
+        Checked::Plan(steps) => native::plan(inner, ctx, steps).await?,
+    };
+    Ok((ended, true))
+}
+
+fn cancelled() -> Ended {
+    Ended::failed(CallStatus::Cancelled, "the task was cancelled", None)
 }
 
 async fn run_tool(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
@@ -460,19 +464,26 @@ async fn run_tool(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
         },
     };
     let (name, timeout) = (tool.spec().name, tool.spec().timeout);
+    // Checked again here: a cancel can land while `tool_call_started` commits.
+    if ctx.cancel.is_cancelled() {
+        return cancelled();
+    }
     let handle = tokio::spawn(async move { tool.run(&tool_ctx, args).await });
     let abort = handle.abort_handle();
 
+    // Biased with the tool first: a tool that already finished reports what it did, never
+    // `cancelled` or `timeout`.
     let joined = tokio::select! {
+        biased;
         joined = handle => joined,
+        () = ctx.cancel.cancelled() => {
+            abort.abort();
+            return cancelled();
+        }
         () = sleep_or_forever(timeout) => {
             // Dropping a JoinHandle only detaches the task; abort stops it.
             abort.abort();
             return Ended::failed(CallStatus::Timeout, "the tool timed out", None);
-        }
-        () = ctx.cancel.cancelled() => {
-            abort.abort();
-            return Ended::failed(CallStatus::Cancelled, "the task was cancelled", None);
         }
     };
     match joined {

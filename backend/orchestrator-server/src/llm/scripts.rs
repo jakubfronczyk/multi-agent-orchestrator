@@ -9,6 +9,7 @@
 //! - `drill`: the vendor-note exfiltration attempt
 //! - `test:call:<tool>:<json args>`: one call, then an answer
 //! - `test:seq:<tool>:<args>|<tool>:<args>`: one call per step
+//! - `test:batch:<tool>:<args>|<tool>:<args>`: every call in one step
 //! - `test:twice:<tool>:<args>`: the same call twice in one step
 //! - `test:loop:<tool>`: a call on every step allowed
 //! - `test:delegate*`: the Lead delegates first; teammates answer with their slug
@@ -65,6 +66,19 @@ pub fn reply(
         {
             Some((tool, args)) => function_call(step, tool, args),
             None => message("done"),
+        };
+    }
+    if let Some(parts) = scenario.and_then(|s| s.strip_prefix("test:batch:")) {
+        return if step == 0 {
+            let calls = parts.split('|').filter_map(|part| part.split_once(':'));
+            Reply::Items(
+                calls
+                    .enumerate()
+                    .map(|(n, (tool, args))| call_item(format!("call-0-{n}"), tool, args))
+                    .collect(),
+            )
+        } else {
+            message("done")
         };
     }
     if let Some((tool, args)) = scenario
