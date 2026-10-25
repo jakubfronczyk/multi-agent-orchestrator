@@ -2,6 +2,7 @@
 //! It declares the storage, model and tool traits and never does I/O itself.
 
 pub mod agents;
+pub mod engine;
 pub mod ids;
 pub mod llm;
 pub mod money;

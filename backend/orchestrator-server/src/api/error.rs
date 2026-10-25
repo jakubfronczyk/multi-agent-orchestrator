@@ -56,6 +56,24 @@ impl ApiError {
         }
     }
 
+    pub fn invalid(field: &str, message: &str) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorCode::InvalidInput,
+            message.to_string(),
+            Some(field.to_string()),
+        )
+    }
+
+    pub fn internal() -> Self {
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::Internal,
+            "internal error".to_string(),
+            None,
+        )
+    }
+
     pub fn not_found() -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
@@ -84,12 +102,7 @@ impl From<AgentError> for ApiError {
             AgentError::NotFound => Self::not_found(),
             AgentError::Storage(_) | AgentError::Corrupt(_) => {
                 tracing::error!(%error, "agent storage failed");
-                Self::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrorCode::Internal,
-                    "internal error".to_string(),
-                    None,
-                )
+                Self::internal()
             }
         }
     }
