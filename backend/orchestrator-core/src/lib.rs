@@ -1,5 +1,6 @@
 //! Domain logic of the orchestrator: types, the approval rules and the engine loop.
-//! It declares the storage, model and tool traits and never does I/O itself.
+//! It reaches storage, models and tools only through the traits it declares, so it holds no
+//! network, disk or database code; the engine does own its tasks, timers and locks.
 
 pub mod agents;
 pub mod engine;

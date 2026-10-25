@@ -85,7 +85,7 @@ async fn insert_event(
     let value = serde_json::to_value(event).map_err(failed)?;
     let kind = value["type"]
         .as_str()
-        .ok_or_else(|| StoreError::Failed("event has no type".to_string()))?;
+        .ok_or_else(|| failed("event has no type"))?;
     let data = value["data"].to_string();
     let root = text(&at.root_run_id)?;
     let run = text(&at.run_id)?;
@@ -324,9 +324,7 @@ async fn project(
 fn exactly_one(result: Result<SqliteQueryResult, sqlx::Error>) -> Result<(), StoreError> {
     match result.map_err(failed)?.rows_affected() {
         1 => Ok(()),
-        n => Err(StoreError::Failed(format!(
-            "projection touched {n} rows, expected 1"
-        ))),
+        n => Err(failed(format!("projection touched {n} rows, expected 1"))),
     }
 }
 
@@ -338,8 +336,8 @@ fn json<T: Serialize>(value: &T) -> Result<String, StoreError> {
     serde_json::to_string(value).map_err(failed)
 }
 
-fn failed(error: impl std::fmt::Display) -> StoreError {
-    StoreError::Failed(error.to_string())
+fn failed(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> StoreError {
+    StoreError::Failed(error.into())
 }
 
 #[cfg(test)]
