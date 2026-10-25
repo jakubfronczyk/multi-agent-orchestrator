@@ -230,14 +230,29 @@ fn request_body(request: &CompletionRequest) -> ResponsesRequest<'_> {
     }
 }
 
-/// The `actual/limit` figures from a key-cap message, when it states them.
-fn key_cap(message: &str) -> Option<&str> {
+/// The `(actual, limit)` tokens per minute from a key-cap message, when it states them.
+fn key_cap(message: &str) -> Option<(u64, u64)> {
     let (_, rest) = message.split_once("(actual/limit): ")?;
-    rest.split(|c: char| c.is_whitespace() || c == '.').next()
+    let figures = rest.split(|c: char| c.is_whitespace() || c == '.').next()?;
+    let (actual, limit) = figures.split_once('/')?;
+    Some((actual.parse().ok()?, limit.parse().ok()?))
+}
+
+/// The provider's key-cap text names the key, so the message is built from the figures alone.
+fn key_cap_message(body: &str) -> String {
+    match key_cap(body) {
+        Some((actual, limit)) => {
+            format!("this API key is capped at {limit} tokens/min (used {actual})")
+        }
+        None => "this API key is over its tokens/min cap".to_string(),
+    }
 }
 
 /// 429 and 5xx are retried; every other non-success status fails the call.
 fn status_error(status: StatusCode, body: &str) -> LlmError {
+    if status == StatusCode::TOO_MANY_REQUESTS && body.contains(KEY_CAP_MARKER) {
+        return LlmError::RateLimited(key_cap_message(body));
+    }
     let detail = match serde_json::from_str::<XaiError>(body) {
         Ok(error) => format!("{} ({}): {}", status.as_u16(), error.code, error.error),
         Err(_) => format!("HTTP {}", status.as_u16()),
@@ -280,8 +295,8 @@ impl LlmProvider for XaiProvider {
                 && !self.key_cap_logged.swap(true, Ordering::Relaxed)
             {
                 tracing::warn!(
-                    "the xAI key has its own token-per-minute cap (actual/limit: {}); calls will keep retrying with backoff",
-                    key_cap(&body).unwrap_or("not stated")
+                    "xAI: {}; calls keep retrying with backoff",
+                    key_cap_message(&body)
                 );
             }
             return Err(error);
@@ -401,11 +416,18 @@ mod tests {
     }
 
     #[test]
-    fn a_key_cap_429_stays_retryable_and_its_limit_is_read() {
-        let body = r#"{"code": "resource-exhausted", "error": "Too many tokens consumed for API key xai-...e88B. Your API key's token limit is — Tokens per Minute (actual/limit): 27077/100. Your rate limit tier is 1."}"#;
-        assert!(body.contains(KEY_CAP_MARKER));
-        assert!(status_error(StatusCode::TOO_MANY_REQUESTS, body).is_retryable());
-        assert_eq!(key_cap(body), Some("27077/100"));
-        assert_eq!(key_cap("no figures"), None);
+    fn a_key_cap_429_is_retryable_and_never_echoes_the_provider_text() {
+        let body = r#"{"code": "resource-exhausted", "error": "Too many tokens consumed for API key xai-...XXXX. Your API key's token limit is — Tokens per Minute (actual/limit): 27077/100. Your rate limit tier is 1."}"#;
+        let error = status_error(StatusCode::TOO_MANY_REQUESTS, body);
+        assert!(error.is_retryable());
+        assert_eq!(
+            error.to_string(),
+            "rate limited: this API key is capped at 100 tokens/min (used 27077)"
+        );
+        let unstated = status_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Your API key's token limit, key xai-...XXXX",
+        );
+        assert!(!unstated.to_string().contains("XXXX"));
     }
 }

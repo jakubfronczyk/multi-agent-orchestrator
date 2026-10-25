@@ -153,7 +153,7 @@ enum Attempt {
 }
 
 /// Retries only errors `LlmError::is_retryable` allows, once per configured base delay.
-/// Full jitter spreads concurrent runs that hit the same limit across the whole window.
+/// Equal jitter waits half the base plus up to half more, so concurrent runs spread out and none retries at once.
 async fn complete_with_retries(
     inner: &Inner,
     ctx: &RunCtx,
@@ -173,7 +173,9 @@ async fn complete_with_retries(
             Err(error) => error,
         };
         let delay = match delays.next() {
-            Some(base) if error.is_retryable() => rand::random_range(Duration::ZERO..=*base),
+            Some(base) if error.is_retryable() => {
+                *base / 2 + rand::random_range(Duration::ZERO..=*base / 2)
+            }
             Some(_) | None => return Ok(Attempt::Failed(error)),
         };
         attempt += 1;
