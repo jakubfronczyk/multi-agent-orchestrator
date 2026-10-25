@@ -36,9 +36,13 @@ const sentTo = (approvals: ApprovalView[], address: string) =>
 
 const DEMOS: Record<string, DemoScript> = {
   s1: {
-    // Offered on a send card until a no with a note has gone out in the task.
+    // Offered on a send card to someone other than Anna, until a no with a note has gone out.
     cardNote: ({ card, approvals }) =>
-      card?.tool === "send_message" && !approvals.some((a) => a.status === "denied" && a.note) ? ANNA_NOTE : null,
+      card?.tool === "send_message" &&
+      !(card.action?.target.kind === "recipient" && card.action.target.address === ANNA_ADDRESS) &&
+      !approvals.some((a) => a.status === "denied" && a.note)
+        ? ANNA_NOTE
+        : null,
     // Plays `s1-followup`; pointless once Anna has been emailed.
     followUps: ({ approvals }) =>
       sentTo(approvals, ANNA_ADDRESS)
