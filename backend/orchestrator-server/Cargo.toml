@@ -24,7 +24,7 @@ tracing-subscriber.workspace = true
 ts-rs.workspace = true
 
 [dev-dependencies]
-futures-util = "0.3"
+futures-util.workspace = true
 reqwest.workspace = true
 
 [lints]

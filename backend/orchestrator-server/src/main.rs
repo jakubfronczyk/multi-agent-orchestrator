@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use orchestrator_core::engine::Engine;
+use orchestrator_core::tools::ToolSet;
 use orchestrator_server::api::{self, AppState};
 use orchestrator_server::llm::ScriptedProvider;
 use orchestrator_server::sqlite::SqliteStore;
@@ -22,6 +23,7 @@ async fn main() -> anyhow::Result<()> {
     let engine = Arc::new(Engine::new(
         store.clone(),
         Arc::new(ScriptedProvider::new()),
+        ToolSet::new(Vec::new()),
         config::engine_config(),
     ));
     let listener = tokio::net::TcpListener::bind(config::ADDRESS).await?;

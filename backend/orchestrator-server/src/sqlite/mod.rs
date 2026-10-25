@@ -7,8 +7,9 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
 pub mod agents;
+pub mod approvals;
 mod store;
-mod text;
+pub(crate) mod text;
 
 pub use store::SqliteStore;
 

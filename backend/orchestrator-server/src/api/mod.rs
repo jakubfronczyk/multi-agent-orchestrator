@@ -12,6 +12,7 @@ use crate::sqlite::SqliteStore;
 use tower_http::trace::TraceLayer;
 
 mod agents;
+mod approvals;
 mod error;
 mod events;
 mod json;
@@ -30,6 +31,8 @@ pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/agents", get(agents::list).post(agents::create))
         .route("/runs", post(runs::start))
+        .route("/approvals", get(approvals::list))
+        .route("/approvals/{id}", post(approvals::answer))
         .route("/events", get(events::stream))
         .route(
             "/agents/{id}",

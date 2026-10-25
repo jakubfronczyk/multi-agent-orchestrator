@@ -1,0 +1,81 @@
+//! `/api/approvals`: list cards by status and answer one. A second answer is a 409.
+
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use orchestrator_core::ids::ApprovalId;
+use orchestrator_core::runs::Answer;
+use serde::Deserialize;
+use ts_rs::TS;
+
+use super::AppState;
+use super::error::ApiError;
+use super::json::ApiJson;
+use crate::sqlite::approvals::{self, ApprovalList, ApprovalReadError};
+use crate::sqlite::text::from_text;
+
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    status: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum AnswerDecision {
+    Approve,
+    Deny,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export, optional_fields)]
+pub struct AnswerApprovalRequest {
+    pub decision: AnswerDecision,
+    pub note: Option<String>,
+}
+
+pub async fn list(
+    State(state): State<AppState>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<ApprovalList>, ApiError> {
+    let status = match query.status.as_deref() {
+        Some(raw) => Some(
+            from_text(raw).map_err(|_| ApiError::invalid("status", "unknown approval status"))?,
+        ),
+        None => None,
+    };
+    Ok(Json(
+        approvals::list(&state.pool, status)
+            .await
+            .map_err(read_error)?,
+    ))
+}
+
+pub async fn answer(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<AnswerApprovalRequest>,
+) -> Result<StatusCode, ApiError> {
+    let id: ApprovalId = id.parse().map_err(|_| ApiError::not_found())?;
+    let answer = match request.decision {
+        AnswerDecision::Approve => Answer::Approve { note: request.note },
+        AnswerDecision::Deny => Answer::Deny { note: request.note },
+    };
+    if state.engine.answer(id, answer) {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    match approvals::status(&state.pool, id)
+        .await
+        .map_err(read_error)?
+    {
+        Some(_) => Err(ApiError::conflict(
+            "this approval is no longer waiting for an answer",
+        )),
+        None => Err(ApiError::not_found()),
+    }
+}
+
+fn read_error(error: ApprovalReadError) -> ApiError {
+    tracing::error!(%error, "approval read failed");
+    ApiError::internal()
+}

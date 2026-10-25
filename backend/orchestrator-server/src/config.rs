@@ -19,5 +19,7 @@ pub fn engine_config() -> orchestrator_core::engine::Config {
             Duration::from_secs(4),
         ],
         default_budget: Micros(500_000),
+        approval_timeout: Duration::from_secs(300),
+        allowlist: Vec::new(),
     }
 }

@@ -8,12 +8,15 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 
 use crate::agents::Role;
-use crate::ids::{AgentId, RunId};
+use crate::ids::{AgentId, ApprovalId, RunId};
 use crate::llm::LlmProvider;
 use crate::money::Micros;
-use crate::runs::{FailReason, RunEvent, RunOutcome};
+use crate::runs::{Answer, FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, Store, StoreError};
+use crate::tools::ToolSet;
 
+mod approvals;
+mod gateway;
 mod run;
 mod task;
 
@@ -28,6 +31,10 @@ pub struct Config {
     /// One delay per retry of a retryable model error; its length is the retry count.
     pub retry_backoff: Vec<Duration>,
     pub default_budget: Micros,
+    /// How long an approval waits for a human before it expires.
+    pub approval_timeout: Duration,
+    /// Hosts fetchable without asking; each entry also covers its subdomains.
+    pub allowlist: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,7 +66,9 @@ pub struct Engine {
 struct Inner {
     store: Arc<dyn Store>,
     llm: Arc<dyn LlmProvider>,
+    tools: ToolSet,
     config: Config,
+    approvals: approvals::ApprovalWaiter,
     /// Caps model calls in flight across all runs.
     llm_slots: Semaphore,
     /// Live tasks by root run id; an entry leaves when its root run has finished.
@@ -67,13 +76,20 @@ struct Inner {
 }
 
 impl Engine {
-    pub fn new(store: Arc<dyn Store>, llm: Arc<dyn LlmProvider>, config: Config) -> Self {
+    pub fn new(
+        store: Arc<dyn Store>,
+        llm: Arc<dyn LlmProvider>,
+        tools: ToolSet,
+        config: Config,
+    ) -> Self {
         let llm_slots = Semaphore::new(config.llm_concurrency);
         Self {
             inner: Arc::new(Inner {
                 store,
                 llm,
+                tools,
                 config,
+                approvals: approvals::ApprovalWaiter::default(),
                 llm_slots,
                 tasks: Mutex::new(HashMap::new()),
             }),
@@ -104,7 +120,7 @@ impl Engine {
             run_id: root,
         };
         let budget = request.budget.unwrap_or(self.inner.config.default_budget);
-        let task = Arc::new(Task::new(budget));
+        let task = Arc::new(Task::new(budget, self.inner.config.allowlist.clone()));
         self.inner
             .store
             .emit(
@@ -147,6 +163,11 @@ impl Engine {
             inner.tasks().remove(&root);
         });
         Ok(root)
+    }
+
+    /// False when the approval is not pending: unknown, already answered, expired or cancelled.
+    pub fn answer(&self, approval: ApprovalId, answer: Answer) -> bool {
+        self.inner.approvals.answer(approval, answer)
     }
 
     /// Cancels every run in the task; false when no live task has this root.

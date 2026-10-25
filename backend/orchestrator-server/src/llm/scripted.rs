@@ -43,7 +43,13 @@ impl ScriptedProvider {
 impl LlmProvider for ScriptedProvider {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
         let attempt = self.next_attempt(&request);
-        match reply(request.script.scenario.as_deref(), attempt) {
+        let script = &request.script;
+        match reply(
+            script.scenario.as_deref(),
+            script.step,
+            attempt,
+            request.tool_choice,
+        ) {
             Reply::Items(raw) => {
                 let (calls, text) = parse_output(&raw)?;
                 Ok(CompletionResponse {

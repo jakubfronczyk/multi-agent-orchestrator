@@ -1,0 +1,121 @@
+//! Approval reads for the API. Approvals are written only by `Store::emit`.
+
+use chrono::{DateTime, Utc};
+use orchestrator_core::ids::{ApprovalId, EventId, RunId, ToolCallId};
+use orchestrator_core::runs::{ApprovalStatus, Custody};
+use orchestrator_core::tools::Action;
+use serde::Serialize;
+use sqlx::SqlitePool;
+use ts_rs::TS;
+
+use super::text::{from_text, parse_timestamp, to_text};
+
+/// One approval card with what it is about.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct ApprovalView {
+    pub id: ApprovalId,
+    pub tool_call_id: ToolCallId,
+    pub run_id: RunId,
+    pub tool: String,
+    pub action: Option<Action>,
+    pub custody: Custody,
+    pub preview: String,
+    pub status: ApprovalStatus,
+    pub note: Option<String>,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub resolved_at: Option<DateTime<Utc>>,
+}
+
+/// `last_event_id` is read before the list, so applying events with a larger id never skips one.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct ApprovalList {
+    pub approvals: Vec<ApprovalView>,
+    pub last_event_id: Option<EventId>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ApprovalReadError {
+    #[error("storage failed: {0}")]
+    Storage(#[from] sqlx::Error),
+    #[error("stored approval is unreadable: {0}")]
+    Corrupt(String),
+}
+
+pub async fn list(
+    pool: &SqlitePool,
+    status: Option<ApprovalStatus>,
+) -> Result<ApprovalList, ApprovalReadError> {
+    let mut tx = pool.begin().await?;
+    let last_event_id = sqlx::query_scalar!(r#"SELECT MAX(id) AS "id?: i64" FROM run_events"#)
+        .fetch_one(&mut *tx)
+        .await?;
+    let status = status.as_ref().map(to_text).transpose().map_err(corrupt)?;
+    let rows = sqlx::query!(
+        r#"SELECT a.id, a.tool_call_id, a.custody, a.preview, a.status, a.note, a.expires_at, a.created_at,
+                  a.resolved_at, t.run_id AS "run_id!", t.tool AS "tool!", t.action
+           FROM approvals a JOIN tool_calls t ON t.id = a.tool_call_id
+           WHERE (?1 IS NULL OR a.status = ?1)
+           ORDER BY a.created_at, a.id"#,
+        status
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let approvals = rows
+        .into_iter()
+        .map(|row| {
+            Ok(ApprovalView {
+                id: from_text(&row.id).map_err(corrupt)?,
+                tool_call_id: from_text(&row.tool_call_id).map_err(corrupt)?,
+                run_id: from_text(&row.run_id).map_err(corrupt)?,
+                tool: row.tool,
+                action: row
+                    .action
+                    .as_deref()
+                    .map(serde_json::from_str)
+                    .transpose()
+                    .map_err(corrupt)?,
+                custody: serde_json::from_str(&row.custody).map_err(corrupt)?,
+                preview: row.preview,
+                status: from_text(&row.status).map_err(corrupt)?,
+                note: row.note,
+                expires_at: parse_timestamp(&row.expires_at).map_err(corrupt)?,
+                created_at: parse_timestamp(&row.created_at).map_err(corrupt)?,
+                resolved_at: row
+                    .resolved_at
+                    .as_deref()
+                    .map(parse_timestamp)
+                    .transpose()
+                    .map_err(corrupt)?,
+            })
+        })
+        .collect::<Result<Vec<_>, ApprovalReadError>>()?;
+    Ok(ApprovalList {
+        approvals,
+        last_event_id: last_event_id.map(EventId),
+    })
+}
+
+/// The stored status, or `None` when no approval has this id.
+pub async fn status(
+    pool: &SqlitePool,
+    id: ApprovalId,
+) -> Result<Option<ApprovalStatus>, ApprovalReadError> {
+    let id = to_text(&id).map_err(corrupt)?;
+    let status = sqlx::query_scalar!("SELECT status FROM approvals WHERE id = ?", id)
+        .fetch_optional(pool)
+        .await?;
+    status
+        .as_deref()
+        .map(from_text)
+        .transpose()
+        .map_err(corrupt)
+}
+
+fn corrupt(error: impl std::fmt::Display) -> ApprovalReadError {
+    ApprovalReadError::Corrupt(error.to_string())
+}

@@ -83,6 +83,14 @@ impl Default for ApprovalId {
     }
 }
 
+impl FromStr for ApprovalId {
+    type Err = uuid::Error;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(text).map(Self)
+    }
+}
+
 /// The event log's key: monotonic, and the SSE event id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
 #[serde(transparent)]

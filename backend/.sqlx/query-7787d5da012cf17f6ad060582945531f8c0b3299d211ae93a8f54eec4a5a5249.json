@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT phase, status FROM tool_calls",
+  "describe": {
+    "columns": [
+      {
+        "name": "phase",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "phase"
+          }
+        }
+      },
+      {
+        "name": "status",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "7787d5da012cf17f6ad060582945531f8c0b3299d211ae93a8f54eec4a5a5249"
+}

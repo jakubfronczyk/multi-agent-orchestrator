@@ -154,24 +154,6 @@ async fn cancel_during_a_model_call_ends_the_run_cancelled(pool: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn a_tool_call_fails_the_run_until_the_gateway_exists(pool: SqlitePool) {
-    let app = app(pool).await;
-    let mut rx = app.store.subscribe();
-    let run = app.engine.start(request("test:call")).await.expect("start");
-    let events = events_until_finished(&mut rx, run).await;
-
-    assert!(matches!(
-        events.last(),
-        Some(RunEvent::RunFinished {
-            outcome: RunOutcome::Failed {
-                reason: FailReason::Internal,
-                ..
-            }
-        })
-    ));
-}
-
-#[sqlx::test]
 async fn a_stalled_model_call_times_out_and_fails_after_the_retries(pool: SqlitePool) {
     let config = test_config();
     let retries = config.retry_backoff.len();

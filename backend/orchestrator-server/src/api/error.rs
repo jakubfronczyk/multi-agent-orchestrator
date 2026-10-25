@@ -15,6 +15,7 @@ use crate::sqlite::agents::AgentError;
 pub enum ErrorCode {
     InvalidInput,
     NotFound,
+    Conflict,
     Internal,
 }
 
@@ -71,6 +72,15 @@ impl ApiError {
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorCode::Internal,
             "internal error".to_string(),
+            None,
+        )
+    }
+
+    pub fn conflict(message: &str) -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            ErrorCode::Conflict,
+            message.to_string(),
             None,
         )
     }

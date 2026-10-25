@@ -80,6 +80,21 @@ pub enum Rule {
     ExternalEffect,
 }
 
+impl Rule {
+    /// The rule's name as it appears in `kind` on the wire.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Rule::AgentPolicy => "agent_policy",
+            Rule::OffAllowlist { .. } => "off_allowlist",
+            Rule::Taint { .. } => "taint",
+            Rule::NotOffered => "not_offered",
+            Rule::InvalidArgs => "invalid_args",
+            Rule::RepeatOfRefused => "repeat_of_refused",
+            Rule::ExternalEffect => "external_effect",
+        }
+    }
+}
+
 pub struct Facts<'a> {
     pub own: Decision,
     pub effect: Effect,
@@ -88,4 +103,30 @@ pub struct Facts<'a> {
     pub taint: Vec<TaintSource>,
     /// Borrowed from the task's fixed allowlist.
     pub allowlist: &'a [String],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rule_kind_matches_the_serialized_tag() {
+        let source = TaintSource::Web {
+            url: "u".to_string(),
+        };
+        for rule in [
+            Rule::AgentPolicy,
+            Rule::OffAllowlist {
+                host: "h".to_string(),
+            },
+            Rule::Taint { source },
+            Rule::NotOffered,
+            Rule::InvalidArgs,
+            Rule::RepeatOfRefused,
+            Rule::ExternalEffect,
+        ] {
+            let tag = serde_json::to_value(&rule).expect("json")["kind"].clone();
+            assert_eq!(tag, rule.kind());
+        }
+    }
 }

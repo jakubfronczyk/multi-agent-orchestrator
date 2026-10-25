@@ -3,12 +3,17 @@
 
 use std::sync::Arc;
 
+use futures_util::{StreamExt, stream};
+
 use crate::agents::AgentSpec;
 use crate::llm::{CompletionRequest, CompletionResponse, Item, LlmError, ScriptKey, ToolChoice};
 use crate::runs::{FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, StoreError};
+use crate::tools::ToolSpec;
 
-use super::{Inner, Task};
+use super::{Inner, Task, gateway};
+
+const MAX_PARALLEL_CALLS: usize = 4;
 
 pub(super) struct RunCtx {
     pub at: RunRef,
@@ -40,11 +45,13 @@ async fn run_loop(inner: &Inner, ctx: &RunCtx) -> Result<RunOutcome, StoreError>
     let mut transcript = vec![Item::User {
         text: ctx.task_text.clone(),
     }];
-    let step = 0;
-    #[expect(
-        clippy::never_loop,
-        reason = "a tool call ends the run until the gateway handles calls"
-    )]
+    let offered: Vec<ToolSpec> = ctx
+        .agent
+        .tools()
+        .keys()
+        .filter_map(|name| inner.tools.get(*name).map(|tool| tool.spec().clone()))
+        .collect();
+    let mut step = 0;
     loop {
         if ctx.task.spent() >= ctx.task.budget() {
             cancel.cancel();
@@ -64,7 +71,7 @@ async fn run_loop(inner: &Inner, ctx: &RunCtx) -> Result<RunOutcome, StoreError>
             reasoning_effort: ctx.agent.reasoning_effort(),
             instructions: ctx.agent.system_prompt().to_string(),
             transcript: transcript.clone(),
-            tools: Vec::new(),
+            tools: offered.clone(),
             tool_choice: if last {
                 ToolChoice::None
             } else {
@@ -106,10 +113,21 @@ async fn run_loop(inner: &Inner, ctx: &RunCtx) -> Result<RunOutcome, StoreError>
                 truncated: false,
             });
         }
-        return Ok(failed(
-            FailReason::Internal,
-            "the model called a tool; tool calls are not available yet",
-        ));
+
+        // Up to MAX_PARALLEL_CALLS run at once, each decided when it starts; `buffered`
+        // yields results in call order, so outputs line up with the calls.
+        let outputs: Vec<Result<String, StoreError>> = stream::iter(response.calls.clone())
+            .map(|call| async move { gateway::execute(inner, ctx, &call).await })
+            .buffered(MAX_PARALLEL_CALLS)
+            .collect()
+            .await;
+        for (call, output) in response.calls.iter().zip(outputs) {
+            transcript.push(Item::ToolOutput {
+                call_id: call.call_id.clone(),
+                output: output?,
+            });
+        }
+        step += 1;
     }
 }
 

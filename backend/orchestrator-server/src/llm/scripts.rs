@@ -1,7 +1,7 @@
-//! Fixed replies for the scripted provider, keyed by scenario and attempt.
+//! Fixed replies for the scripted provider, keyed by scenario, step and attempt.
 //! Replies use the xAI output-item shape so they pass through the same parser.
 
-use orchestrator_core::llm::LlmError;
+use orchestrator_core::llm::{LlmError, ToolChoice};
 use serde_json::{Value, json};
 
 pub const DEMO_REPLY: &str = "Demo mode: try one of the example tasks.";
@@ -13,7 +13,25 @@ pub enum Reply {
     Hang,
 }
 
-pub fn reply(scenario: Option<&str>, attempt: u32) -> Reply {
+/// `test:call:<tool>:<json args>` calls once, then answers. `test:loop:<tool>` calls on every
+/// step it may. With `tool_choice` none, every script answers in text, as xAI does.
+pub fn reply(scenario: Option<&str>, step: u32, attempt: u32, tool_choice: ToolChoice) -> Reply {
+    if tool_choice == ToolChoice::None {
+        return message("out of steps");
+    }
+    if let Some((tool, args)) = scenario
+        .and_then(|s| s.strip_prefix("test:call:"))
+        .and_then(|rest| rest.split_once(':'))
+    {
+        return if step == 0 {
+            function_call(step, tool, args)
+        } else {
+            message("done")
+        };
+    }
+    if let Some(tool) = scenario.and_then(|s| s.strip_prefix("test:loop:")) {
+        return function_call(step, tool, "{}");
+    }
     match scenario {
         Some("test:retry") if attempt == 0 => {
             Reply::Fail(LlmError::Server("scripted 503".to_string()))
@@ -21,15 +39,18 @@ pub fn reply(scenario: Option<&str>, attempt: u32) -> Reply {
         Some("test:retry") => message("recovered"),
         Some("test:fatal") => Reply::Fail(LlmError::Rejected("scripted 400".to_string())),
         Some("test:hang") => Reply::Hang,
-        Some("test:call") => Reply::Items(vec![json!({
-            "type": "function_call",
-            "call_id": "call-1",
-            "name": "memory_read",
-            "arguments": "{}"
-        })]),
         Some("test:hello") => message("hello"),
         _ => message(DEMO_REPLY),
     }
+}
+
+fn function_call(step: u32, tool: &str, args: &str) -> Reply {
+    Reply::Items(vec![json!({
+        "type": "function_call",
+        "call_id": format!("call-{step}"),
+        "name": tool,
+        "arguments": args
+    })])
 }
 
 fn message(text: &str) -> Reply {
