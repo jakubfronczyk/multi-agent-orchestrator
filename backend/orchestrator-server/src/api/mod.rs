@@ -22,6 +22,7 @@ mod json;
 mod memory;
 mod meta;
 mod outbox;
+mod query;
 mod runs;
 mod tool_calls;
 

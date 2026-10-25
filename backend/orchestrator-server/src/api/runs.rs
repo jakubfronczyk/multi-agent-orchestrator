@@ -13,12 +13,12 @@ use ts_rs::TS;
 use super::AppState;
 use super::error::ApiError;
 use super::json::ApiJson;
+use super::query;
 use crate::llm::S1_DECISION;
 use crate::sqlite::runs::{self, RunDetail, RunList};
 use crate::tools::files::EntryKind;
 
 const DEFAULT_LIMIT: u32 = 50;
-const MAX_LIMIT: u32 = 200;
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
@@ -91,10 +91,7 @@ pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<RunList>, ApiError> {
-    let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
-    if !(1..=MAX_LIMIT).contains(&limit) {
-        return Err(ApiError::invalid("limit", "use 1 to 200"));
-    }
+    let limit = query::limit(query.limit, DEFAULT_LIMIT)?;
     Ok(Json(runs::list(&state.pool, limit).await?))
 }
 

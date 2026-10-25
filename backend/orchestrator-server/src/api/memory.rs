@@ -6,8 +6,8 @@ use serde::Deserialize;
 
 use super::AppState;
 use super::error::ApiError;
+use super::query;
 use crate::sqlite::memory::{self, MemoryFilter, MemoryList, MemoryVersionList};
-use crate::sqlite::text::from_text;
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
@@ -21,19 +21,8 @@ pub async fn list(
     Query(query): Query<ListQuery>,
 ) -> Result<Json<MemoryList>, ApiError> {
     let filter = MemoryFilter {
-        scope: query
-            .scope
-            .map(|raw| {
-                from_text(&raw).map_err(|_| ApiError::invalid("scope", "unknown memory scope"))
-            })
-            .transpose()?,
-        agent_id: query
-            .agent_id
-            .map(|id| {
-                id.parse()
-                    .map_err(|_| ApiError::invalid("agent_id", "not an agent id"))
-            })
-            .transpose()?,
+        scope: query::value("scope", query.scope)?,
+        agent_id: query::id("agent_id", query.agent_id)?,
         q: query.q.filter(|q| !q.is_empty()),
     };
     Ok(Json(memory::list(&state.pool, filter).await?))

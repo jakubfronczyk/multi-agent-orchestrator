@@ -11,8 +11,8 @@ use ts_rs::TS;
 use super::AppState;
 use super::error::ApiError;
 use super::json::ApiJson;
+use super::query;
 use crate::sqlite::approvals::{self, ApprovalList};
-use crate::sqlite::text::from_text;
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
@@ -38,12 +38,7 @@ pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<ApprovalList>, ApiError> {
-    let status = match query.status.as_deref() {
-        Some(raw) => Some(
-            from_text(raw).map_err(|_| ApiError::invalid("status", "unknown approval status"))?,
-        ),
-        None => None,
-    };
+    let status = query::value("status", query.status)?;
     Ok(Json(approvals::list(&state.pool, status).await?))
 }
 

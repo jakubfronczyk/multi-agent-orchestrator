@@ -6,11 +6,10 @@ use serde::Deserialize;
 
 use super::AppState;
 use super::error::ApiError;
+use super::query;
 use crate::sqlite::runs::{self, ToolCallFilter, ToolCallList};
-use crate::sqlite::text::from_text;
 
 const DEFAULT_LIMIT: u32 = 100;
-const MAX_LIMIT: u32 = 200;
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
@@ -25,32 +24,12 @@ pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<ToolCallList>, ApiError> {
-    let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
-    if !(1..=MAX_LIMIT).contains(&limit) {
-        return Err(ApiError::invalid("limit", "use 1 to 200"));
-    }
+    let limit = query::limit(query.limit, DEFAULT_LIMIT)?;
     let filter = ToolCallFilter {
-        run_id: query
-            .run_id
-            .map(|id| {
-                id.parse()
-                    .map_err(|_| ApiError::invalid("run_id", "not a run id"))
-            })
-            .transpose()?,
-        agent_id: query
-            .agent_id
-            .map(|id| {
-                id.parse()
-                    .map_err(|_| ApiError::invalid("agent_id", "not an agent id"))
-            })
-            .transpose()?,
+        run_id: query::id("run_id", query.run_id)?,
+        agent_id: query::id("agent_id", query.agent_id)?,
         tool: query.tool,
-        status: query
-            .status
-            .map(|raw| {
-                from_text(&raw).map_err(|_| ApiError::invalid("status", "unknown call status"))
-            })
-            .transpose()?,
+        status: query::value("status", query.status)?,
     };
     Ok(Json(runs::tool_calls(&state.pool, filter, limit).await?))
 }
