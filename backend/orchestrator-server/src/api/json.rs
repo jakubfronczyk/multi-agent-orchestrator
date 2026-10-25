@@ -45,27 +45,19 @@ impl<T: DeserializeOwned, S: Send + Sync> FromRequest<S> for ApiJson<T> {
 }
 
 fn parse_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
-    let invalid = |message: String, field: Option<String>| {
-        ApiError::new(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            ErrorCode::InvalidInput,
-            message,
-            field,
-        )
-    };
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
     let value = serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
         // A rejected map key has no name in the path ("tools.?"); the message names it.
         let path = error.path().to_string();
         let path = path.trim_end_matches(".?");
-        invalid(
+        ApiError::unprocessable(
             error.inner().to_string(),
             (path != ".").then(|| path.to_string()),
         )
     })?;
     deserializer
         .end()
-        .map_err(|error| invalid(error.to_string(), None))?;
+        .map_err(|error| ApiError::unprocessable(error.to_string(), None))?;
     Ok(value)
 }
 

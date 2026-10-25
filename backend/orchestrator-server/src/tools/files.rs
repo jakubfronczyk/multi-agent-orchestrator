@@ -23,8 +23,8 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use super::sandbox::{relative, resolve};
-use super::{escape_like, is_trusted, spec, storage_failed};
-use crate::sqlite::text::{from_text, timestamp, to_text};
+use super::{is_trusted, spec, storage_failed};
+use crate::sqlite::text::{escape_like, from_text, timestamp, to_text};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 /// The largest file the file tools read or write, and so the largest upload.

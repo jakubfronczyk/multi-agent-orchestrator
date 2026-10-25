@@ -4,7 +4,9 @@
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
 
-use super::text::{from_text, parse_timestamp};
+use serde::Serialize;
+
+use super::text::{from_text, parse_timestamp, to_text};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReadError {
@@ -16,6 +18,28 @@ pub enum ReadError {
 
 pub(crate) fn corrupt(error: impl std::fmt::Display) -> ReadError {
     ReadError::Corrupt(error.to_string())
+}
+
+/// An id or enum column stored through `to_text`.
+pub(crate) fn decode<T: DeserializeOwned>(text: &str) -> Result<T, ReadError> {
+    from_text(text).map_err(corrupt)
+}
+
+pub(crate) fn decode_time(text: &str) -> Result<DateTime<Utc>, ReadError> {
+    parse_timestamp(text).map_err(corrupt)
+}
+
+pub(crate) fn decode_json<T: DeserializeOwned>(text: &str) -> Result<T, ReadError> {
+    serde_json::from_str(text).map_err(corrupt)
+}
+
+/// A query parameter in its stored text form.
+pub(crate) fn encode<T: Serialize>(value: &T) -> Result<String, ReadError> {
+    to_text(value).map_err(corrupt)
+}
+
+pub(crate) fn encode_opt<T: Serialize>(value: Option<&T>) -> Result<Option<String>, ReadError> {
+    value.map(encode).transpose()
 }
 
 /// A nullable JSON column.

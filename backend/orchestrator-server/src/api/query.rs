@@ -20,6 +20,11 @@ pub fn limit(raw: Option<u32>, default: u32) -> Result<u32, ApiError> {
     }
 }
 
+/// A malformed id in the path cannot name anything, so it is a 404 like an unknown one.
+pub fn path_id<T: FromStr>(raw: &str) -> Result<T, ApiError> {
+    raw.parse().map_err(|_| ApiError::not_found())
+}
+
 /// An id, parsed through its `FromStr`.
 pub fn id<T: FromStr>(field: &str, raw: Option<String>) -> Result<Option<T>, ApiError> {
     raw.map(|raw| {

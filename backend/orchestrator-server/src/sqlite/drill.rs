@@ -9,8 +9,8 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 
-use super::read::{ReadError, corrupt, count, json_opt, text_opt};
-use super::text::{from_text, to_text};
+use super::read::{ReadError, count, decode, decode_json, encode, json_opt, text_opt};
+use super::text::from_text;
 
 /// Who stopped or let through an exit: policy alone, or a person on a card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -52,7 +52,7 @@ pub struct DrillReport {
 
 /// The report for the task whose root run is `root`, or `None` when no root run has this id.
 pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport>, ReadError> {
-    let root_text = to_text(&root).map_err(corrupt)?;
+    let root_text = encode(&root)?;
     let mut tx = pool.begin().await?;
     let status = sqlx::query_scalar!(
         "SELECT status FROM runs WHERE id = ?1 AND root_run_id = ?1",
@@ -96,8 +96,8 @@ pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport
         }
         let decision: Option<Decision> = text_opt(row.decision.as_deref())?;
         exits.push(DrillExit {
-            call_id: from_text(&row.id).map_err(corrupt)?,
-            run_id: from_text(&row.run_id).map_err(corrupt)?,
+            call_id: decode(&row.id)?,
+            run_id: decode(&row.run_id)?,
             agent: row.agent,
             tool,
             action: json_opt(row.action.as_deref())?,
@@ -107,14 +107,14 @@ pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport
                 DecidedBy::Gateway
             },
             decision,
-            rules: serde_json::from_str(&row.rules).map_err(corrupt)?,
+            rules: decode_json(&row.rules)?,
             approval: text_opt(row.approval.as_deref())?,
             status: text_opt(row.status.as_deref())?,
         });
     }
     Ok(Some(DrillReport {
         root_run_id: root,
-        status: from_text(&status).map_err(corrupt)?,
+        status: decode(&status)?,
         exits,
         messages_sent: count(sent)?,
     }))

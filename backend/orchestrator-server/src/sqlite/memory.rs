@@ -8,9 +8,8 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 
-use super::read::{ReadError, corrupt, text_opt};
-use super::text::{from_text, parse_timestamp, to_text};
-use crate::tools::escape_like;
+use super::read::{ReadError, decode, decode_time, encode_opt, text_opt};
+use super::text::escape_like;
 
 const LIST_LIMIT: u32 = 200;
 
@@ -71,18 +70,8 @@ pub struct MemoryFilter {
 
 /// Notes, most recently updated first, at most 200.
 pub async fn list(pool: &SqlitePool, filter: MemoryFilter) -> Result<MemoryList, ReadError> {
-    let scope = filter
-        .scope
-        .as_ref()
-        .map(to_text)
-        .transpose()
-        .map_err(corrupt)?;
-    let owner = filter
-        .agent_id
-        .as_ref()
-        .map(to_text)
-        .transpose()
-        .map_err(corrupt)?;
+    let scope = encode_opt(filter.scope.as_ref())?;
+    let owner = encode_opt(filter.agent_id.as_ref())?;
     let pattern = filter.q.as_deref().map(|q| format!("%{}%", escape_like(q)));
     let rows = sqlx::query!(
         r#"SELECT e.id, e.scope, e.owner_agent_id, e.key, e.content, e.author_agent_id,
@@ -104,16 +93,16 @@ pub async fn list(pool: &SqlitePool, filter: MemoryFilter) -> Result<MemoryList,
         .map(|row| {
             Ok(MemoryEntryView {
                 id: row.id,
-                scope: from_text(&row.scope).map_err(corrupt)?,
+                scope: decode(&row.scope)?,
                 owner_agent_id: text_opt(row.owner_agent_id.as_deref())?,
                 key: row.key,
                 content: row.content,
-                author_agent_id: from_text(&row.author_agent_id).map_err(corrupt)?,
+                author_agent_id: decode(&row.author_agent_id)?,
                 author_slug: row.author_slug,
-                trust: from_text(&row.trust).map_err(corrupt)?,
+                trust: decode(&row.trust)?,
                 version: row.version,
-                created_at: parse_timestamp(&row.created_at).map_err(corrupt)?,
-                updated_at: parse_timestamp(&row.updated_at).map_err(corrupt)?,
+                created_at: decode_time(&row.created_at)?,
+                updated_at: decode_time(&row.updated_at)?,
             })
         })
         .collect::<Result<Vec<_>, ReadError>>()?;
@@ -154,12 +143,12 @@ pub async fn versions(
             Ok(MemoryVersionView {
                 version: row.version,
                 content: row.content,
-                author_agent_id: from_text(&row.author_agent_id).map_err(corrupt)?,
+                author_agent_id: decode(&row.author_agent_id)?,
                 author_slug: row.author_slug,
-                run_id: from_text(&row.run_id).map_err(corrupt)?,
-                root_run_id: from_text(&row.root_run_id).map_err(corrupt)?,
-                trust: from_text(&row.trust).map_err(corrupt)?,
-                created_at: parse_timestamp(&row.created_at).map_err(corrupt)?,
+                run_id: decode(&row.run_id)?,
+                root_run_id: decode(&row.root_run_id)?,
+                trust: decode(&row.trust)?,
+                created_at: decode_time(&row.created_at)?,
             })
         })
         .collect::<Result<Vec<_>, ReadError>>()?;

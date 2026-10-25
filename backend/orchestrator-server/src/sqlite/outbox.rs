@@ -6,8 +6,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 
-use super::read::{ReadError, corrupt};
-use super::text::{from_text, parse_timestamp};
+use super::read::{ReadError, decode, decode_time};
 
 const LIST_LIMIT: u32 = 200;
 
@@ -47,13 +46,13 @@ pub async fn list(pool: &SqlitePool) -> Result<OutboxList, ReadError> {
         .map(|row| {
             Ok(OutboxMessage {
                 id: row.id,
-                run_id: from_text(&row.run_id).map_err(corrupt)?,
-                root_run_id: from_text(&row.root_run_id).map_err(corrupt)?,
+                run_id: decode(&row.run_id)?,
+                root_run_id: decode(&row.root_run_id)?,
                 channel: row.channel,
                 recipient: row.recipient,
                 subject: row.subject,
                 body: row.body,
-                sent_at: parse_timestamp(&row.sent_at).map_err(corrupt)?,
+                sent_at: decode_time(&row.sent_at)?,
             })
         })
         .collect::<Result<Vec<_>, ReadError>>()?;

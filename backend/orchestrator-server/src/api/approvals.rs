@@ -47,7 +47,7 @@ pub async fn answer(
     Path(id): Path<String>,
     ApiJson(request): ApiJson<AnswerApprovalRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let id: ApprovalId = id.parse().map_err(|_| ApiError::not_found())?;
+    let id: ApprovalId = query::path_id(&id)?;
     let answer = match request.decision {
         AnswerDecision::Approve => Answer::Approve { note: request.note },
         AnswerDecision::Deny => Answer::Deny { note: request.note },

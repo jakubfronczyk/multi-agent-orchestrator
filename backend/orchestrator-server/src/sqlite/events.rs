@@ -5,8 +5,7 @@ use orchestrator_core::runs::RunEvent;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
-use super::read::{ReadError, corrupt};
-use super::text::{from_text, parse_timestamp, to_text};
+use super::read::{ReadError, corrupt, decode, decode_json, decode_time, encode};
 use crate::events::EventEnvelope;
 
 /// Stored `type` values the reads filter on; a test checks serde writes the same strings.
@@ -37,9 +36,9 @@ pub async fn since(pool: &SqlitePool, after: EventId) -> Result<Vec<EventEnvelop
         .map(|row| {
             Ok(EventEnvelope {
                 id: EventId(row.id),
-                root_run_id: from_text(&row.root_run_id).map_err(corrupt)?,
-                run_id: from_text(&row.run_id).map_err(corrupt)?,
-                ts: parse_timestamp(&row.ts).map_err(corrupt)?,
+                root_run_id: decode(&row.root_run_id)?,
+                run_id: decode(&row.run_id)?,
+                ts: decode_time(&row.ts)?,
                 event: event(&row.kind, &row.data)?,
             })
         })
@@ -48,7 +47,7 @@ pub async fn since(pool: &SqlitePool, after: EventId) -> Result<Vec<EventEnvelop
 
 /// Every event of the task whose root run is `root`, in id order, each with its run.
 pub async fn of_task(pool: &SqlitePool, root: RunId) -> Result<Vec<(RunId, RunEvent)>, ReadError> {
-    let root = to_text(&root).map_err(corrupt)?;
+    let root = encode(&root)?;
     let rows = sqlx::query!(
         r#"SELECT run_id, type AS kind, data FROM run_events WHERE root_run_id = ? ORDER BY id"#,
         root
@@ -57,7 +56,7 @@ pub async fn of_task(pool: &SqlitePool, root: RunId) -> Result<Vec<(RunId, RunEv
     .await?;
     rows.into_iter()
         .map(|row| {
-            let run = from_text(&row.run_id).map_err(corrupt)?;
+            let run = decode(&row.run_id)?;
             Ok((run, event(&row.kind, &row.data)?))
         })
         .collect()
@@ -65,7 +64,7 @@ pub async fn of_task(pool: &SqlitePool, root: RunId) -> Result<Vec<(RunId, RunEv
 
 /// Rebuilt in the shape `insert_event` split it from.
 fn event(kind: &str, data: &str) -> Result<RunEvent, ReadError> {
-    let data: Value = serde_json::from_str(data).map_err(corrupt)?;
+    let data: Value = decode_json(data)?;
     serde_json::from_value(json!({ "type": kind, "data": data })).map_err(corrupt)
 }
 

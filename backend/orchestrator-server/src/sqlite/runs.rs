@@ -14,8 +14,10 @@ use ts_rs::TS;
 
 use super::approvals::{self, ApprovalView};
 use super::events::{self, LLM_RESPONDED, PLAN_RECORDED};
-use super::read::{ReadError, corrupt, count, json_opt, text_opt, time_opt};
-use super::text::{from_text, parse_timestamp, to_text};
+use super::read::{
+    ReadError, count, decode, decode_json, decode_time, encode, encode_opt, json_opt, text_opt,
+    time_opt,
+};
 
 /// One task, read from its root run; status, outcome and finish are its latest turn's.
 #[derive(Debug, Clone, Serialize, TS)]
@@ -169,21 +171,21 @@ struct ToolCallRow {
 impl ToolCallRow {
     fn view(self) -> Result<ToolCallView, ReadError> {
         Ok(ToolCallView {
-            id: from_text(&self.id).map_err(corrupt)?,
-            run_id: from_text(&self.run_id).map_err(corrupt)?,
-            root_run_id: from_text(&self.root_run_id).map_err(corrupt)?,
-            agent_id: from_text(&self.agent_id).map_err(corrupt)?,
+            id: decode(&self.id)?,
+            run_id: decode(&self.run_id)?,
+            root_run_id: decode(&self.root_run_id)?,
+            agent_id: decode(&self.agent_id)?,
             tool: self.tool,
-            args: serde_json::from_str(&self.args).map_err(corrupt)?,
+            args: decode_json(&self.args)?,
             action: json_opt(self.action.as_deref())?,
             decision: text_opt(self.decision.as_deref())?,
-            rules: serde_json::from_str(&self.rules).map_err(corrupt)?,
-            phase: from_text(&self.phase).map_err(corrupt)?,
+            rules: decode_json(&self.rules)?,
+            phase: decode(&self.phase)?,
             status: text_opt(self.status.as_deref())?,
             result_preview: self.result_preview,
             child_run_id: text_opt(self.child_run_id.as_deref())?,
             duration_ms: self.duration_ms,
-            requested_at: parse_timestamp(&self.requested_at).map_err(corrupt)?,
+            requested_at: decode_time(&self.requested_at)?,
             finished_at: time_opt(self.finished_at.as_deref())?,
         })
     }
@@ -197,9 +199,9 @@ struct PlanData {
 /// Tasks by root run, newest first, each with its counts and cost, in one query. A follow-up
 /// has no parent either, so a root is the run whose id is its own root id.
 pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
-    let pending = to_text(&ApprovalStatus::Pending).map_err(corrupt)?;
-    let refused = to_text(&CallStatus::Refused).map_err(corrupt)?;
-    let denied = to_text(&CallStatus::DeniedHuman).map_err(corrupt)?;
+    let pending = encode(&ApprovalStatus::Pending)?;
+    let refused = encode(&CallStatus::Refused)?;
+    let denied = encode(&CallStatus::DeniedHuman)?;
     let mut tx = pool.begin().await?;
     let last_event_id = events::last_id(&mut *tx).await?;
     let rows = sqlx::query!(
@@ -237,17 +239,17 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
         .into_iter()
         .map(|row| {
             Ok(RunSummary {
-                id: from_text(&row.id).map_err(corrupt)?,
-                agent_id: from_text(&row.agent_id).map_err(corrupt)?,
+                id: decode(&row.id)?,
+                agent_id: decode(&row.agent_id)?,
                 title: row.title,
                 task: row.task,
-                status: from_text(&row.status).map_err(corrupt)?,
+                status: decode(&row.status)?,
                 outcome: json_opt(row.outcome.as_deref())?,
-                started_at: parse_timestamp(&row.started_at).map_err(corrupt)?,
+                started_at: decode_time(&row.started_at)?,
                 finished_at: time_opt(row.finished_at.as_deref())?,
                 scenario: row.scenario,
                 pending_approvals: count(row.pending)?,
-                agents: serde_json::from_str(&row.agents).map_err(corrupt)?,
+                agents: decode_json(&row.agents)?,
                 refusals: count(row.refusals)?,
                 cost_micros: Micros(row.cost),
             })
@@ -261,7 +263,7 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
 
 /// The task whose root run is `root`, or `None` when no root run has this id.
 pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>, ReadError> {
-    let root_text = to_text(&root).map_err(corrupt)?;
+    let root_text = encode(&root)?;
     let mut tx = pool.begin().await?;
     let last_event_id = events::last_id(&mut *tx).await?;
 
@@ -312,18 +314,18 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
         .into_iter()
         .map(|row| {
             Ok(RunView {
-                id: from_text(&row.id).map_err(corrupt)?,
+                id: decode(&row.id)?,
                 parent_run_id: text_opt(row.parent_run_id.as_deref())?,
                 parent_call_id: text_opt(row.parent_call_id.as_deref())?,
-                agent_id: from_text(&row.agent_id).map_err(corrupt)?,
+                agent_id: decode(&row.agent_id)?,
                 agent_version: row.agent_version,
                 title: row.title,
                 task: row.task,
-                task_sources: serde_json::from_str(&row.task_sources).map_err(corrupt)?,
+                task_sources: decode_json(&row.task_sources)?,
                 draft_only: row.draft_only != 0,
-                status: from_text(&row.status).map_err(corrupt)?,
+                status: decode(&row.status)?,
                 outcome: json_opt(row.outcome.as_deref())?,
-                started_at: parse_timestamp(&row.started_at).map_err(corrupt)?,
+                started_at: decode_time(&row.started_at)?,
                 finished_at: time_opt(row.finished_at.as_deref())?,
                 cost_micros: Micros(row.cost),
             })
@@ -370,24 +372,9 @@ pub async fn tool_calls(
     filter: ToolCallFilter,
     limit: u32,
 ) -> Result<ToolCallList, ReadError> {
-    let run = filter
-        .run_id
-        .as_ref()
-        .map(to_text)
-        .transpose()
-        .map_err(corrupt)?;
-    let agent = filter
-        .agent_id
-        .as_ref()
-        .map(to_text)
-        .transpose()
-        .map_err(corrupt)?;
-    let status = filter
-        .status
-        .as_ref()
-        .map(to_text)
-        .transpose()
-        .map_err(corrupt)?;
+    let run = encode_opt(filter.run_id.as_ref())?;
+    let agent = encode_opt(filter.agent_id.as_ref())?;
+    let status = encode_opt(filter.status.as_ref())?;
     let mut tx = pool.begin().await?;
     let last_event_id = events::last_id(&mut *tx).await?;
     let rows = sqlx::query_as!(
@@ -421,7 +408,7 @@ pub async fn tool_calls(
 
 /// Whether a root run has this id, for telling an unknown task from a finished one.
 pub async fn root_exists(pool: &SqlitePool, root: RunId) -> Result<bool, ReadError> {
-    let root = to_text(&root).map_err(corrupt)?;
+    let root = encode(&root)?;
     let found = sqlx::query_scalar!(
         r#"SELECT 1 AS "found!: i64" FROM runs WHERE id = ?1 AND root_run_id = ?1"#,
         root

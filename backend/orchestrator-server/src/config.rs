@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use orchestrator_core::money::Micros;
 
-pub const DATA_DIR: &str = "var";
 pub const DATABASE_FILE: &str = "var/orchestrator.db";
 /// The only directory file tools can reach.
 pub const WORKSPACE_DIR: &str = "var/workspace";

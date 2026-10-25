@@ -19,9 +19,9 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use super::{escape_like, is_trusted, spec, storage_failed};
+use super::{is_trusted, spec, storage_failed};
 use crate::sqlite::begin_write;
-use crate::sqlite::text::{from_text, timestamp, to_text};
+use crate::sqlite::text::{escape_like, from_text, timestamp, to_text};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 const CONTENT_BYTES: usize = 16 * 1024;

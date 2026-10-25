@@ -9,8 +9,9 @@ use sqlx::{SqliteConnection, SqlitePool};
 use ts_rs::TS;
 
 use super::events;
-use super::read::{ReadError, corrupt, json_opt, time_opt};
-use super::text::{from_text, parse_timestamp, to_text};
+use super::read::{
+    ReadError, decode, decode_json, decode_time, encode, encode_opt, json_opt, text_opt, time_opt,
+};
 
 /// One approval card with what it is about.
 #[derive(Debug, Clone, Serialize, TS)]
@@ -60,8 +61,8 @@ pub(crate) async fn views(
     status: Option<ApprovalStatus>,
     root: Option<RunId>,
 ) -> Result<Vec<ApprovalView>, ReadError> {
-    let status = status.as_ref().map(to_text).transpose().map_err(corrupt)?;
-    let root = root.as_ref().map(to_text).transpose().map_err(corrupt)?;
+    let status = encode_opt(status.as_ref())?;
+    let root = encode_opt(root.as_ref())?;
     let rows = sqlx::query!(
         r#"SELECT a.id, a.tool_call_id, a.custody, a.preview, a.status, a.note, a.expires_at, a.created_at,
                   a.resolved_at, t.run_id AS "run_id!", r.root_run_id AS "root_run_id!", t.tool AS "tool!", t.action
@@ -78,18 +79,18 @@ pub(crate) async fn views(
     rows.into_iter()
         .map(|row| {
             Ok(ApprovalView {
-                id: from_text(&row.id).map_err(corrupt)?,
-                tool_call_id: from_text(&row.tool_call_id).map_err(corrupt)?,
-                run_id: from_text(&row.run_id).map_err(corrupt)?,
-                root_run_id: from_text(&row.root_run_id).map_err(corrupt)?,
+                id: decode(&row.id)?,
+                tool_call_id: decode(&row.tool_call_id)?,
+                run_id: decode(&row.run_id)?,
+                root_run_id: decode(&row.root_run_id)?,
                 tool: row.tool,
                 action: json_opt(row.action.as_deref())?,
-                custody: serde_json::from_str(&row.custody).map_err(corrupt)?,
+                custody: decode_json(&row.custody)?,
                 preview: row.preview,
-                status: from_text(&row.status).map_err(corrupt)?,
+                status: decode(&row.status)?,
                 note: row.note,
-                expires_at: parse_timestamp(&row.expires_at).map_err(corrupt)?,
-                created_at: parse_timestamp(&row.created_at).map_err(corrupt)?,
+                expires_at: decode_time(&row.expires_at)?,
+                created_at: decode_time(&row.created_at)?,
                 resolved_at: time_opt(row.resolved_at.as_deref())?,
             })
         })
@@ -101,13 +102,9 @@ pub async fn status(
     pool: &SqlitePool,
     id: ApprovalId,
 ) -> Result<Option<ApprovalStatus>, ReadError> {
-    let id = to_text(&id).map_err(corrupt)?;
+    let id = encode(&id)?;
     let status = sqlx::query_scalar!("SELECT status FROM approvals WHERE id = ?", id)
         .fetch_optional(pool)
         .await?;
-    status
-        .as_deref()
-        .map(from_text)
-        .transpose()
-        .map_err(corrupt)
+    text_opt(status.as_deref())
 }

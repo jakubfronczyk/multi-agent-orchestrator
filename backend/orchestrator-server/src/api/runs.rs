@@ -107,7 +107,7 @@ pub async fn follow_up(
     Path(id): Path<String>,
     ApiJson(body): ApiJson<FollowUpBody>,
 ) -> Result<(StatusCode, Json<StartRunResponse>), ApiError> {
-    let root: RunId = id.parse().map_err(|_| ApiError::not_found())?;
+    let root: RunId = query::path_id(&id)?;
     let run_id = state
         .engine
         .follow_up(
@@ -119,19 +119,23 @@ pub async fn follow_up(
             },
         )
         .await
-        .map_err(|error| match error {
-            FollowUpError::EmptyText => ApiError::invalid("text", "must not be empty"),
-            FollowUpError::UnknownTask => ApiError::not_found(),
-            FollowUpError::Running => ApiError::conflict("this task is still running"),
-            FollowUpError::NotLead => {
-                ApiError::conflict("only a task the Lead started takes follow-ups")
-            }
-            FollowUpError::Store(error) => {
-                tracing::error!(%error, "could not start the follow-up");
-                ApiError::internal()
-            }
-        })?;
+        .map_err(follow_up_error)?;
     Ok((StatusCode::ACCEPTED, Json(StartRunResponse { run_id })))
+}
+
+fn follow_up_error(error: FollowUpError) -> ApiError {
+    match error {
+        FollowUpError::EmptyText => ApiError::invalid("text", "must not be empty"),
+        FollowUpError::UnknownTask => ApiError::not_found(),
+        FollowUpError::Running => ApiError::conflict("this task is still running"),
+        FollowUpError::NotLead => {
+            ApiError::conflict("only a task the Lead started takes follow-ups")
+        }
+        FollowUpError::Store(error) => {
+            tracing::error!(%error, "could not start the follow-up");
+            ApiError::internal()
+        }
+    }
 }
 
 pub async fn list(
@@ -146,7 +150,7 @@ pub async fn get(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<RunDetail>, ApiError> {
-    let root: RunId = id.parse().map_err(|_| ApiError::not_found())?;
+    let root: RunId = query::path_id(&id)?;
     runs::detail(&state.pool, root)
         .await?
         .map(Json)
@@ -158,7 +162,7 @@ pub async fn cancel(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let root: RunId = id.parse().map_err(|_| ApiError::not_found())?;
+    let root: RunId = query::path_id(&id)?;
     if state.engine.cancel(root) {
         return Ok(StatusCode::ACCEPTED);
     }

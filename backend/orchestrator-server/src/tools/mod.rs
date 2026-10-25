@@ -61,15 +61,3 @@ pub(crate) fn storage_failed(error: impl std::fmt::Display) -> ToolError {
     tracing::error!(%error, "tool storage failed");
     ToolError::Internal("storage failed".to_string())
 }
-
-/// `%`, `_` and the escape character itself match literally.
-pub(crate) fn escape_like(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for c in text.chars() {
-        if matches!(c, '\\' | '%' | '_') {
-            escaped.push('\\');
-        }
-        escaped.push(c);
-    }
-    escaped
-}

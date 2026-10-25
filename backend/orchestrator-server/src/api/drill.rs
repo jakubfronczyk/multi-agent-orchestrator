@@ -7,9 +7,9 @@ use axum::http::StatusCode;
 use orchestrator_core::engine::StartRequest;
 use orchestrator_core::ids::RunId;
 
-use super::AppState;
 use super::error::ApiError;
 use super::runs::{StartRunResponse, start_error};
+use super::{AppState, query};
 use crate::config;
 use crate::sqlite::drill::{self, DrillReport};
 
@@ -36,7 +36,7 @@ pub async fn report(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<DrillReport>, ApiError> {
-    let root: RunId = id.parse().map_err(|_| ApiError::not_found())?;
+    let root: RunId = query::path_id(&id)?;
     drill::report(&state.pool, root)
         .await?
         .map(Json)

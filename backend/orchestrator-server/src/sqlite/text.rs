@@ -28,3 +28,15 @@ pub fn timestamp(time: DateTime<Utc>) -> String {
 pub fn parse_timestamp(text: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
     DateTime::parse_from_rfc3339(text).map(|time| time.with_timezone(&Utc))
 }
+
+/// `%`, `_` and the escape character itself match literally.
+pub(crate) fn escape_like(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for c in text.chars() {
+        if matches!(c, '\\' | '%' | '_') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
+}

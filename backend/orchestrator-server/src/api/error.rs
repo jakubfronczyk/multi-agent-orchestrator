@@ -60,11 +60,15 @@ impl ApiError {
     }
 
     pub fn invalid(field: &str, message: &str) -> Self {
+        Self::unprocessable(message.to_string(), Some(field.to_string()))
+    }
+
+    pub(super) fn unprocessable(message: String, field: Option<String>) -> Self {
         Self::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             ErrorCode::InvalidInput,
-            message.to_string(),
-            Some(field.to_string()),
+            message,
+            field,
         )
     }
 
@@ -105,12 +109,9 @@ impl IntoResponse for ApiError {
 impl From<AgentError> for ApiError {
     fn from(error: AgentError) -> Self {
         match error {
-            AgentError::Invalid(invalid) => Self::new(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                ErrorCode::InvalidInput,
-                invalid.message,
-                Some(invalid.field),
-            ),
+            AgentError::Invalid(invalid) => {
+                Self::unprocessable(invalid.message, Some(invalid.field))
+            }
             AgentError::NotFound => Self::not_found(),
             AgentError::Storage(_) | AgentError::Corrupt(_) => {
                 tracing::error!(%error, "agent storage failed");
