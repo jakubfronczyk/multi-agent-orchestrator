@@ -6,4 +6,8 @@ export type StartRunRequest = { agent_id?: AgentId, task: string, title?: string
 /**
  * Which fixed replies to play; a task with a scenario always uses the scripted provider.
  */
-scenario?: string, };
+scenario?: string, 
+/**
+ * Refuses every save, note, fetch and send in the first turn, with no card.
+ */
+draft_only?: boolean, };

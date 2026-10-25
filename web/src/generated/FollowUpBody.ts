@@ -4,4 +4,8 @@ export type FollowUpBody = { text: string,
 /**
  * Which fixed replies to play; set only by demo prompts, so typed text reaches the live model.
  */
-scenario?: string, };
+scenario?: string, 
+/**
+ * Refuses every save, note, fetch and send in this turn, with no card.
+ */
+draft_only?: boolean, };

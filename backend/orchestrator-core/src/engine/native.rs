@@ -207,6 +207,7 @@ pub(super) async fn delegate(
         budget: None,
         scenario: None,
         agent_version: Some(target.version()),
+        draft_only: ctx.task.draft_only(),
     };
     inner.emit(child, started).await?;
 

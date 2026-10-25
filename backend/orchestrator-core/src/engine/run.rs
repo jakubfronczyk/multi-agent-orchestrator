@@ -75,7 +75,8 @@ async fn run_loop(inner: &Arc<Inner>, ctx: &RunCtx) -> Result<RunOutcome, StoreE
     let mut transcript = ctx.history.clone();
     transcript.push(Item::User { text });
     let offered = gateway::offered_specs(inner, ctx);
-    let instructions = prompts::instructions(&ctx.agent, ctx.caller.as_deref());
+    let instructions =
+        prompts::instructions(&ctx.agent, ctx.caller.as_deref(), ctx.task.draft_only());
     let mut step = 0;
     loop {
         if ctx.task.spent() >= ctx.task.budget() {

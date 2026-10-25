@@ -216,6 +216,7 @@ pub fn request(scenario: &str) -> StartRequest {
         title: None,
         budget: None,
         scenario: Some(scenario.to_string()),
+        draft_only: false,
     }
 }
 
@@ -289,6 +290,7 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
         budget: None,
         scenario: None,
         agent_version: None,
+        draft_only: false,
     };
     app.store.emit(at, started).await.expect("run row");
     orchestrator_core::tools::ToolCtx {

@@ -18,6 +18,8 @@ pub struct Task {
     allowlist: Vec<String>,
     /// The team as it was when the task started; edits during the task do not reach it.
     team: Vec<Arc<AgentSpec>>,
+    /// The current turn was started as draft only; every run in the turn inherits it.
+    draft_only: bool,
     cancel: CancellationToken,
     /// A std mutex: it is never held across an await.
     state: Mutex<TaskState>,
@@ -30,15 +32,22 @@ struct TaskState {
     /// Runs started in this task, the root included.
     runs_started: u32,
     /// Calls refused by agent policy or denied by a person; a repeat is refused without a card.
+    /// A draft-only refusal is not recorded, so a later turn may make the same call.
     refused: Vec<(ToolName, Value)>,
 }
 
 impl Task {
-    pub fn new(budget: Micros, allowlist: Vec<String>, team: Vec<Arc<AgentSpec>>) -> Self {
+    pub fn new(
+        budget: Micros,
+        allowlist: Vec<String>,
+        team: Vec<Arc<AgentSpec>>,
+        draft_only: bool,
+    ) -> Self {
         Self {
             budget,
             allowlist,
             team,
+            draft_only,
             cancel: CancellationToken::new(),
             state: Mutex::new(TaskState {
                 spent: Micros(0),
@@ -82,7 +91,12 @@ impl Task {
             action,
             taint: self.lock().taint.clone(),
             allowlist: &self.allowlist,
+            draft_only: self.draft_only,
         }
+    }
+
+    pub fn draft_only(&self) -> bool {
+        self.draft_only
     }
 
     pub fn taint_sources(&self) -> Vec<TaintSource> {

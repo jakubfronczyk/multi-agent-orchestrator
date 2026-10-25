@@ -90,6 +90,7 @@ async fn run_scenario(seeded: &Seeded, scenario: &str, task: &str) -> (RunId, Ve
         title: None,
         budget: None,
         scenario: Some(scenario.to_string()),
+        draft_only: false,
     };
     let root = seeded.engine.start(request).await.expect("start");
     (root, task_events(&mut rx, root).await)
@@ -308,6 +309,7 @@ async fn in_a_clean_task_the_writer_saves_without_a_card(pool: SqlitePool) {
         scenario: Some(
             r#"test:call:file_write:{"path":"notes/clean.md","content":"plain"}"#.to_string(),
         ),
+        draft_only: false,
     };
     let root = seeded.engine.start(request).await.expect("start");
     let events = task_events(&mut rx, root).await;
@@ -401,6 +403,7 @@ async fn run_as(seeded: &Seeded, slug: &str, scenario: &str) -> Vec<EventEnvelop
         title: None,
         budget: None,
         scenario: Some(scenario.to_string()),
+        draft_only: false,
     };
     let root = seeded.engine.start(request).await.expect("start");
     task_events(&mut rx, root).await
@@ -966,6 +969,7 @@ async fn scenario_tasks_stay_scripted_when_a_live_provider_is_set(pool: SqlitePo
         title: None,
         budget: None,
         scenario: None,
+        draft_only: false,
     };
     let root = seeded.engine.start(request).await.expect("start");
     task_events(&mut rx, root).await;
@@ -1029,6 +1033,7 @@ async fn records_name_their_task_and_the_list_keeps_the_scenario(pool: SqlitePoo
             title: None,
             budget: None,
             scenario: None,
+            draft_only: false,
         })
         .await
         .expect("start");
@@ -1130,6 +1135,7 @@ async fn every_run_records_the_agent_version_it_used(pool: SqlitePool) {
     let follow_up = FollowUpRequest {
         text: "Email Rolf again, then Anna".to_string(),
         scenario: Some("s1-followup".to_string()),
+        draft_only: false,
     };
     let turn = seeded
         .engine
@@ -1258,6 +1264,7 @@ async fn every_scenario_makes_only_valid_calls(pool: SqlitePool) {
     let follow_up = FollowUpRequest {
         text: "Email Rolf again, then Anna".to_string(),
         scenario: Some("s1-followup".to_string()),
+        draft_only: false,
     };
     let turn = seeded
         .engine

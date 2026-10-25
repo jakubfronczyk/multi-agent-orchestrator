@@ -92,6 +92,7 @@ async fn run_s1(seeded: &Seeded, engine: &Engine) -> RunId {
         title: None,
         budget: None,
         scenario: Some("s1".to_string()),
+        draft_only: false,
     };
     let root = engine.start(request).await.expect("start");
     task_events(&mut rx, root).await;
@@ -126,6 +127,7 @@ async fn follow_up_s1(seeded: &Seeded, engine: &Engine, root: RunId) -> (RunId, 
     let request = FollowUpRequest {
         text: FOLLOW_UP.to_string(),
         scenario: Some("s1-followup".to_string()),
+        draft_only: false,
     };
     let run = engine.follow_up(root, request).await.expect("follow-up");
     (run, turn_events(&mut rx, root, run).await)
@@ -372,6 +374,7 @@ async fn the_drill_report_is_found_by_root_only(pool: SqlitePool) {
     let follow_up = FollowUpRequest {
         text: "again".to_string(),
         scenario: Some("test:hello".to_string()),
+        draft_only: false,
     };
     let run = app
         .engine
@@ -395,4 +398,139 @@ async fn the_drill_report_is_found_by_root_only(pool: SqlitePool) {
     };
     assert_eq!(status(root).await, 200);
     assert_eq!(status(run).await, 404);
+}
+
+/// The calls each tool name made, with how they were decided, in request order.
+fn decisions(events: &[RunEvent], tool: &str) -> Vec<(Option<Decision>, Option<Rule>)> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            RunEvent::ToolCallRequested {
+                tool: name,
+                decision,
+                reasons,
+                ..
+            } if name == tool => Some((*decision, reasons.first().cloned())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A draft-only S1 on the real tools: reads and delegations run; the save, the note and both
+/// sends are refused by draft_only with no card, so nothing is written or sent. A later turn
+/// that is not draft only makes the same send and it asks: a draft refusal is not a repeat.
+#[sqlx::test]
+async fn a_draft_only_turn_changes_nothing_and_a_later_turn_may_act(pool: SqlitePool) {
+    use orchestrator_core::runs::CallStatus;
+    use orchestrator_server::sqlite::outbox;
+
+    let seeded = Seeded::new(pool).await;
+    let engine = seeded.engine();
+    answer_as_in_s1(&seeded.store, &engine);
+    let mut rx = seeded.store.subscribe();
+    let request = StartRequest {
+        agent_id: None,
+        task: S1_TASK.to_string(),
+        title: None,
+        budget: None,
+        scenario: Some("s1".to_string()),
+        draft_only: true,
+    };
+    let root = engine.start(request).await.expect("start");
+    let events: Vec<RunEvent> = task_events(&mut rx, root)
+        .await
+        .into_iter()
+        .map(|e| e.event)
+        .collect();
+
+    let draft = (Some(Decision::Deny), Some(Rule::DraftOnly));
+    assert_eq!(
+        decisions(&events, "file_write"),
+        std::slice::from_ref(&draft)
+    );
+    assert_eq!(
+        decisions(&events, "memory_write"),
+        std::slice::from_ref(&draft)
+    );
+    assert_eq!(decisions(&events, "send_message"), [draft.clone(), draft]);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, RunEvent::ApprovalRequested { .. })),
+        "draft-only refusals show no card"
+    );
+    for tool in ["inbox_read", "file_read", "delegate", "memory_search"] {
+        assert!(
+            decisions(&events, tool)
+                .iter()
+                .all(|(d, _)| *d == Some(Decision::Allow)),
+            "{tool} still runs"
+        );
+    }
+    assert!(events.iter().any(|e| matches!(
+        e,
+        RunEvent::ToolCallFinished {
+            status: CallStatus::Ok,
+            ..
+        }
+    )));
+    assert!(
+        !seeded
+            .temp
+            .workspace()
+            .join("decisions/AR-1042.md")
+            .exists()
+    );
+    let notes = sqlx::query_scalar!("SELECT COUNT(*) FROM memory_entries")
+        .fetch_one(&seeded.pool)
+        .await
+        .expect("count");
+    assert_eq!(notes, 0);
+    assert!(
+        outbox::list(&seeded.pool)
+            .await
+            .expect("outbox")
+            .messages
+            .is_empty()
+    );
+
+    let requests = seeded.recording.requests();
+    let told = |slug: &str| {
+        requests
+            .iter()
+            .filter(|r| r.script.agent.as_str() == slug)
+            .all(|r| r.instructions.contains("This turn is draft only"))
+    };
+    assert!(told("lead"), "the Lead is told the turn is draft only");
+    assert!(
+        requests
+            .iter()
+            .filter(|r| r.script.agent.as_str() == "writer")
+            .all(|r| !r.instructions.contains("This turn is draft only"))
+    );
+    let detail = runs::detail(&seeded.pool, root)
+        .await
+        .expect("read")
+        .expect("task");
+    assert!(
+        detail.runs.iter().all(|run| run.draft_only),
+        "children inherit it"
+    );
+
+    // The follow-up is not draft only: the send to Rolf asks instead of being a repeat.
+    let (_, later) = follow_up_s1(&seeded, &engine, root).await;
+    let rolf = decisions(&later, "send_message");
+    assert_eq!(rolf.len(), 2);
+    assert_eq!(rolf[0].0, Some(Decision::Ask), "not refused as a repeat");
+    let cards = later
+        .iter()
+        .filter(|e| matches!(e, RunEvent::ApprovalRequested { .. }))
+        .count();
+    assert_eq!(cards, 2, "Rolf and Anna each show a card");
+    let detail = runs::detail(&seeded.pool, root)
+        .await
+        .expect("read")
+        .expect("task");
+    let drafts: Vec<bool> = detail.turns.iter().map(|t| t.draft_only).collect();
+    assert_eq!(drafts, [true, false]);
 }

@@ -25,6 +25,7 @@ pub async fn start(
             title: Some(config::DRILL_TITLE.to_string()),
             budget: None,
             scenario: Some("drill".to_string()),
+            draft_only: false,
         })
         .await
         .map_err(start_error)?;

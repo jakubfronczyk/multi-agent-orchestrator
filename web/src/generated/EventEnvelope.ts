@@ -43,7 +43,11 @@ scenario: string | null,
 /**
  * The agent's config version this run used; `None` in events recorded before it existed.
  */
-agent_version: number | null, } } | { "type": "plan_recorded", "data": { steps: Array<PlanStep>, } } | { "type": "llm_requested", "data": { step: number, } } | { "type": "llm_responded", "data": { step: number, text: string | null, usage: Usage, cost: Micros, } } | { "type": "llm_retrying", "data": { step: number, attempt: number, message: string, } } | { "type": "tool_call_requested", "data": { call_id: ToolCallId, 
+agent_version: number | null, 
+/**
+ * The turn refuses every lasting change; a delegated run carries its turn's setting.
+ */
+draft_only: boolean, } } | { "type": "plan_recorded", "data": { steps: Array<PlanStep>, } } | { "type": "llm_requested", "data": { step: number, } } | { "type": "llm_responded", "data": { step: number, text: string | null, usage: Usage, cost: Micros, } } | { "type": "llm_retrying", "data": { step: number, attempt: number, message: string, } } | { "type": "tool_call_requested", "data": { call_id: ToolCallId, 
 /**
  * The name as the model sent it; it may not be a real tool.
  */

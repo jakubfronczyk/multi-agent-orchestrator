@@ -12,6 +12,10 @@ _Avoid_: job, session, conversation
 The user's next message in a finished task: it starts a new Lead run in the same task, which keeps the task's taint, budget and refused calls.
 _Avoid_: reply, new task, continuation
 
+**Draft only**:
+A turn that reads and drafts; nothing is saved, noted, sent or fetched. Each such call is refused with no card, and the refusal does not stop a later turn from making the same call.
+_Avoid_: dry run, preview mode
+
 **Task text**:
 The instruction string given to a run, by the user for the root run or a follow-up, or by the parent for a delegated run.
 _Avoid_: prompt, task (for the string)

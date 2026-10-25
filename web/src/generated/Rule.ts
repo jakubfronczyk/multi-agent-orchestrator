@@ -4,4 +4,4 @@ import type { TaintSource } from "./TaintSource";
 /**
  * A named reason that shaped a call's decision.
  */
-export type Rule = { "kind": "agent_policy" } | { "kind": "off_allowlist", host: string, } | { "kind": "taint", source: TaintSource, } | { "kind": "not_offered" } | { "kind": "invalid_args" } | { "kind": "repeat_of_refused" } | { "kind": "external_effect" };
+export type Rule = { "kind": "agent_policy" } | { "kind": "off_allowlist", host: string, } | { "kind": "taint", source: TaintSource, } | { "kind": "not_offered" } | { "kind": "invalid_args" } | { "kind": "repeat_of_refused" } | { "kind": "external_effect" } | { "kind": "draft_only" };

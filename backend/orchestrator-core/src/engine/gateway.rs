@@ -240,13 +240,14 @@ pub(super) async fn execute(
         }
     }
 
+    // A draft-only refusal says nothing about the call, so it does not make a later one a repeat.
     let refused_or_denied = matches!(
         &ended,
         Ended::Failed {
             status: CallStatus::Refused | CallStatus::DeniedHuman,
             ..
         }
-    );
+    ) && reasons.first() != Some(&Rule::DraftOnly);
     finish(
         inner,
         ctx,

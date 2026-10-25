@@ -23,4 +23,8 @@ task: string,
 /**
  * The taint the task carried when this run was delegated; empty when clean.
  */
-task_sources: Array<TaintSource>, status: RunStatus, outcome: RunOutcome | null, started_at: string, finished_at: string | null, cost_micros: Micros, };
+task_sources: Array<TaintSource>, 
+/**
+ * The run's turn refuses every save, note, fetch and send.
+ */
+draft_only: boolean, status: RunStatus, outcome: RunOutcome | null, started_at: string, finished_at: string | null, cost_micros: Micros, };

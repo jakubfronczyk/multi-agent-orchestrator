@@ -56,6 +56,8 @@ pub struct StartRequest {
     pub title: Option<String>,
     pub budget: Option<Micros>,
     pub scenario: Option<String>,
+    /// Refuses every save, note, fetch and send in this turn, with no card.
+    pub draft_only: bool,
 }
 
 /// The next turn of a finished task, for its Lead.
@@ -63,6 +65,8 @@ pub struct StartRequest {
 pub struct FollowUpRequest {
     pub text: String,
     pub scenario: Option<String>,
+    /// Refuses every save, note, fetch and send in this turn, with no card.
+    pub draft_only: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -164,7 +168,12 @@ impl Engine {
             run_id: root,
         };
         let budget = request.budget.unwrap_or(self.inner.config.default_budget);
-        let task = Arc::new(Task::new(budget, self.inner.config.allowlist.clone(), team));
+        let task = Arc::new(Task::new(
+            budget,
+            self.inner.config.allowlist.clone(),
+            team,
+            request.draft_only,
+        ));
         self.inner
             .emit(
                 at,
@@ -178,6 +187,7 @@ impl Engine {
                     budget: Some(budget),
                     scenario: request.scenario.clone(),
                     agent_version: Some(agent.version()),
+                    draft_only: request.draft_only,
                 },
             )
             .await?;
@@ -220,6 +230,7 @@ impl Engine {
             history.budget,
             self.inner.config.allowlist.clone(),
             team,
+            request.draft_only,
         ));
         history::replay(&task, &events);
         let earlier = history.items(&task.taint_sources());
@@ -240,6 +251,7 @@ impl Engine {
                     budget: None,
                     scenario: request.scenario.clone(),
                     agent_version: Some(agent.version()),
+                    draft_only: request.draft_only,
                 },
             )
             .await?;

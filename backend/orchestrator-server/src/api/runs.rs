@@ -34,6 +34,8 @@ pub struct StartRunRequest {
     pub budget_micros: Option<Micros>,
     /// Which fixed replies to play; a task with a scenario always uses the scripted provider.
     pub scenario: Option<String>,
+    /// Refuses every save, note, fetch and send in the first turn, with no card.
+    pub draft_only: Option<bool>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -57,6 +59,7 @@ pub async fn start(
             title: request.title,
             budget: request.budget_micros,
             scenario: request.scenario,
+            draft_only: request.draft_only.unwrap_or(false),
         })
         .await
         .map_err(start_error)?;
@@ -93,6 +96,8 @@ pub struct FollowUpBody {
     pub text: String,
     /// Which fixed replies to play; set only by demo prompts, so typed text reaches the live model.
     pub scenario: Option<String>,
+    /// Refuses every save, note, fetch and send in this turn, with no card.
+    pub draft_only: Option<bool>,
 }
 
 /// 202 with the new turn's run id; 409 while any run in the task is live or when its root
@@ -110,6 +115,7 @@ pub async fn follow_up(
             FollowUpRequest {
                 text: body.text,
                 scenario: body.scenario,
+                draft_only: body.draft_only.unwrap_or(false),
             },
         )
         .await

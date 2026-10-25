@@ -37,6 +37,9 @@ pub enum RunEvent {
         /// The agent's config version this run used; `None` in events recorded before it existed.
         #[serde(default)]
         agent_version: Option<i64>,
+        /// The turn refuses every lasting change; a delegated run carries its turn's setting.
+        #[serde(default)]
+        draft_only: bool,
     },
     PlanRecorded {
         steps: Vec<PlanStep>,

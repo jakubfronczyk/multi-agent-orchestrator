@@ -10,6 +10,12 @@ use crate::tools::Target;
 pub fn decide(facts: &Facts) -> (Decision, Vec<Rule>) {
     let mut applied: Vec<(Decision, Rule)> = Vec::new();
 
+    // 0. A draft-only turn refuses every lasting change, whatever the agent allows. Evaluated
+    //    first, so among equal denials it is the verdict's rule.
+    if facts.draft_only && leaves_a_change(facts.effect) {
+        applied.push((Decision::Deny, Rule::DraftOnly));
+    }
+
     // 1. The agent's own setting shapes the call only when it is stricter than allow.
     if facts.own > Decision::Allow {
         applied.push((facts.own, Rule::AgentPolicy));
@@ -50,6 +56,15 @@ pub fn decide(facts: &Facts) -> (Decision, Vec<Rule>) {
         decision,
         applied.into_iter().map(|(_, rule)| rule).collect(),
     )
+}
+
+/// Saves, notes, fetches and sends. Every arm is listed, so a new `Effect` variant fails to
+/// compile until it is placed here.
+fn leaves_a_change(effect: Effect) -> bool {
+    match effect {
+        Effect::Write | Effect::Memory | Effect::Egress | Effect::External => true,
+        Effect::Control | Effect::Read => false,
+    }
 }
 
 /// Every arm is listed, so a new `Effect` variant fails to compile until it is placed here.
@@ -144,6 +159,7 @@ mod tests {
             action: &action,
             taint,
             allowlist,
+            draft_only: false,
         })
     }
 
@@ -282,6 +298,55 @@ mod tests {
                     if effect == Effect::External {
                         assert!(clean >= Decision::Ask, "{own:?}: external was allowed");
                     }
+                }
+            }
+        }
+    }
+
+    fn run_draft(own: Decision, effect: Effect, tainted: bool) -> (Decision, Vec<Rule>) {
+        let action = Action {
+            verb: "test".to_string(),
+            target: file(),
+        };
+        let taint = if tainted { vec![inbox()] } else { vec![] };
+        decide(&Facts {
+            own,
+            effect,
+            action: &action,
+            taint,
+            allowlist: &[],
+            draft_only: true,
+        })
+    }
+
+    #[test]
+    fn draft_only_denies_lasting_changes_and_keeps_reads() {
+        for own in DECISIONS {
+            for effect in EFFECTS {
+                let (decision, rules) = run_draft(own, effect, false);
+                match effect {
+                    Effect::Write | Effect::Memory | Effect::Egress | Effect::External => {
+                        assert_eq!(decision, Decision::Deny, "{own:?} {effect:?}");
+                        assert_eq!(rules.first(), Some(&Rule::DraftOnly), "{own:?} {effect:?}");
+                    }
+                    Effect::Control | Effect::Read => {
+                        assert_eq!(decision, own, "{own:?} {effect:?}");
+                        assert!(!rules.contains(&Rule::DraftOnly));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn draft_only_never_loosens() {
+        let allowlist = vec!["example.com".to_string()];
+        for own in DECISIONS {
+            for effect in EFFECTS {
+                for tainted in [false, true] {
+                    let (normal, _) = run(own, effect, file(), tainted, &allowlist);
+                    let (draft, _) = run_draft(own, effect, tainted);
+                    assert!(draft >= normal, "{own:?} {effect:?} tainted={tainted}");
                 }
             }
         }

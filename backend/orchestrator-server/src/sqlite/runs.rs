@@ -63,6 +63,8 @@ pub struct RunView {
     pub task: String,
     /// The taint the task carried when this run was delegated; empty when clean.
     pub task_sources: Vec<TaintSource>,
+    /// The run's turn refuses every save, note, fetch and send.
+    pub draft_only: bool,
     pub status: RunStatus,
     pub outcome: Option<RunOutcome>,
     pub started_at: DateTime<Utc>,
@@ -122,6 +124,8 @@ pub struct Turn {
     pub summary: Option<String>,
     /// `None` while the turn runs.
     pub outcome: Option<RunOutcome>,
+    /// The turn refused every save, note, fetch and send.
+    pub draft_only: bool,
 }
 
 /// The audit log, newest first; `last_event_id` is read first, as in `RunList`.
@@ -262,7 +266,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
     let last_event_id = events::last_id(&mut *tx).await?;
 
     let run_rows = sqlx::query!(
-        r#"SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.agent_version, r.title, r.task, r.task_sources, r.status, r.outcome,
+        r#"SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.agent_version, r.title, r.task, r.task_sources, r.draft_only, r.status, r.outcome,
                   r.taint_sources, r.started_at, r.finished_at,
                   (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e
                     WHERE e.root_run_id = ?1 AND e.run_id = r.id AND e.type = ?2) AS "cost!: i64"
@@ -316,6 +320,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
                 title: row.title,
                 task: row.task,
                 task_sources: serde_json::from_str(&row.task_sources).map_err(corrupt)?,
+                draft_only: row.draft_only != 0,
                 status: from_text(&row.status).map_err(corrupt)?,
                 outcome: json_opt(row.outcome.as_deref())?,
                 started_at: parse_timestamp(&row.started_at).map_err(corrupt)?,
@@ -343,6 +348,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
                 _ => None,
             },
             outcome: run.outcome.clone(),
+            draft_only: run.draft_only,
         })
         .collect();
 

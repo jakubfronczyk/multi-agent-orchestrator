@@ -17,4 +17,8 @@ summary: string | null,
 /**
  * `None` while the turn runs.
  */
-outcome: RunOutcome | null, };
+outcome: RunOutcome | null, 
+/**
+ * The turn refused every save, note, fetch and send.
+ */
+draft_only: boolean, };

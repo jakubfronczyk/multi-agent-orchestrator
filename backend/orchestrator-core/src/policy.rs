@@ -82,6 +82,8 @@ pub enum Rule {
     RepeatOfRefused,
     /// An external call the agent allows; external effects always ask.
     ExternalEffect,
+    /// A turn started as draft only refuses every call that would leave a lasting change.
+    DraftOnly,
 }
 
 impl Rule {
@@ -95,6 +97,7 @@ impl Rule {
             Rule::InvalidArgs => "invalid_args",
             Rule::RepeatOfRefused => "repeat_of_refused",
             Rule::ExternalEffect => "external_effect",
+            Rule::DraftOnly => "draft_only",
         }
     }
 }
@@ -107,6 +110,8 @@ pub struct Facts<'a> {
     pub taint: Vec<TaintSource>,
     /// Borrowed from the task's fixed allowlist.
     pub allowlist: &'a [String],
+    /// The turn was started as draft only.
+    pub draft_only: bool,
 }
 
 const CLOSE_TAG: &str = "</untrusted_data";
