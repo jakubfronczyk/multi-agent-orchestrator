@@ -1,4 +1,4 @@
-//! Reads function calls and text out of raw Responses-API output items.
+//! Reads function calls and text out of raw xAI Responses output items.
 //! Items it does not read (reasoning, unknown types) still go back to the model verbatim.
 
 use orchestrator_core::llm::{FnCall, LlmError};

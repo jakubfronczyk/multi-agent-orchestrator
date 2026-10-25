@@ -21,6 +21,21 @@ pub enum Model {
     Grok420NonReasoning,
 }
 
+/// Who serves a model. A second provider is a new variant here plus a server adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provider {
+    Xai,
+}
+
+impl Model {
+    /// Every model is listed, so a new model fails to compile until its provider is chosen.
+    pub fn provider(self) -> Provider {
+        match self {
+            Model::Grok43 | Model::Grok420NonReasoning => Provider::Xai,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]

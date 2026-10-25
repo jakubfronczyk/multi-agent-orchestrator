@@ -1,11 +1,9 @@
-//! Model providers. Both providers produce raw items in the xAI Responses shape, and
-//! `parse_output` is the one place that reads that shape.
+//! Model providers. The scripted provider plays fixed replies in the xAI Responses shape, so
+//! it reads them with the xAI adapter's parser; everything else xAI-shaped lives in `xai`.
 
-mod parse;
 mod scripted;
 mod scripts;
 mod xai;
 
-pub use parse::parse_output;
 pub use scripted::ScriptedProvider;
 pub use xai::XaiProvider;

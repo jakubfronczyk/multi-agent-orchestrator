@@ -1,5 +1,14 @@
-//! The xAI provider: plain reqwest against the Responses API (§11). The request is a typed
-//! struct because xAI ignores unknown fields, so a misspelt one would silently change nothing.
+//! The xAI adapter: plain reqwest against the Responses API (§11). Everything shaped by xAI
+//! lives here: the typed request (xAI ignores unknown fields, so a misspelt one would silently
+//! change nothing), the reply and error types, the output parser and the cost conversion.
+//!
+//! Tool schemas pass through as the JSON Schema `schema_for` generates; another provider's
+//! adapter converts them to its own format. A second provider means a new adapter plus one
+//! routing struct implementing `LlmProvider` that dispatches on `request.model.provider()`.
+
+mod parse;
+
+pub use parse::parse_output;
 
 use std::time::Duration;
 
@@ -14,8 +23,6 @@ use reqwest::StatusCode;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use super::parse_output;
 
 const BASE_URL: &str = "https://api.x.ai/v1";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
