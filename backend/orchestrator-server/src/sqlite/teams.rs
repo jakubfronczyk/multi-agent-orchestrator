@@ -120,6 +120,43 @@ pub async fn rename(
     Ok(view)
 }
 
+/// Soft-deletes a live team and its live agents. `is_busy` is checked while the write lock is
+/// held: a start registers its task before its `run_started` commits, so either the delete sees
+/// it, or the start's projection finds the team gone and its emit fails.
+pub async fn delete(
+    pool: &SqlitePool,
+    team: TeamId,
+    is_busy: impl Fn() -> bool,
+) -> Result<(), TeamError> {
+    let mut tx = begin_write(pool).await?;
+    if !is_live(&mut tx, team).await? {
+        return Err(TeamError::NotFound);
+    }
+    if is_busy() {
+        return Err(TeamError::Conflict("this team has a task running"));
+    }
+    let live = sqlx::query_scalar!("SELECT COUNT(*) FROM teams WHERE deleted_at IS NULL")
+        .fetch_one(&mut *tx)
+        .await?;
+    if live <= 1 {
+        return Err(TeamError::Conflict("keep at least one team"));
+    }
+    let id = text(&team)?;
+    let now = timestamp(Utc::now());
+    sqlx::query!(
+        "UPDATE agents SET deleted_at = ? WHERE team_id = ? AND deleted_at IS NULL",
+        now,
+        id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!("UPDATE teams SET deleted_at = ? WHERE id = ?", now, id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 fn valid_name(raw: &str) -> Result<&str, ValidationError> {
     let name = raw.trim();
     if name.is_empty() || name.chars().count() > NAME_CHARS {

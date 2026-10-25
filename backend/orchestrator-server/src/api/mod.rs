@@ -63,7 +63,10 @@ pub fn router(state: AppState) -> Router {
         .route("/approvals/{id}", post(approvals::answer))
         .route("/events", get(events::stream))
         .route("/teams", get(teams::list).post(teams::create))
-        .route("/teams/{id}", get(teams::get).put(teams::rename))
+        .route(
+            "/teams/{id}",
+            get(teams::get).put(teams::rename).delete(teams::delete),
+        )
         .route(
             "/agents/{id}",
             get(agents::get).put(agents::replace).delete(agents::delete),

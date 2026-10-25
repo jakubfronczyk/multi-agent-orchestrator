@@ -174,3 +174,117 @@ async fn a_lead_only_team_runs_a_task(pool: SqlitePool) {
         })
     ));
 }
+
+/// A team with a live task is kept, the last team is kept, and a deleted team's history stays.
+#[sqlx::test]
+async fn delete_keeps_busy_and_last_teams_and_their_history(pool: SqlitePool) {
+    use orchestrator_core::runs::RunEvent;
+
+    let app = app(pool).await;
+    let b = crate::second_team(&app).await;
+    let b_text = json!(b).as_str().expect("id").to_string();
+    let base = serve(&app).await;
+    let client = reqwest::Client::new();
+    let delete = |id: &str| client.delete(format!("{base}/api/teams/{id}"));
+
+    // A worker on team B whose file save waits on a card.
+    let worker = orchestrator_server::sqlite::agents::create(
+        &app.pool,
+        serde_json::from_value(json!({
+            "team_id": b, "role": "specialist", "slug": "worker", "name": "w", "description": "d",
+            "system_prompt": "p", "model": "grok-4.3", "icon": "i", "colour": "c",
+            "tools": {"file_write": "ask"}, "delegate_targets": []
+        }))
+        .expect("input"),
+    )
+    .await
+    .expect("worker")
+    .spec
+    .id();
+    let mut rx = app.store.subscribe();
+    let root = app
+        .engine
+        .start(StartRequest {
+            team_id: Some(b),
+            agent_id: Some(worker),
+            ..request(r#"test:call:file_write:{"path":"a.md"}"#)
+        })
+        .await
+        .expect("start");
+    crate::wait_for(&mut rx, |e| {
+        matches!(e.event, RunEvent::ApprovalRequested { .. }).then_some(())
+    })
+    .await;
+    let (status, body) = send(&delete(&b_text)).await;
+    assert_eq!(status, 409);
+    assert_eq!(body["error"]["message"], "this team has a task running");
+
+    assert!(app.engine.cancel(root));
+    events_until_finished(&mut rx, root).await;
+    // The task leaves the engine's map once its watcher sees the run end.
+    for _ in 0..50 {
+        if !app.engine.has_live_task(b) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let (status, _) = send(&delete(&b_text)).await;
+    assert_eq!(status, 204);
+    let (status, _) = send(&delete(&b_text)).await;
+    assert_eq!(status, 404, "already deleted");
+
+    let (_, view) = send(&client.get(format!("{base}/api/teams/{b_text}"))).await;
+    assert!(view["deleted_at"].is_string());
+    assert_eq!(view["agent_count"], 0);
+    let (_, runs) = send(&client.get(format!("{base}/api/runs?team_id={b_text}"))).await;
+    assert_eq!(
+        runs["runs"].as_array().map(Vec::len),
+        Some(1),
+        "history stays"
+    );
+    let (status, _) = send(
+        &client
+            .post(format!("{base}/api/teams"))
+            .json(&json!({"name": "Contracts"})),
+    )
+    .await;
+    assert_eq!(status, 201, "the name is free again");
+
+    let (status, body) = send(
+        &client
+            .post(format!("{base}/api/runs"))
+            .json(&json!({"task": "t", "team_id": b_text})),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"]["field"].clone()),
+        (422, json!("team_id"))
+    );
+
+    let (_, list) = send(&client.get(format!("{base}/api/teams"))).await;
+    let ids: Vec<String> = list["teams"]
+        .as_array()
+        .expect("teams")
+        .iter()
+        .map(|t| t["id"].as_str().expect("id").to_string())
+        .collect();
+    assert_eq!(ids.len(), 2);
+    let (status, _) = send(&delete(&ids[1])).await;
+    assert_eq!(status, 204);
+    let (status, body) = send(&delete(&ids[0])).await;
+    assert_eq!(status, 409);
+    assert_eq!(body["error"]["message"], "keep at least one team");
+
+    let lead = orchestrator_server::sqlite::agents::list(&app.pool, Some(app.team))
+        .await
+        .expect("agents")
+        .into_iter()
+        .find(|a| a.spec.slug().as_str() == "lead")
+        .expect("lead");
+    let (status, _) = send(&client.delete(format!(
+        "{base}/api/agents/{}",
+        json!(lead.spec.id()).as_str().expect("id")
+    )))
+    .await;
+    assert_eq!(status, 422, "a live team's Lead stays");
+}

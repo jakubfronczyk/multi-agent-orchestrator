@@ -1,5 +1,5 @@
-//! `/api/teams`: list, create (with its Lead), read and rename. No event is emitted: a team is
-//! configuration, like an agent.
+//! `/api/teams`: list, create (with its Lead), read, rename and delete. No event is emitted: a
+//! team is configuration, like an agent.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -51,6 +51,16 @@ pub async fn rename(
 ) -> Result<Json<TeamView>, ApiError> {
     let team = query::path_id::<TeamId>(&id)?;
     Ok(Json(teams::rename(&state.pool, team, input).await?))
+}
+
+/// 204; 409 while a task of the team is live (waiting on a card counts) or when it is the last.
+pub async fn delete(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let team = query::path_id::<TeamId>(&id)?;
+    teams::delete(&state.pool, team, || state.engine.has_live_task(team)).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 impl From<TeamError> for ApiError {

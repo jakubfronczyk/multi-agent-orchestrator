@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE agents SET deleted_at = ? WHERE team_id = ? AND deleted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e9fc4b092edda34284abd88f9f08f2c17660d1dc355efbd713d03125180277b2"
+}
