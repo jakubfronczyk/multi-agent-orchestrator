@@ -19,6 +19,9 @@ pub enum RunEvent {
     RunStarted {
         agent_id: AgentId,
         parent_run_id: Option<RunId>,
+        /// The `delegate` call that started this run; set on delegated runs only.
+        #[serde(default)]
+        parent_call_id: Option<ToolCallId>,
         task: String,
         title: Option<String>,
         /// Set on the root run only.

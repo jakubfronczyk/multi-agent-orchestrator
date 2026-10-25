@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::agents::{AgentSpec, Slug};
-use crate::ids::RunId;
+use crate::ids::{RunId, ToolCallId};
 use crate::runs::{CallStatus, FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, StoreError};
 use crate::tools::{
@@ -153,6 +153,7 @@ pub(super) async fn plan(inner: &Inner, ctx: &RunCtx, args: Value) -> Result<End
 pub(super) async fn delegate(
     inner: &Arc<Inner>,
     ctx: &RunCtx,
+    call_id: ToolCallId,
     args: Value,
 ) -> Result<Ended, StoreError> {
     let Ok(args) = parse_args::<DelegateArgs>(&args) else {
@@ -202,6 +203,7 @@ pub(super) async fn delegate(
     let started = RunEvent::RunStarted {
         agent_id: target.id(),
         parent_run_id: Some(ctx.at.run_id),
+        parent_call_id: Some(call_id),
         task: text.clone(),
         title: None,
         budget: None,

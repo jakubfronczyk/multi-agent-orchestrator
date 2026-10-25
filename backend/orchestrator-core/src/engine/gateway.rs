@@ -372,7 +372,7 @@ async fn run(
         .await?;
     match callable {
         Callable::Tool(tool) => Ok(run_tool(ctx, tool, args).await),
-        Callable::Delegate => native::delegate(inner, ctx, args).await,
+        Callable::Delegate => native::delegate(inner, ctx, call_id, args).await,
         Callable::Plan => native::plan(inner, ctx, args).await,
     }
 }

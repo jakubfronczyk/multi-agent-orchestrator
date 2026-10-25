@@ -18,7 +18,11 @@ import type { ToolName } from "./ToolName";
 import type { Usage } from "./Usage";
 import type { JsonValue } from "./serde_json/JsonValue";
 
-export type EventEnvelope = { id: EventId, root_run_id: RunId, run_id: RunId, ts: string, } & ({ "type": "run_started", "data": { agent_id: AgentId, parent_run_id: RunId | null, task: string, title: string | null, 
+export type EventEnvelope = { id: EventId, root_run_id: RunId, run_id: RunId, ts: string, } & ({ "type": "run_started", "data": { agent_id: AgentId, parent_run_id: RunId | null, 
+/**
+ * The `delegate` call that started this run; set on delegated runs only.
+ */
+parent_call_id: ToolCallId | null, task: string, title: string | null, 
 /**
  * Set on the root run only.
  */

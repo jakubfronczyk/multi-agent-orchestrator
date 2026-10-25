@@ -280,6 +280,7 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
     let started = RunEvent::RunStarted {
         agent_id: agent,
         parent_run_id: None,
+        parent_call_id: None,
         task: "t".to_string(),
         title: None,
         budget: None,

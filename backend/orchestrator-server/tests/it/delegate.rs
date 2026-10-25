@@ -1,5 +1,6 @@
 //! Delegation and plan: child runs, their limits, and how their ends reach the Lead.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use orchestrator_core::llm::Item;
@@ -90,6 +91,75 @@ async fn the_lead_delegates_twice_and_gets_outputs_in_call_order(pool: SqlitePoo
     assert_eq!(outputs[0].0, "call-0-0");
     assert!(outputs[0].1.contains("from helper\""), "{}", outputs[0].1);
     assert!(outputs[1].1.contains("from helper2"), "{}", outputs[1].1);
+}
+
+/// Each child names the `delegate` call that started it from its first event, so a running
+/// child can be placed under its call; parallel calls are never crossed.
+#[sqlx::test]
+async fn parallel_delegated_runs_link_to_the_calls_that_started_them(pool: SqlitePool) {
+    let recording = Arc::new(Recording::slowing("helper"));
+    let app = app_with_llm(pool, test_config(), recording).await;
+    let mut rx = app.store.subscribe();
+    let root = app
+        .engine
+        .start(request("test:delegate-two"))
+        .await
+        .expect("start");
+    let events = task_events(&mut rx, root).await;
+
+    let mut asked = HashMap::new();
+    let mut finished = HashMap::new();
+    let mut linked = Vec::new();
+    for envelope in &events {
+        match &envelope.event {
+            RunEvent::ToolCallRequested { call_id, args, .. } => {
+                asked.insert(*call_id, args["agent"].as_str().expect("agent").to_string());
+            }
+            RunEvent::ToolCallFinished {
+                call_id,
+                child_run_id: Some(child),
+                ..
+            } => {
+                finished.insert(*call_id, *child);
+            }
+            RunEvent::RunStarted {
+                agent_id,
+                parent_call_id: Some(call),
+                ..
+            } => linked.push((envelope.run_id, *agent_id, *call)),
+            _ => {}
+        }
+    }
+    assert_eq!(linked.len(), 2);
+    for (child, agent_id, call) in &linked {
+        let agent = serde_json::to_value(agent_id).expect("id");
+        let slug = sqlx::query_scalar!("SELECT slug FROM agents WHERE id = ?", agent.as_str())
+            .fetch_one(&app.pool)
+            .await
+            .expect("agent");
+        assert_eq!(asked[call], slug, "the child runs the agent its call named");
+        assert_eq!(
+            finished[call], *child,
+            "the call's result names the same child"
+        );
+    }
+
+    let detail = orchestrator_server::sqlite::runs::detail(&app.pool, root)
+        .await
+        .expect("read")
+        .expect("task");
+    for (child, _, call) in &linked {
+        let view = detail
+            .runs
+            .iter()
+            .find(|r| r.id == *child)
+            .expect("child run");
+        assert_eq!(view.parent_call_id, Some(*call));
+    }
+    assert_eq!(
+        detail.runs[0].parent_call_id, None,
+        "the root run has no parent call"
+    );
 }
 
 #[sqlx::test]

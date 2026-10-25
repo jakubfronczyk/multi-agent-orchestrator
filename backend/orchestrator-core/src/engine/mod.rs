@@ -144,6 +144,7 @@ impl Engine {
                 RunEvent::RunStarted {
                     agent_id: agent.id(),
                     parent_run_id: None,
+                    parent_call_id: None,
                     task: task_text.clone(),
                     title: request.title,
                     budget: Some(budget),

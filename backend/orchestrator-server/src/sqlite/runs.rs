@@ -51,6 +51,8 @@ pub struct RunList {
 pub struct RunView {
     pub id: RunId,
     pub parent_run_id: Option<RunId>,
+    /// The `delegate` call that started this run, so a running child nests under its call.
+    pub parent_call_id: Option<ToolCallId>,
     pub agent_id: AgentId,
     pub title: Option<String>,
     pub task: String,
@@ -248,7 +250,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
     let last_event_id = last_event_id(&mut tx).await?;
 
     let run_rows = sqlx::query!(
-        r#"SELECT r.id, r.parent_run_id, r.agent_id, r.title, r.task, r.status, r.outcome,
+        r#"SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.title, r.task, r.status, r.outcome,
                   r.taint_sources, r.started_at, r.finished_at,
                   (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e
                     WHERE e.root_run_id = ?1 AND e.run_id = r.id AND e.type = ?2) AS "cost!: i64"
@@ -296,6 +298,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
             Ok(RunView {
                 id: from_text(&row.id).map_err(corrupt)?,
                 parent_run_id: text_opt(row.parent_run_id.as_deref())?,
+                parent_call_id: text_opt(row.parent_call_id.as_deref())?,
                 agent_id: from_text(&row.agent_id).map_err(corrupt)?,
                 title: row.title,
                 task: row.task,

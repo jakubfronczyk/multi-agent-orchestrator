@@ -111,6 +111,7 @@ async fn project(
         RunEvent::RunStarted {
             agent_id,
             parent_run_id,
+            parent_call_id,
             task,
             title,
             budget: _,
@@ -118,14 +119,16 @@ async fn project(
             let root = text(&at.root_run_id)?;
             let agent = text(agent_id)?;
             let parent = parent_run_id.as_ref().map(text).transpose()?;
+            let parent_call = parent_call_id.as_ref().map(text).transpose()?;
             let status = text(&RunStatus::Running)?;
             exactly_one(
                 sqlx::query!(
-                    "INSERT INTO runs (id, root_run_id, parent_run_id, agent_id, title, task, status, started_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO runs (id, root_run_id, parent_run_id, parent_call_id, agent_id, title, task, status, started_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     run_id,
                     root,
                     parent,
+                    parent_call,
                     agent,
                     title,
                     task,
@@ -357,6 +360,7 @@ mod tests {
         let event = RunEvent::RunStarted {
             agent_id: seed_agent(pool).await,
             parent_run_id: None,
+            parent_call_id: None,
             task: "t".to_string(),
             title: None,
             budget: None,

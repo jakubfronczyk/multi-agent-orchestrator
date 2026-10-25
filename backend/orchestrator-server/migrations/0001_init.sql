@@ -37,6 +37,7 @@ CREATE TABLE runs (
     id            TEXT PRIMARY KEY,
     root_run_id   TEXT NOT NULL REFERENCES runs (id), -- own id on a root run
     parent_run_id TEXT REFERENCES runs (id),
+    parent_call_id TEXT REFERENCES tool_calls (id), -- the delegate call that started it
     agent_id      TEXT NOT NULL REFERENCES agents (id),
     title         TEXT,
     task          TEXT NOT NULL,                -- the task text
