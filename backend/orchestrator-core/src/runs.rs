@@ -7,7 +7,7 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::agents::Slug;
-use crate::ids::{AgentId, RunId, ToolCallId, WarrantId};
+use crate::ids::{AgentId, ApprovalId, RunId, ToolCallId};
 use crate::money::Micros;
 use crate::policy::{Decision, Rule, TaintSource};
 use crate::tools::{Action, PlanStep, ToolName};
@@ -51,17 +51,17 @@ pub enum RunEvent {
         decision: Option<Decision>,
         reasons: Vec<Rule>,
     },
-    WarrantRequested {
-        warrant_id: WarrantId,
+    ApprovalRequested {
+        approval_id: ApprovalId,
         call_id: ToolCallId,
         action: Action,
         custody: Custody,
         preview: String,
         expires_at: DateTime<Utc>,
     },
-    WarrantResolved {
-        warrant_id: WarrantId,
-        outcome: WarrantOutcome,
+    ApprovalResolved {
+        approval_id: ApprovalId,
+        outcome: ApprovalOutcome,
         note: Option<String>,
     },
     ToolCallStarted {
@@ -93,7 +93,7 @@ pub struct Usage {
     pub reasoning_tokens: u64,
 }
 
-/// What a warrant shows about how its call came to be.
+/// What an approval shows about how its call came to be.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Custody {
@@ -137,11 +137,11 @@ pub enum CallPhase {
     Finished,
 }
 
-/// A warrant's state: pending until a `WarrantOutcome` resolves it.
+/// An approval's state: pending until a `ApprovalOutcome` resolves it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
-pub enum WarrantStatus {
+pub enum ApprovalStatus {
     Pending,
     Approved,
     Denied,
@@ -149,13 +149,13 @@ pub enum WarrantStatus {
     Cancelled,
 }
 
-impl From<WarrantOutcome> for WarrantStatus {
-    fn from(outcome: WarrantOutcome) -> Self {
+impl From<ApprovalOutcome> for ApprovalStatus {
+    fn from(outcome: ApprovalOutcome) -> Self {
         match outcome {
-            WarrantOutcome::Approved => WarrantStatus::Approved,
-            WarrantOutcome::Denied => WarrantStatus::Denied,
-            WarrantOutcome::Expired => WarrantStatus::Expired,
-            WarrantOutcome::Cancelled => WarrantStatus::Cancelled,
+            ApprovalOutcome::Approved => ApprovalStatus::Approved,
+            ApprovalOutcome::Denied => ApprovalStatus::Denied,
+            ApprovalOutcome::Expired => ApprovalStatus::Expired,
+            ApprovalOutcome::Cancelled => ApprovalStatus::Cancelled,
         }
     }
 }
@@ -163,7 +163,7 @@ impl From<WarrantOutcome> for WarrantStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
-pub enum WarrantOutcome {
+pub enum ApprovalOutcome {
     Approved,
     Denied,
     Expired,
@@ -210,7 +210,7 @@ pub enum FailReason {
     Internal,
 }
 
-/// A human's answer on a warrant.
+/// A human's answer on an approval.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export)]

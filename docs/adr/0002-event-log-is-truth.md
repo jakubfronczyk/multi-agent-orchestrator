@@ -1,6 +1,6 @@
 # The event log is the source of truth
 
-Every state change in a task is an append-only event. The runs, tool calls and warrants tables are projections written in the same transaction as the event that changes them, and the live stream to the UI is the same events. We chose this over writing those tables directly, so the audit log can never disagree with the state, a reconnecting client replays from its last event id, and in-memory task state changes only after its event commits.
+Every state change in a task is an append-only event. The runs, tool calls and approvals tables are projections written in the same transaction as the event that changes them, and the live stream to the UI is the same events. We chose this over writing those tables directly, so the audit log can never disagree with the state, a reconnecting client replays from its last event id, and in-memory task state changes only after its event commits.
 
 ## Consequences
 

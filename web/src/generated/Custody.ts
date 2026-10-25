@@ -4,6 +4,6 @@ import type { Slug } from "./Slug";
 import type { TaintSource } from "./TaintSource";
 
 /**
- * What a warrant shows about how its call came to be.
+ * What an approval shows about how its call came to be.
  */
 export type Custody = { agent_path: Array<Slug>, parent_task: string, rules: Array<Rule>, taint_sources: Array<TaintSource>, };

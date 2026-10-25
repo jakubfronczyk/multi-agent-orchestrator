@@ -1,4 +1,4 @@
-//! Typed ids, so a run id can never be passed where a warrant id is expected.
+//! Typed ids, so a run id can never be passed where an approval id is expected.
 //! Every id is a uuid v7 (time-ordered) except `EventId`, the event log's integer key.
 
 use serde::{Deserialize, Serialize};
@@ -59,15 +59,15 @@ impl Default for ToolCallId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(transparent)]
 #[ts(export)]
-pub struct WarrantId(Uuid);
+pub struct ApprovalId(Uuid);
 
-impl WarrantId {
+impl ApprovalId {
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
 }
 
-impl Default for WarrantId {
+impl Default for ApprovalId {
     fn default() -> Self {
         Self::new()
     }

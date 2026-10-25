@@ -90,19 +90,19 @@ CREATE TABLE tool_calls (
 CREATE INDEX tool_calls_run ON tool_calls (run_id);
 
 -- At most one card per call: a repeat is refused without one, a retry is a new call.
-CREATE TABLE warrants (
+CREATE TABLE approvals (
     id           TEXT PRIMARY KEY,
     tool_call_id TEXT NOT NULL UNIQUE REFERENCES tool_calls (id),
     custody      TEXT NOT NULL,                 -- JSON Custody
     preview      TEXT NOT NULL,
-    status       TEXT NOT NULL,                 -- WarrantStatus
+    status       TEXT NOT NULL,                 -- ApprovalStatus
     note         TEXT,
     expires_at   TEXT NOT NULL,
     created_at   TEXT NOT NULL,
     resolved_at  TEXT
 ) STRICT;
 
-CREATE INDEX warrants_status ON warrants (status);
+CREATE INDEX approvals_status ON approvals (status);
 
 CREATE TABLE memory_entries (
     id              TEXT PRIMARY KEY,

@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, SecondsFormat, SubsecRound, Utc};
 use orchestrator_core::ids::EventId;
-use orchestrator_core::runs::{CallPhase, RunEvent, RunStatus, WarrantStatus};
+use orchestrator_core::runs::{ApprovalStatus, CallPhase, RunEvent, RunStatus};
 use orchestrator_core::store::{RunRef, Store, StoreError};
 use serde::Serialize;
 use sqlx::sqlite::SqliteQueryResult;
@@ -164,23 +164,23 @@ async fn project(
                 .await,
             )
         }
-        RunEvent::WarrantRequested {
-            warrant_id,
+        RunEvent::ApprovalRequested {
+            approval_id,
             call_id,
             action: _,
             custody,
             preview,
             expires_at,
         } => {
-            let id = text(warrant_id)?;
+            let id = text(approval_id)?;
             let call = text(call_id)?;
             let custody = json(custody)?;
             let expires_at = rfc3339(*expires_at);
-            let pending = text(&WarrantStatus::Pending)?;
+            let pending = text(&ApprovalStatus::Pending)?;
             let waiting = text(&CallPhase::Waiting)?;
             exactly_one(
                 sqlx::query!(
-                    "INSERT INTO warrants (id, tool_call_id, custody, preview, status, expires_at, created_at)
+                    "INSERT INTO approvals (id, tool_call_id, custody, preview, status, expires_at, created_at)
                      VALUES (?, ?, ?, ?, ?, ?, ?)",
                     id,
                     call,
@@ -203,18 +203,18 @@ async fn project(
                 .await,
             )
         }
-        RunEvent::WarrantResolved {
-            warrant_id,
+        RunEvent::ApprovalResolved {
+            approval_id,
             outcome,
             note,
         } => {
-            let id = text(warrant_id)?;
-            let status = text(&WarrantStatus::from(*outcome))?;
-            let pending = text(&WarrantStatus::Pending)?;
-            // Only a pending warrant resolves, so a second answer fails instead of overwriting.
+            let id = text(approval_id)?;
+            let status = text(&ApprovalStatus::from(*outcome))?;
+            let pending = text(&ApprovalStatus::Pending)?;
+            // Only a pending approval resolves, so a second answer fails instead of overwriting.
             exactly_one(
                 sqlx::query!(
-                    "UPDATE warrants SET status = ?, note = ?, resolved_at = ? WHERE id = ? AND status = ?",
+                    "UPDATE approvals SET status = ?, note = ?, resolved_at = ? WHERE id = ? AND status = ?",
                     status,
                     note,
                     ts,

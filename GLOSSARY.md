@@ -58,12 +58,12 @@ _Avoid_: permission, mode, level
 The fixed kind of risk a tool carries: control, read, memory, write, egress or external.
 _Avoid_: category, risk level
 
-**Warrant**:
-The approval card for one call that needs a human answer.
-_Avoid_: approval request, ticket, prompt
+**Approval**:
+The card for one call that needs a human answer.
+_Avoid_: warrant
 
 **Custody**:
-What a warrant shows about how the call came to be: who asked, through which agents, after reading what, under which rules.
+What an approval shows about how the call came to be: who asked, through which agents, after reading what, under which rules.
 _Avoid_: provenance, trace
 
 **Rule**:
@@ -75,7 +75,7 @@ A call stopped by the system without asking a human.
 _Avoid_: blocked, rejected
 
 **Denied**:
-A call a human said no to on its warrant.
+A call a human said no to on its approval.
 _Avoid_: refused (for a human answer)
 
 **Allowlist**:
