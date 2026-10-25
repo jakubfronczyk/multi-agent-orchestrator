@@ -1,6 +1,7 @@
 //! The gateway (§7.2): every function call passes here, is decided, logged and answered.
 //! Each call gets exactly one output and exactly one `tool_call_finished`.
 
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -54,6 +55,8 @@ impl Ended {
 }
 
 /// What runs when a call is allowed: a server tool, or one the engine runs itself.
+/// Tool code never runs unguarded on the run's task: `run` and `preview` are spawned and
+/// `check` is caught, so a panic in it ends only its own call.
 enum Callable {
     Tool(Arc<dyn Tool>),
     Delegate,
@@ -63,14 +66,24 @@ enum Callable {
 impl Callable {
     async fn preview(&self, args: &Value) -> String {
         match self {
-            Callable::Tool(tool) => tool.preview(args).await,
+            Callable::Tool(tool) => {
+                let (tool, owned) = (Arc::clone(tool), args.clone());
+                tokio::spawn(async move { tool.preview(&owned).await })
+                    .await
+                    .unwrap_or_else(|_| args_preview(args))
+            }
             Callable::Delegate | Callable::Plan => args_preview(args),
         }
     }
 
     fn check(&self, args: &Value, agent: &AgentSpec) -> Result<Action, ToolError> {
         match self {
-            Callable::Tool(tool) => tool.check(args),
+            Callable::Tool(tool) => catch_unwind(AssertUnwindSafe(|| tool.check(args)))
+                .unwrap_or_else(|_| {
+                    Err(ToolError::InvalidArgs(
+                        "the tool could not check these arguments".to_string(),
+                    ))
+                }),
             Callable::Delegate => native::check_delegate(args, agent.delegate_targets()),
             Callable::Plan => native::check_plan(args, agent.delegate_targets()),
         }

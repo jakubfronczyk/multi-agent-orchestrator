@@ -12,7 +12,7 @@ use orchestrator_server::sqlite::SqliteStore;
 use sqlx::SqlitePool;
 
 use crate::recording::Recording;
-use crate::tools::LEAKED;
+use crate::tools::{LEAKED, PANIC_IN_CHECK, PANIC_IN_PREVIEW};
 use crate::{
     App, Config, app, app_with, app_with_llm, events_until_finished, request, test_config, wait_for,
 };
@@ -145,6 +145,28 @@ async fn ask_waits_and_runs_after_approval(pool: SqlitePool) {
         }
     )));
     assert_eq!(finished_status(&events), CallStatus::Ok);
+    assert!(completed(&events));
+}
+
+/// Tool code on the run's own task cannot end the run: a panicking preview falls back to the
+/// arguments, and a panicking check refuses the call.
+#[sqlx::test]
+async fn a_panic_in_preview_or_check_ends_only_that_call(pool: SqlitePool) {
+    let app = app(pool).await;
+    answer_first_approval(&app.store, &app.engine, Answer::Approve { note: None });
+    let scenario = format!(r#"test:call:file_write:{{"path":"{PANIC_IN_PREVIEW}"}}"#);
+    let events = run_to_end(&app, &scenario).await;
+    let preview = events.iter().find_map(|e| match e {
+        RunEvent::ApprovalRequested { preview, .. } => Some(preview.clone()),
+        _ => None,
+    });
+    assert!(preview.is_some_and(|p| p.contains(PANIC_IN_PREVIEW)));
+    assert_eq!(finished_status(&events), CallStatus::Ok);
+    assert!(completed(&events));
+
+    let scenario = format!(r#"test:call:file_write:{{"path":"{PANIC_IN_CHECK}"}}"#);
+    let events = run_to_end(&app, &scenario).await;
+    assert_eq!(finished_status(&events), CallStatus::InvalidArgs);
     assert!(completed(&events));
 }
 
