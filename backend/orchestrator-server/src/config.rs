@@ -17,10 +17,12 @@ pub fn engine_config() -> orchestrator_core::engine::Config {
     orchestrator_core::engine::Config {
         llm_concurrency: 4,
         llm_timeout: Duration::from_secs(120),
+        // Long bases because xAI sends no Retry-After and a capped key refills per minute.
         retry_backoff: vec![
-            Duration::from_secs(1),
-            Duration::from_secs(2),
-            Duration::from_secs(4),
+            Duration::from_secs(5),
+            Duration::from_secs(10),
+            Duration::from_secs(20),
+            Duration::from_secs(40),
         ],
         default_budget: Micros(500_000),
         approval_timeout: Duration::from_secs(300),

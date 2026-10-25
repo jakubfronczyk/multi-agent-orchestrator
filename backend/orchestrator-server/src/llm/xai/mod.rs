@@ -10,6 +10,7 @@ mod parse;
 
 pub use parse::parse_output;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -30,11 +31,14 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const TICKS_PER_MICRO: i64 = 10_000;
 /// Every model this app offers must be listed by `/v1/models` for the key to be accepted.
 const REQUIRED_MODELS: [Model; 2] = [Model::Grok43, Model::Grok420NonReasoning];
+/// Marks a 429 caused by the key's own token cap, not the team's rate limit.
+const KEY_CAP_MARKER: &str = "API key's token limit";
 
 pub struct XaiProvider {
     client: reqwest::Client,
     /// Exposed only to build the Authorization header; never logged or formatted.
     key: SecretString,
+    key_cap_logged: AtomicBool,
 }
 
 #[derive(Serialize)]
@@ -50,6 +54,8 @@ struct ResponsesRequest<'a> {
     include: [&'static str; 1],
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<Reasoning>,
+    /// One key per task, so every call of a task's runs can hit the same prompt cache.
+    prompt_cache_key: String,
 }
 
 #[derive(Serialize)]
@@ -91,8 +97,14 @@ struct ResponsesReply {
 struct ReplyUsage {
     input_tokens: u64,
     output_tokens: u64,
+    input_tokens_details: Option<InputDetails>,
     output_tokens_details: Option<OutputDetails>,
     cost_in_usd_ticks: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct InputDetails {
+    cached_tokens: u64,
 }
 
 #[derive(Deserialize)]
@@ -123,7 +135,11 @@ impl XaiProvider {
             .connect_timeout(CONNECT_TIMEOUT)
             .build()
             .map_err(|_| "the HTTP client could not start".to_string())?;
-        Ok(Self { client, key })
+        Ok(Self {
+            client,
+            key,
+            key_cap_logged: AtomicBool::new(false),
+        })
     }
 
     /// Run at boot: the key must work and every offered model must exist. A bad key is a
@@ -210,7 +226,14 @@ fn request_body(request: &CompletionRequest) -> ResponsesRequest<'_> {
         store: false,
         include: ["reasoning.encrypted_content"],
         reasoning,
+        prompt_cache_key: request.script.root_run_id.to_string(),
     }
+}
+
+/// The `actual/limit` figures from a key-cap message, when it states them.
+fn key_cap(message: &str) -> Option<&str> {
+    let (_, rest) = message.split_once("(actual/limit): ")?;
+    rest.split(|c: char| c.is_whitespace() || c == '.').next()
 }
 
 /// 429 and 5xx are retried; every other non-success status fails the call.
@@ -251,7 +274,17 @@ impl LlmProvider for XaiProvider {
             .await
             .map_err(|_| LlmError::Server("the reply broke off".to_string()))?;
         if !status.is_success() {
-            return Err(status_error(status, &body));
+            let error = status_error(status, &body);
+            if status == StatusCode::TOO_MANY_REQUESTS
+                && body.contains(KEY_CAP_MARKER)
+                && !self.key_cap_logged.swap(true, Ordering::Relaxed)
+            {
+                tracing::warn!(
+                    "the xAI key has its own token-per-minute cap (actual/limit: {}); calls will keep retrying with backoff",
+                    key_cap(&body).unwrap_or("not stated")
+                );
+            }
+            return Err(error);
         }
 
         let reply: ResponsesReply = serde_json::from_str(&body)
@@ -274,6 +307,7 @@ impl LlmProvider for XaiProvider {
                 reasoning_tokens: usage
                     .output_tokens_details
                     .map_or(0, |d| d.reasoning_tokens),
+                cached_tokens: usage.input_tokens_details.map_or(0, |d| d.cached_tokens),
             },
             cost_micros: Micros(ticks / TICKS_PER_MICRO),
         })
@@ -328,6 +362,12 @@ mod tests {
         assert_eq!(grok43["tool_choice"], "none");
         assert_eq!(grok43["include"], json!(["reasoning.encrypted_content"]));
         assert_eq!(grok43["reasoning"], json!({"effort": "low"}));
+        assert!(
+            grok43["prompt_cache_key"]
+                .as_str()
+                .is_some_and(|key| !key.is_empty()),
+            "the root run id is the cache key"
+        );
         assert_eq!(grok43["input"][0], json!({"role": "user", "content": "hi"}));
         assert_eq!(
             grok43["input"][1]["id"], "fc_1",
@@ -358,5 +398,14 @@ mod tests {
             rejected.to_string(),
             "request rejected: 400 (invalid-argument): bad schema"
         );
+    }
+
+    #[test]
+    fn a_key_cap_429_stays_retryable_and_its_limit_is_read() {
+        let body = r#"{"code": "resource-exhausted", "error": "Too many tokens consumed for API key xai-...e88B. Your API key's token limit is — Tokens per Minute (actual/limit): 27077/100. Your rate limit tier is 1."}"#;
+        assert!(body.contains(KEY_CAP_MARKER));
+        assert!(status_error(StatusCode::TOO_MANY_REQUESTS, body).is_retryable());
+        assert_eq!(key_cap(body), Some("27077/100"));
+        assert_eq!(key_cap("no figures"), None);
     }
 }

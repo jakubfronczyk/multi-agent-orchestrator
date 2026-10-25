@@ -91,6 +91,9 @@ pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub reasoning_tokens: u64,
+    /// Input tokens the provider served from its prompt cache; part of `input_tokens`.
+    #[serde(default)]
+    pub cached_tokens: u64,
 }
 
 /// What an approval shows about how its call came to be.

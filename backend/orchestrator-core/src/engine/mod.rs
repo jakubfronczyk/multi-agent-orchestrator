@@ -32,7 +32,8 @@ pub struct Config {
     pub llm_concurrency: usize,
     /// The longest one model call may take; reaching it is a retryable timeout.
     pub llm_timeout: Duration,
-    /// One delay per retry of a retryable model error; its length is the retry count.
+    /// The base delay of each retry of a retryable model error; its length is the retry count.
+    /// Each wait is drawn uniformly from zero to its base (full jitter).
     pub retry_backoff: Vec<Duration>,
     pub default_budget: Micros,
     /// How long an approval waits for a human before it expires.

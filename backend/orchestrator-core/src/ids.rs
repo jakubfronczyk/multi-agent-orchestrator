@@ -1,6 +1,7 @@
 //! Typed ids, so a run id can never be passed where an approval id is expected.
 //! Every id is a uuid v7 (time-ordered) except `EventId`, the event log's integer key.
 
+use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,13 @@ impl RunId {
 impl Default for RunId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// The same text as the serde form.
+impl fmt::Display for RunId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 

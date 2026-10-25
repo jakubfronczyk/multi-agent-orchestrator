@@ -178,7 +178,7 @@ fn team() -> Vec<AgentInput> {
         Role::Specialist,
         "writer",
         "Writer",
-        "Writes documents and saves them in the workspace. Does not read mail or the web, and does not send anything.",
+        "Needs the facts and the decision text to write; it cannot read mail or the web.",
         "You write clear, short documents and save them where the task says. Say what you saved and where.",
         ReasoningEffort::Low,
         "pen",
