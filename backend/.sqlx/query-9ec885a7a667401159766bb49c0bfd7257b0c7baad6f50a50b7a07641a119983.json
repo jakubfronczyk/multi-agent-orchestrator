@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t.decision FROM agent_tools t JOIN agents a ON a.id = t.agent_id WHERE a.slug = 'reader' AND t.tool = 'send_message'",
+  "describe": {
+    "columns": [
+      {
+        "name": "decision",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agent_tools",
+            "name": "decision"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9ec885a7a667401159766bb49c0bfd7257b0c7baad6f50a50b7a07641a119983"
+}

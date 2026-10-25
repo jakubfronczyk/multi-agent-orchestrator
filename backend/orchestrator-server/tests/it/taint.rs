@@ -6,9 +6,8 @@ use std::time::Duration;
 use orchestrator_core::engine::{Engine, StartRequest};
 use orchestrator_core::ids::AgentId;
 use orchestrator_core::llm::Item;
-use orchestrator_core::policy::{Decision, Rule, TaintSource};
+use orchestrator_core::policy::{Rule, TaintSource};
 use orchestrator_core::runs::{Answer, CallStatus, RunEvent};
-use orchestrator_core::tools::Target;
 use orchestrator_server::events::EventEnvelope;
 use orchestrator_server::sqlite::{SqliteStore, agents};
 use sqlx::SqlitePool;
@@ -261,96 +260,4 @@ fn tool_output_seen_at_step(recording: &Recording, agent: &str, step: u32) -> St
             })
         })
         .expect("a tool output in the transcript")
-}
-
-/// §13 test 13: the vendor note tries three exits and none reaches the outbox.
-#[sqlx::test]
-async fn the_drill_stops_every_exit(pool: SqlitePool) {
-    let recording = Arc::new(Recording::slowing("none"));
-    let app = app_with_llm(pool, test_config(), recording.clone()).await;
-    answer_every_approval(&app.store, &app.engine, false);
-    let mut rx = app.store.subscribe();
-    let root = app.engine.start(request("drill")).await.expect("start");
-    let events = task_events(&mut rx, root).await;
-    let note = inbox("vendor-note");
-
-    // Each call in order: (tool, decision, reasons, status).
-    let mut calls: Vec<(String, Option<Decision>, Vec<Rule>)> = Vec::new();
-    for e in &events {
-        if let RunEvent::ToolCallRequested {
-            tool,
-            decision,
-            reasons,
-            ..
-        } = &e.event
-        {
-            calls.push((tool.clone(), *decision, reasons.clone()));
-        }
-    }
-    let sends: Vec<_> = calls
-        .iter()
-        .filter(|(tool, ..)| tool == "send_message")
-        .collect();
-    let fetches: Vec<_> = calls
-        .iter()
-        .filter(|(tool, ..)| tool == "http_fetch")
-        .collect();
-
-    // Exit 1: Reader's direct send is refused by its own setting; logged, no card.
-    assert_eq!(sends[0].1, Some(Decision::Deny));
-    assert_eq!(sends[0].2, [Rule::AgentPolicy]);
-
-    // Exit 3: the exfil fetch asks with the taint and the off-allowlist host; the repeat is
-    // refused as a repeat with no card.
-    assert_eq!(fetches[0].1, Some(Decision::Ask));
-    assert!(fetches[0].2.contains(&Rule::Taint {
-        source: note.clone()
-    }));
-    assert!(fetches[0].2.contains(&Rule::OffAllowlist {
-        host: "evil.test".to_string()
-    }));
-    assert_eq!(fetches[1].1, Some(Decision::Deny));
-    assert_eq!(fetches[1].2.first(), Some(&Rule::RepeatOfRefused));
-
-    // Exactly two cards: the fetch and Messenger's send; both show the source and are denied.
-    let cards = approvals(&events);
-    assert_eq!(cards.len(), 2);
-    for card in &cards {
-        let RunEvent::ApprovalRequested { custody, .. } = card else {
-            unreachable!()
-        };
-        assert_eq!(custody.taint_sources, std::slice::from_ref(&note));
-    }
-    let RunEvent::ApprovalRequested { action, .. } = cards[0] else {
-        unreachable!()
-    };
-    assert!(
-        matches!(&action.target, Target::Host { url, .. } if url.contains("evil.test/collect"))
-    );
-    let RunEvent::ApprovalRequested { custody, .. } = cards[1] else {
-        unreachable!()
-    };
-    let path: Vec<&str> = custody.agent_path.iter().map(|s| s.as_str()).collect();
-    assert_eq!(path, ["lead", "messenger"]);
-    assert!(
-        custody.parent_task.starts_with("<untrusted_data"),
-        "the child got its task as data"
-    );
-
-    let denied = statuses(&events)
-        .iter()
-        .filter(|s| **s == CallStatus::DeniedHuman)
-        .count();
-    assert_eq!(denied, 2);
-
-    // Reader's result reaches the Lead marked untrusted.
-    let lead_output = tool_output_seen_at_step(&recording, "lead", 1);
-    let body: serde_json::Value = serde_json::from_str(&lead_output).expect("json");
-    assert_eq!(body["trust"], "untrusted");
-
-    let sent = sqlx::query_scalar!("SELECT COUNT(*) FROM outbox_messages")
-        .fetch_one(&app.pool)
-        .await
-        .expect("count");
-    assert_eq!(sent, 0, "nothing reaches the outbox");
 }

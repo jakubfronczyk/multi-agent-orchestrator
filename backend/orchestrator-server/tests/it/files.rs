@@ -1,35 +1,12 @@
 //! §13 test 12 and the file tools against a real temporary workspace.
 
-use std::path::PathBuf;
-
 use orchestrator_core::policy::Trust;
 use orchestrator_core::tools::{Tool, ToolCtx, ToolError};
 use orchestrator_server::tools::files::{CsvQuery, FileList, FileRead, FileWrite, Workspace};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
-use crate::{app, tool_ctx};
-
-/// A fresh directory per test, removed when the guard drops.
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("orchestrator-test-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(dir.join("workspace")).expect("temp dir");
-        Self(dir)
-    }
-
-    fn workspace(&self) -> PathBuf {
-        self.0.join("workspace")
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
+use crate::{TempDir, app, tool_ctx};
 
 async fn run(tool: &dyn Tool, ctx: &ToolCtx, args: Value) -> Result<Value, ToolError> {
     tool.check(&args)?;

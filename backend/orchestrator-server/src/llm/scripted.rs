@@ -6,7 +6,7 @@ use std::sync::{Mutex, PoisonError};
 
 use async_trait::async_trait;
 use orchestrator_core::ids::RunId;
-use orchestrator_core::llm::{CompletionRequest, CompletionResponse, LlmError, LlmProvider};
+use orchestrator_core::llm::{CompletionRequest, CompletionResponse, Item, LlmError, LlmProvider};
 use orchestrator_core::money::Micros;
 use orchestrator_core::runs::Usage;
 
@@ -39,6 +39,16 @@ impl ScriptedProvider {
     }
 }
 
+fn task_text(transcript: &[Item]) -> String {
+    transcript
+        .iter()
+        .find_map(|item| match item {
+            Item::User { text } => Some(text.clone()),
+            Item::Provider(_) | Item::ToolOutput { .. } => None,
+        })
+        .unwrap_or_default()
+}
+
 #[async_trait]
 impl LlmProvider for ScriptedProvider {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
@@ -50,6 +60,7 @@ impl LlmProvider for ScriptedProvider {
             script.step,
             attempt,
             request.tool_choice,
+            &task_text(&request.transcript),
         ) {
             Reply::Items(raw) => {
                 let (calls, text) = parse_output(&raw)?;

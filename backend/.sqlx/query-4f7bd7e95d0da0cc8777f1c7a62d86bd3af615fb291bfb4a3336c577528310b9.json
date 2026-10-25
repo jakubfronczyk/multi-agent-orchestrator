@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO workspace_files (path, trust, written_by_run, updated_at) VALUES (?, ?, NULL, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "4f7bd7e95d0da0cc8777f1c7a62d86bd3af615fb291bfb4a3336c577528310b9"
+}

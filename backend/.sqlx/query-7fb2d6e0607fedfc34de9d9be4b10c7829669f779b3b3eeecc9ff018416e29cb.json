@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT recipient FROM outbox_messages ORDER BY sent_at",
+  "describe": {
+    "columns": [
+      {
+        "name": "recipient",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "recipient"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7fb2d6e0607fedfc34de9d9be4b10c7829669f779b3b3eeecc9ff018416e29cb"
+}

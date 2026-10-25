@@ -1,13 +1,16 @@
 //! The server's tools. Each gets its database pool, paths or HTTP client through its
 //! constructor; core sees only the `Tool` trait and the `ToolSpec`.
 
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator_core::policy::{Trust, untrusted};
-use orchestrator_core::tools::{MAY_ASK, ToolError, ToolName, ToolSpec, schema_for};
+use orchestrator_core::tools::{MAY_ASK, Tool, ToolError, ToolName, ToolSet, ToolSpec, schema_for};
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use sqlx::SqlitePool;
 
 use crate::sqlite::text::from_text;
 
@@ -17,8 +20,33 @@ pub mod memory;
 pub mod messages;
 mod sandbox;
 
-/// The one argument parser every tool uses in both `check` and `run`.
+/// The eleven server tools; `delegate` and `plan` are run by the engine itself.
+pub fn all(pool: SqlitePool, workspace_root: PathBuf) -> ToolSet {
+    let workspace = files::Workspace::new(workspace_root, pool.clone());
+    let tools: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(memory::MemoryRead::new(pool.clone())),
+        Arc::new(memory::MemorySearch::new(pool.clone())),
+        Arc::new(memory::MemoryWrite::new(pool.clone())),
+        Arc::new(files::FileList::new(workspace.clone())),
+        Arc::new(files::FileRead::new(workspace.clone())),
+        Arc::new(files::FileWrite::new(workspace.clone())),
+        Arc::new(files::CsvQuery::new(workspace)),
+        Arc::new(messages::InboxList::new(pool.clone())),
+        Arc::new(messages::InboxRead::new(pool.clone())),
+        Arc::new(messages::SendMessage::new(pool)),
+        Arc::new(fetch::HttpFetch::new()),
+    ];
+    ToolSet::new(tools)
+}
+
+/// The one argument parser every tool uses in both `check` and `run`. Arguments must be a
+/// JSON object: serde would otherwise accept an array for a struct whose fields are all optional.
 pub(crate) fn parse<T: DeserializeOwned>(args: &Value) -> Result<T, ToolError> {
+    if !args.is_object() {
+        return Err(ToolError::InvalidArgs(
+            "arguments must be a JSON object".to_string(),
+        ));
+    }
     serde_json::from_value(args.clone()).map_err(|error| ToolError::InvalidArgs(error.to_string()))
 }
 

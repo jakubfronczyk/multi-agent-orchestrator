@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT COUNT(*) FROM outbox_messages",
+  "query": "SELECT COUNT(*) FROM agents",
   "describe": {
     "columns": [
       {
@@ -17,5 +17,5 @@
       false
     ]
   },
-  "hash": "7b6a81c4a470b945f5585c9308ff5a464cf991c4881c15e1e5a5e323d713eec3"
+  "hash": "976b52de19f415be5fbbf5b025df2668dbc489dcf6f20442d4f8ef635977c6d6"
 }

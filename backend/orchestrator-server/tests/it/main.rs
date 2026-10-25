@@ -29,6 +29,7 @@ mod memory;
 mod messages;
 mod recording;
 mod runs;
+mod seeded;
 mod taint;
 mod tools;
 
@@ -257,5 +258,32 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
         root_run_id: run,
         agent_id: agent,
         trust: orchestrator_core::policy::Trust::Trusted,
+    }
+}
+
+/// A fresh directory per test, removed when the guard drops.
+pub struct TempDir(pub std::path::PathBuf);
+
+impl TempDir {
+    pub fn new() -> Self {
+        let dir = std::env::temp_dir().join(format!("orchestrator-test-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(dir.join("workspace")).expect("temp dir");
+        Self(dir)
+    }
+
+    pub fn workspace(&self) -> std::path::PathBuf {
+        self.0.join("workspace")
+    }
+}
+
+impl Default for TempDir {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
     }
 }

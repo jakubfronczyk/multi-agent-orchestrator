@@ -22,7 +22,8 @@ pub fn engine_config() -> orchestrator_core::engine::Config {
         ],
         default_budget: Micros(500_000),
         approval_timeout: Duration::from_secs(300),
-        allowlist: Vec::new(),
+        // Plain hosts; each also covers its subdomains. A `*.example.com` entry never matches.
+        allowlist: vec!["example.com".to_string()],
         max_depth: 2,
         max_runs: 12,
     }
