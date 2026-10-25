@@ -307,29 +307,34 @@ async fn commit_taint(
     Ok(())
 }
 
-/// A successful call's sources are the ones its result names, untrusted stored data included;
-/// a result withheld from the Lead keeps its sources.
-/// A failure has no result, so for an outside-reading tool the target names the one source (a
-/// fetched URL, a read message); a failed list names none.
+/// An outside-reading tool's target is a source whatever the tool reports, so a tool that
+/// forgets its sources still taints. Then come the sources the result names, untrusted stored
+/// data included, or those of a result withheld from the Lead.
 fn taint_sources(name: ToolName, ended: &Ended, action: &Action) -> Vec<TaintSource> {
-    match ended {
-        Ended::Ok(output) => output.taint.clone(),
-        Ended::Child { .. } => Vec::new(),
-        Ended::Failed { withheld, .. } if !withheld.is_empty() => withheld.clone(),
-        Ended::Failed { .. } if !name.taints() => Vec::new(),
-        Ended::Failed { .. } => match &action.target {
-            Target::Host { url, .. } => vec![TaintSource::Web { url: url.clone() }],
-            Target::Message { id } => vec![TaintSource::Inbox {
-                message_id: id.clone(),
-            }],
-            Target::File { .. }
-            | Target::Recipient { .. }
-            | Target::Note { .. }
-            | Target::Query { .. }
-            | Target::Agent { .. }
-            | Target::Plan { .. } => Vec::new(),
-        },
+    let mut sources: Vec<TaintSource> = match &action.target {
+        _ if !name.taints() => Vec::new(),
+        Target::Host { url, .. } => vec![TaintSource::Web { url: url.clone() }],
+        Target::Message { id } => vec![TaintSource::Inbox {
+            message_id: id.clone(),
+        }],
+        Target::File { .. }
+        | Target::Recipient { .. }
+        | Target::Note { .. }
+        | Target::Query { .. }
+        | Target::Agent { .. }
+        | Target::Plan { .. } => Vec::new(),
+    };
+    let reported = match ended {
+        Ended::Ok(output) => output.taint.as_slice(),
+        Ended::Failed { withheld, .. } => withheld.as_slice(),
+        Ended::Child { .. } => &[],
+    };
+    for source in reported {
+        if !sources.contains(source) {
+            sources.push(source.clone());
+        }
     }
+    sources
 }
 
 /// Not offered and invalid arguments: logged and refused before any decision. Arguments that

@@ -11,6 +11,7 @@ use orchestrator_server::events::EventEnvelope;
 use sqlx::SqlitePool;
 
 use crate::recording::Recording;
+use crate::tools::UNREPORTED_PATH;
 use crate::{
     App, Config, agent_id, answer_approvals, app, app_with, app_with_llm, cards, request, tainted,
     task_events, test_config,
@@ -70,6 +71,23 @@ async fn a_failed_fetch_taints_before_its_result_is_recorded(pool: SqlitePool) {
         tainted_at < finished_at,
         "taint is committed before the result"
     );
+}
+
+/// An outside-reading tool taints from its target, so a tool that forgets to report its
+/// source still taints the task.
+#[sqlx::test]
+async fn a_fetch_taints_even_when_the_tool_reports_no_source(pool: SqlitePool) {
+    let app = app(pool).await;
+    let url = format!("https://example.com{UNREPORTED_PATH}");
+    let events = run_as(
+        &app,
+        "worker",
+        &format!(r#"test:call:http_fetch:{{"url":"{url}"}}"#),
+    )
+    .await;
+
+    assert_eq!(statuses(&events), [CallStatus::Ok]);
+    assert_eq!(tainted(&events), [TaintSource::Web { url }]);
 }
 
 #[sqlx::test]
