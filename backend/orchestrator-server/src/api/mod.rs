@@ -14,6 +14,7 @@ use tower_http::trace::TraceLayer;
 mod agents;
 mod error;
 mod events;
+mod json;
 mod runs;
 
 pub use error::{ApiError, ErrorCode};

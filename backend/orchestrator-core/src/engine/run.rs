@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use crate::agents::AgentSpec;
-use crate::llm::{CompletionRequest, CompletionResponse, Item, LlmError, ToolChoice};
+use crate::llm::{CompletionRequest, CompletionResponse, Item, LlmError, ScriptKey, ToolChoice};
 use crate::runs::{FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, StoreError};
 
@@ -70,10 +70,12 @@ async fn run_loop(inner: &Inner, ctx: &RunCtx) -> Result<RunOutcome, StoreError>
             } else {
                 ToolChoice::Auto
             },
-            root_run_id: ctx.at.root_run_id,
-            agent: ctx.agent.slug().clone(),
-            step,
-            scenario: ctx.scenario.clone(),
+            script: ScriptKey {
+                root_run_id: ctx.at.root_run_id,
+                agent: ctx.agent.slug().clone(),
+                step,
+                scenario: ctx.scenario.clone(),
+            },
         };
         let response = match complete_with_retries(inner, ctx, step, request).await? {
             Attempt::Done(response) => response,

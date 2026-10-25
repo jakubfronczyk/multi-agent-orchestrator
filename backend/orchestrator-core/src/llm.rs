@@ -53,8 +53,16 @@ pub enum ToolChoice {
     None,
 }
 
-/// Everything one model step needs. `root_run_id`, `agent`, `step` and `scenario` key the
-/// scripted replies.
+/// Identifies one model step for the scripted provider; other providers ignore it.
+#[derive(Debug, Clone)]
+pub struct ScriptKey {
+    pub root_run_id: RunId,
+    pub agent: Slug,
+    pub step: u32,
+    pub scenario: Option<String>,
+}
+
+/// Everything one model step needs.
 #[derive(Debug, Clone)]
 pub struct CompletionRequest {
     pub model: Model,
@@ -63,10 +71,8 @@ pub struct CompletionRequest {
     pub transcript: Vec<Item>,
     pub tools: Vec<ToolSpec>,
     pub tool_choice: ToolChoice,
-    pub root_run_id: RunId,
-    pub agent: Slug,
-    pub step: u32,
-    pub scenario: Option<String>,
+    /// Used only by the scripted provider.
+    pub script: ScriptKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use super::AppState;
-use super::error::{ApiError, ApiJson};
+use super::error::ApiError;
+use super::json::ApiJson;
 
 #[derive(Debug, Deserialize, TS)]
 #[ts(export, optional_fields)]

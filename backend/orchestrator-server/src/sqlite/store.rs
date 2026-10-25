@@ -2,7 +2,7 @@
 //! One async mutex serializes `emit`, so event ids are monotonic and broadcast in id order.
 
 use async_trait::async_trait;
-use chrono::{DateTime, SecondsFormat, SubsecRound, Utc};
+use chrono::{SubsecRound, Utc};
 use orchestrator_core::agents::AgentSpec;
 use orchestrator_core::ids::EventId;
 use orchestrator_core::runs::{ApprovalStatus, CallPhase, RunEvent, RunStatus};
@@ -12,7 +12,7 @@ use sqlx::sqlite::SqliteQueryResult;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use tokio::sync::{Mutex, broadcast};
 
-use super::text::to_text;
+use super::text::{timestamp, to_text};
 use super::{agents, begin_write};
 use crate::events::EventEnvelope;
 
@@ -46,7 +46,7 @@ impl Store for SqliteStore {
     async fn emit(&self, at: RunRef, event: RunEvent) -> Result<EventId, StoreError> {
         let _guard = self.emit_lock.lock().await;
         let now = Utc::now().trunc_subsecs(6);
-        let ts = rfc3339(now);
+        let ts = timestamp(now);
 
         let mut tx = begin_write(&self.pool).await.map_err(failed)?;
         // Projections first: run_started creates the runs row the event references.
@@ -181,7 +181,7 @@ async fn project(
             let id = text(approval_id)?;
             let call = text(call_id)?;
             let custody = json(custody)?;
-            let expires_at = rfc3339(*expires_at);
+            let expires_at = timestamp(*expires_at);
             let pending = text(&ApprovalStatus::Pending)?;
             let waiting = text(&CallPhase::Waiting)?;
             exactly_one(
@@ -318,10 +318,6 @@ fn text<T: Serialize>(value: &T) -> Result<String, StoreError> {
 
 fn json<T: Serialize>(value: &T) -> Result<String, StoreError> {
     serde_json::to_string(value).map_err(failed)
-}
-
-fn rfc3339(time: DateTime<Utc>) -> String {
-    time.to_rfc3339_opts(SecondsFormat::Micros, true)
 }
 
 fn failed(error: impl std::fmt::Display) -> StoreError {

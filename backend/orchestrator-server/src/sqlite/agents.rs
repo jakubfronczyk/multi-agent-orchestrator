@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Utc};
 use orchestrator_core::agents::{AgentInput, AgentSpec, Role, Slug, ValidationError};
 use orchestrator_core::ids::AgentId;
 use orchestrator_core::policy::Decision;
@@ -13,7 +13,7 @@ use sqlx::{SqliteConnection, SqlitePool};
 use ts_rs::TS;
 
 use super::begin_write;
-use super::text::{from_text, to_text};
+use super::text::{from_text, parse_timestamp, timestamp, to_text};
 
 /// An agent as the API returns it: the spec plus its timestamps.
 #[derive(Debug, Clone, Serialize, TS)]
@@ -63,7 +63,7 @@ pub async fn create(pool: &SqlitePool, input: AgentInput) -> Result<AgentRecord,
     let spec = AgentSpec::validated(AgentId::new(), 1, input)?;
     check_team(&mut tx, &spec).await?;
 
-    let now = now();
+    let now = timestamp(Utc::now());
     let id = text(&spec.id())?;
     let role = text(&spec.role())?;
     let slug = spec.slug().as_str();
@@ -120,7 +120,7 @@ pub async fn replace(
     let spec = AgentSpec::validated(id, current.spec.version() + 1, input)?;
     check_team(&mut tx, &spec).await?;
 
-    let now = now();
+    let now = timestamp(Utc::now());
     let model = text(&spec.model())?;
     let effort = spec.reasoning_effort().as_ref().map(text).transpose()?;
     let targets = json(spec.delegate_targets())?;
@@ -165,7 +165,7 @@ pub async fn delete(pool: &SqlitePool, id: AgentId) -> Result<(), AgentError> {
         return Err(ValidationError::new("role", "the Lead cannot be deleted").into());
     }
 
-    let now = now();
+    let now = timestamp(Utc::now());
     sqlx::query!(
         "UPDATE agents SET deleted_at = ? WHERE id = ?",
         now,
@@ -328,8 +328,8 @@ async fn load(conn: &mut SqliteConnection, id: &str) -> Result<Option<AgentRecor
         .map_err(corrupt)?;
     Ok(Some(AgentRecord {
         spec,
-        created_at: time(&row.created_at)?,
-        updated_at: time(&row.updated_at)?,
+        created_at: parse_timestamp(&row.created_at).map_err(corrupt)?,
+        updated_at: parse_timestamp(&row.updated_at).map_err(corrupt)?,
     }))
 }
 
@@ -339,16 +339,6 @@ fn text<T: Serialize>(value: &T) -> Result<String, AgentError> {
 
 fn json<T: Serialize + ?Sized>(value: &T) -> Result<String, AgentError> {
     serde_json::to_string(value).map_err(corrupt)
-}
-
-fn now() -> String {
-    Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)
-}
-
-fn time(value: &str) -> Result<DateTime<Utc>, AgentError> {
-    Ok(DateTime::parse_from_rfc3339(value)
-        .map_err(corrupt)?
-        .with_timezone(&Utc))
 }
 
 fn corrupt(error: impl std::fmt::Display) -> AgentError {

@@ -8,7 +8,8 @@ use orchestrator_core::agents::AgentInput;
 use orchestrator_core::ids::AgentId;
 
 use super::AppState;
-use super::error::{ApiError, ApiJson};
+use super::error::ApiError;
+use super::json::ApiJson;
 use crate::sqlite::agents::{self, AgentRecord};
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<AgentRecord>>, ApiError> {

@@ -28,9 +28,9 @@ impl ScriptedProvider {
 
     fn next_attempt(&self, request: &CompletionRequest) -> u32 {
         let key = (
-            request.root_run_id,
-            request.agent.as_str().to_string(),
-            request.step,
+            request.script.root_run_id,
+            request.script.agent.as_str().to_string(),
+            request.script.step,
         );
         let mut attempts = self.attempts.lock().unwrap_or_else(PoisonError::into_inner);
         let count = attempts.entry(key).or_insert(0);
@@ -43,7 +43,7 @@ impl ScriptedProvider {
 impl LlmProvider for ScriptedProvider {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
         let attempt = self.next_attempt(&request);
-        match reply(request.scenario.as_deref(), attempt) {
+        match reply(request.script.scenario.as_deref(), attempt) {
             Reply::Items(raw) => {
                 let (calls, text) = parse_output(&raw)?;
                 Ok(CompletionResponse {
