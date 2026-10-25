@@ -1,4 +1,4 @@
-//! Fixed facts the UI reads once: the active provider, the models and the 13 tools.
+//! Fixed facts the UI reads once: the active provider, the models, the 13 tools and the allowlist.
 
 use axum::Json;
 use axum::extract::State;
@@ -58,6 +58,8 @@ pub struct ToolInfo {
 #[ts(export)]
 pub struct ToolList {
     pub tools: Vec<ToolInfo>,
+    /// Hosts `http_fetch` reaches without asking; each entry also covers its subdomains.
+    pub allowlist: Vec<String>,
 }
 
 pub async fn health(State(state): State<AppState>) -> Json<Health> {
@@ -91,5 +93,8 @@ pub async fn tools(State(state): State<AppState>) -> Json<ToolList> {
             lead: spec.name.lead(),
         })
         .collect();
-    Json(ToolList { tools })
+    Json(ToolList {
+        tools,
+        allowlist: state.engine.allowlist().to_vec(),
+    })
 }

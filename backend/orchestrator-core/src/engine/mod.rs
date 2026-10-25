@@ -198,6 +198,11 @@ impl Engine {
         specs
     }
 
+    /// Hosts fetchable without asking, as every task receives them.
+    pub fn allowlist(&self) -> &[String] {
+        &self.inner.config.allowlist
+    }
+
     /// Cancels every run in the task; false when no live task has this root.
     pub fn cancel(&self, root: RunId) -> bool {
         match self.inner.tasks().get(&root) {

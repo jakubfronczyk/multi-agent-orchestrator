@@ -130,6 +130,7 @@ async fn health_models_and_tools_describe_the_fixed_setup(pool: SqlitePool) {
     assert_eq!(models["models"][1]["efforts"], serde_json::json!([]));
 
     let (_, tools) = get(&client, &format!("{base}/api/tools")).await;
+    assert_eq!(tools["allowlist"], serde_json::json!(["example.com"]));
     let tools = tools["tools"].as_array().expect("tools");
     let tool = |name: &str| {
         tools
