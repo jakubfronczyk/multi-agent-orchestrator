@@ -288,6 +288,7 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
         title: None,
         budget: None,
         scenario: None,
+        agent_version: None,
     };
     app.store.emit(at, started).await.expect("run row");
     orchestrator_core::tools::ToolCtx {

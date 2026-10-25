@@ -56,6 +56,8 @@ pub struct RunView {
     /// The `delegate` call that started this run, so a running child nests under its call.
     pub parent_call_id: Option<ToolCallId>,
     pub agent_id: AgentId,
+    /// The agent's config version this run used; `None` for runs recorded before it existed.
+    pub agent_version: Option<i64>,
     pub title: Option<String>,
     /// Plain text, never the model's wrapped form.
     pub task: String,
@@ -260,7 +262,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
     let last_event_id = events::last_id(&mut *tx).await?;
 
     let run_rows = sqlx::query!(
-        r#"SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.title, r.task, r.task_sources, r.status, r.outcome,
+        r#"SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.agent_version, r.title, r.task, r.task_sources, r.status, r.outcome,
                   r.taint_sources, r.started_at, r.finished_at,
                   (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e
                     WHERE e.root_run_id = ?1 AND e.run_id = r.id AND e.type = ?2) AS "cost!: i64"
@@ -310,6 +312,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
                 parent_run_id: text_opt(row.parent_run_id.as_deref())?,
                 parent_call_id: text_opt(row.parent_call_id.as_deref())?,
                 agent_id: from_text(&row.agent_id).map_err(corrupt)?,
+                agent_version: row.agent_version,
                 title: row.title,
                 task: row.task,
                 task_sources: serde_json::from_str(&row.task_sources).map_err(corrupt)?,

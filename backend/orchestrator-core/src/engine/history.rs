@@ -131,6 +131,7 @@ mod tests {
             title: None,
             budget: Some(Micros(9)),
             scenario: None,
+            agent_version: None,
         }
     }
 

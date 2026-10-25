@@ -34,6 +34,9 @@ pub enum RunEvent {
         /// delegated runs, which play their caller's.
         #[serde(default)]
         scenario: Option<String>,
+        /// The agent's config version this run used; `None` in events recorded before it existed.
+        #[serde(default)]
+        agent_version: Option<i64>,
     },
     PlanRecorded {
         steps: Vec<PlanStep>,
@@ -119,6 +122,9 @@ pub struct Custody {
     pub parent_task_sources: Vec<TaintSource>,
     pub rules: Vec<Rule>,
     pub taint_sources: Vec<TaintSource>,
+    /// The asking agent's config version; `None` in events recorded before it existed.
+    #[serde(default)]
+    pub agent_version: Option<i64>,
 }
 
 /// A run's lifecycle state; every terminal state comes from its `RunOutcome`.

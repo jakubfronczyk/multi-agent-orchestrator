@@ -6,3 +6,4 @@ The xAI client is plain reqwest against the Responses API, behind one `LlmProvid
 
 - Retries, cost accounting and error mapping are ours to write and test.
 - Another vendor or an on-prem model means one new adapter, not a new loop.
+- Frameworks own the agent loop and tool dispatch; the gateway must be the single choke point every call passes, so the loop stays ours.

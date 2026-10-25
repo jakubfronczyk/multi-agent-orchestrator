@@ -300,6 +300,7 @@ async fn a_delegated_runs_note_version_names_the_task(pool: SqlitePool) {
         title: None,
         budget: None,
         scenario: None,
+        agent_version: None,
     };
     let at = RunRef {
         root_run_id: root_ctx.root_run_id,

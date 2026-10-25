@@ -39,6 +39,7 @@ CREATE TABLE runs (
     parent_run_id TEXT REFERENCES runs (id),
     parent_call_id TEXT REFERENCES tool_calls (id), -- the delegate call that started it
     agent_id      TEXT NOT NULL REFERENCES agents (id),
+    agent_version INTEGER,                      -- the agent's config version this run used
     title         TEXT,
     task          TEXT NOT NULL,                -- the task text, plain
     task_sources  TEXT NOT NULL DEFAULT '[]',   -- JSON, the taint a delegated task carried

@@ -11,7 +11,11 @@ export type RunView = { id: RunId, parent_run_id: RunId | null,
 /**
  * The `delegate` call that started this run, so a running child nests under its call.
  */
-parent_call_id: ToolCallId | null, agent_id: AgentId, title: string | null, 
+parent_call_id: ToolCallId | null, agent_id: AgentId, 
+/**
+ * The agent's config version this run used; `None` for runs recorded before it existed.
+ */
+agent_version: number | null, title: string | null, 
 /**
  * Plain text, never the model's wrapped form.
  */

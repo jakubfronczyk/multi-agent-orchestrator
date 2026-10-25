@@ -330,6 +330,7 @@ async fn ask(
         parent_task_sources: ctx.task_sources.clone(),
         rules: reasons.to_vec(),
         taint_sources: ctx.task.taint_sources(),
+        agent_version: Some(ctx.agent.version()),
     };
 
     let rx = inner.approvals.register(approval_id);

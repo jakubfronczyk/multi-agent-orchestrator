@@ -1043,3 +1043,107 @@ async fn records_name_their_task_and_the_list_keeps_the_scenario(pool: SqlitePoo
     assert_eq!(scenario_of(root).as_deref(), Some("s1"));
     assert_eq!(scenario_of(typed), None);
 }
+
+/// Edits the agent with this slug (a full replace with a new description) and returns its new version.
+async fn edit_agent(pool: &SqlitePool, slug: &str) -> i64 {
+    use orchestrator_core::agents::AgentInput;
+    use orchestrator_server::sqlite::agents;
+
+    let record = agents::list(pool)
+        .await
+        .expect("agents")
+        .into_iter()
+        .find(|record| record.spec.slug().as_str() == slug)
+        .expect("seeded agent");
+    let mut input: AgentInput =
+        serde_json::from_value(serde_json::to_value(&record).expect("json")).expect("input");
+    input.description = format!("{} (edited)", input.description);
+    agents::replace(pool, record.spec.id(), input)
+        .await
+        .expect("replace")
+        .spec
+        .version()
+}
+
+/// Each run records the config version it ran with: an edit between tasks shows in the next
+/// task only, and a follow-up after another edit uses the newest, leaving earlier runs as they were.
+#[sqlx::test]
+async fn every_run_records_the_agent_version_it_used(pool: SqlitePool) {
+    use orchestrator_core::engine::FollowUpRequest;
+    use orchestrator_server::sqlite::runs;
+
+    let seeded = seeded(pool).await;
+    answer_approvals(&seeded, |target| match target {
+        Target::Recipient { address, .. } if address.starts_with("rolf") => {
+            Answer::Deny { note: None }
+        }
+        _ => Answer::Approve { note: None },
+    });
+    let messenger_versions = |detail: &runs::RunDetail, messenger| -> Vec<Option<i64>> {
+        detail
+            .runs
+            .iter()
+            .filter(|run| run.agent_id == messenger)
+            .map(|run| run.agent_version)
+            .collect()
+    };
+    let card_version = |events: &[EventEnvelope]| match cards(events).last() {
+        Some(RunEvent::ApprovalRequested { custody, .. }) => custody.agent_version,
+        _ => panic!("a card"),
+    };
+
+    let (first, first_events) = run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+    let first_detail = runs::detail(&seeded.pool, first)
+        .await
+        .expect("read")
+        .expect("task");
+    let messenger = first_detail
+        .runs
+        .iter()
+        .find(|run| run.parent_run_id.is_some() && run.task.contains("Rolf"))
+        .expect("the messenger's run")
+        .agent_id;
+    let v1 = first_detail.runs[1..]
+        .iter()
+        .find(|run| run.agent_id == messenger)
+        .and_then(|run| run.agent_version)
+        .expect("a version");
+    assert_eq!(messenger_versions(&first_detail, messenger), [Some(v1); 2]);
+    assert_eq!(
+        card_version(&first_events),
+        Some(v1),
+        "the Anna card names v1"
+    );
+
+    let v2 = edit_agent(&seeded.pool, "messenger").await;
+    assert_eq!(v2, v1 + 1);
+    let (second, second_events) = run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+    let second_detail = runs::detail(&seeded.pool, second)
+        .await
+        .expect("read")
+        .expect("task");
+    assert_eq!(messenger_versions(&second_detail, messenger), [Some(v2); 2]);
+    assert_eq!(card_version(&second_events), Some(v2));
+
+    let v3 = edit_agent(&seeded.pool, "messenger").await;
+    let mut rx = seeded.store.subscribe();
+    let follow_up = FollowUpRequest {
+        text: "Email Rolf again, then Anna".to_string(),
+        scenario: Some("s1-followup".to_string()),
+    };
+    let turn = seeded
+        .engine
+        .follow_up(first, follow_up)
+        .await
+        .expect("follow-up");
+    crate::events_until_finished(&mut rx, turn).await;
+    let after = runs::detail(&seeded.pool, first)
+        .await
+        .expect("read")
+        .expect("task");
+    assert_eq!(
+        messenger_versions(&after, messenger),
+        [Some(v1), Some(v1), Some(v3), Some(v3)],
+        "the follow-up uses v3; S1's runs keep v1"
+    );
+}

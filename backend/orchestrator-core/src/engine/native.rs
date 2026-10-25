@@ -206,6 +206,7 @@ pub(super) async fn delegate(
         title: None,
         budget: None,
         scenario: None,
+        agent_version: Some(target.version()),
     };
     inner.emit(child, started).await?;
 

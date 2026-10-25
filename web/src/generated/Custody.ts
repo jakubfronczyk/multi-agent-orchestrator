@@ -14,4 +14,8 @@ parent_task: string,
 /**
  * What `parent_task` carried from outside when it was delegated; empty when clean.
  */
-parent_task_sources: Array<TaintSource>, rules: Array<Rule>, taint_sources: Array<TaintSource>, };
+parent_task_sources: Array<TaintSource>, rules: Array<Rule>, taint_sources: Array<TaintSource>, 
+/**
+ * The asking agent's config version; `None` in events recorded before it existed.
+ */
+agent_version: number | null, };

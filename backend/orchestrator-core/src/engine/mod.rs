@@ -177,6 +177,7 @@ impl Engine {
                     title: request.title,
                     budget: Some(budget),
                     scenario: request.scenario.clone(),
+                    agent_version: Some(agent.version()),
                 },
             )
             .await?;
@@ -238,6 +239,7 @@ impl Engine {
                     title: None,
                     budget: None,
                     scenario: request.scenario.clone(),
+                    agent_version: Some(agent.version()),
                 },
             )
             .await?;

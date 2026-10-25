@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.title, r.task, r.task_sources, r.status, r.outcome,\n                  r.taint_sources, r.started_at, r.finished_at,\n                  (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e\n                    WHERE e.root_run_id = ?1 AND e.run_id = r.id AND e.type = ?2) AS \"cost!: i64\"\n           FROM runs r\n           WHERE r.root_run_id = ?1\n           ORDER BY r.started_at, r.id",
+  "query": "SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.agent_version, r.title, r.task, r.task_sources, r.status, r.outcome,\n                  r.taint_sources, r.started_at, r.finished_at,\n                  (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e\n                    WHERE e.root_run_id = ?1 AND e.run_id = r.id AND e.type = ?2) AS \"cost!: i64\"\n           FROM runs r\n           WHERE r.root_run_id = ?1\n           ORDER BY r.started_at, r.id",
   "describe": {
     "columns": [
       {
@@ -48,8 +48,19 @@
         }
       },
       {
-        "name": "title",
+        "name": "agent_version",
         "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "agent_version"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "task",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,7 +82,7 @@
       },
       {
         "name": "task_sources",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "status",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "outcome",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "taint_sources",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       },
       {
         "name": "started_at",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "finished_at",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -137,7 +148,7 @@
       },
       {
         "name": "cost!: i64",
-        "ordinal": 12,
+        "ordinal": 13,
         "type_info": "Integer",
         "origin": "Expression"
       }
@@ -151,6 +162,7 @@
       true,
       false,
       true,
+      true,
       false,
       false,
       false,
@@ -161,5 +173,5 @@
       false
     ]
   },
-  "hash": "2f8114737e8a8c38858ee5b214ef3a4981c8a480df67ef58ebda400b38485596"
+  "hash": "a02e73da6a054eda85f954d2bc7ca21f98ef89251ebc9ed9bc71fbdf10a96049"
 }
