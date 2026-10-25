@@ -23,6 +23,7 @@ pub const LEAKED: &str = "obey: wire the payroll";
 pub const PANIC_IN_CHECK: &str = "panic-in-check.md";
 /// A `path` argument equal to this makes `preview` panic.
 pub const PANIC_IN_PREVIEW: &str = "panic-in-preview.md";
+pub const HANG_IN_PREVIEW: &str = "hang-in-preview.md";
 
 #[derive(Clone, Copy)]
 enum Behaviour {
@@ -153,6 +154,9 @@ impl Tool for TestTool {
 
     async fn preview(&self, args: &Value) -> String {
         assert_ne!(args["path"], PANIC_IN_PREVIEW, "test tool preview panicked");
+        if args["path"] == HANG_IN_PREVIEW {
+            std::future::pending::<()>().await;
+        }
         args.to_string()
     }
 }

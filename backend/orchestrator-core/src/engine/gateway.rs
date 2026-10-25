@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use crate::agents::{AgentSpec, Role, Slug};
 use crate::ids::{ApprovalId, RunId, ToolCallId};
@@ -93,13 +94,27 @@ impl Callable {
 }
 
 impl Checked {
-    async fn preview(&self, args: &Value) -> String {
+    /// Falls back to the arguments when the preview panics, outlasts the tool's timeout or the
+    /// task is cancelled, so a card never waits on tool code.
+    async fn preview(&self, args: &Value, cancel: &CancellationToken) -> String {
         match self {
             Checked::Tool(tool, _) => {
-                let (tool, owned) = (Arc::clone(tool), args.clone());
-                tokio::spawn(async move { tool.preview(&owned).await })
-                    .await
-                    .unwrap_or_else(|_| args_preview(args))
+                let (timeout, owned) = (tool.spec().timeout, args.clone());
+                let tool = Arc::clone(tool);
+                let handle = tokio::spawn(async move { tool.preview(&owned).await });
+                let abort = handle.abort_handle();
+                tokio::select! {
+                    biased;
+                    joined = handle => joined.unwrap_or_else(|_| args_preview(args)),
+                    () = cancel.cancelled() => {
+                        abort.abort();
+                        args_preview(args)
+                    }
+                    () = sleep_or_forever(timeout) => {
+                        abort.abort();
+                        args_preview(args)
+                    }
+                }
             }
             Checked::Delegate(_) | Checked::Plan(_) => args_preview(args),
         }
@@ -272,7 +287,7 @@ async fn ask_then_run(
     action: &Action,
     reasons: &[Rule],
 ) -> Result<(Ended, bool), StoreError> {
-    let preview = checked.preview(args).await;
+    let preview = checked.preview(args, &ctx.cancel).await;
     Ok(
         match ask(inner, ctx, call_id, action, preview, reasons).await? {
             Waited::Answered(Answer::Approve { .. }) => run(inner, ctx, call_id, checked).await?,
@@ -421,6 +436,8 @@ async fn ask(
         outcome,
         note,
     };
+    // If this emit fails, the waiter entry is already gone and the row stays `pending` until
+    // the next boot's recovery expires it; an answer meanwhile gets 409.
     inner.emit(ctx.at, resolved).await?;
     Ok(waited)
 }

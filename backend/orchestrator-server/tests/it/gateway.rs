@@ -12,7 +12,7 @@ use orchestrator_server::sqlite::SqliteStore;
 use sqlx::SqlitePool;
 
 use crate::recording::Recording;
-use crate::tools::{LEAKED, PANIC_IN_CHECK, PANIC_IN_PREVIEW};
+use crate::tools::{HANG_IN_PREVIEW, LEAKED, PANIC_IN_CHECK, PANIC_IN_PREVIEW};
 use crate::{
     App, Config, app, app_with, app_with_llm, events_until_finished, request, test_config, wait_for,
 };
@@ -213,6 +213,22 @@ async fn a_panic_in_preview_or_check_ends_only_that_call(pool: SqlitePool) {
     let scenario = format!(r#"test:call:file_write:{{"path":"{PANIC_IN_CHECK}"}}"#);
     let events = run_to_end(&app, &scenario).await;
     assert_eq!(finished_status(&events), CallStatus::InvalidArgs);
+    assert!(completed(&events));
+}
+
+/// A preview that never returns falls back to the arguments at the tool's timeout, so the
+/// card still appears.
+#[sqlx::test]
+async fn a_hanging_preview_still_shows_the_card(pool: SqlitePool) {
+    let app = app(pool).await;
+    answer_first_approval(&app.store, &app.engine, Answer::Approve { note: None });
+    let scenario = format!(r#"test:call:file_write:{{"path":"{HANG_IN_PREVIEW}"}}"#);
+    let events = run_to_end(&app, &scenario).await;
+    let preview = events.iter().find_map(|e| match e {
+        RunEvent::ApprovalRequested { preview, .. } => Some(preview.clone()),
+        _ => None,
+    });
+    assert!(preview.is_some_and(|p| p.contains(HANG_IN_PREVIEW)));
     assert!(completed(&events));
 }
 
