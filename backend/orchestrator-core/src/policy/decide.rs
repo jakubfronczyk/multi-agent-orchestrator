@@ -153,6 +153,8 @@ mod tests {
             target,
         };
         let taint = if tainted { vec![inbox()] } else { vec![] };
+        // Field-exhaustive, no `..`: a new input to the verdict, such as a team, fails to compile
+        // here until every row above is decided for it.
         decide(&Facts {
             own,
             effect,

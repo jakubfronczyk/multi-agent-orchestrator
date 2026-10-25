@@ -40,6 +40,7 @@ mod seeded;
 mod taint;
 mod team_runs;
 mod teams;
+mod teams_safety;
 mod tools;
 mod uploads;
 mod xai;
