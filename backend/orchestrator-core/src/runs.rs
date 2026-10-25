@@ -22,7 +22,11 @@ pub enum RunEvent {
         /// The `delegate` call that started this run; set on delegated runs only.
         #[serde(default)]
         parent_call_id: Option<ToolCallId>,
+        /// Plain text; when `task_sources` is set the model receives it wrapped as data.
         task: String,
+        /// The task's taint when this run was delegated; empty for a clean task or a root run.
+        #[serde(default)]
+        task_sources: Vec<TaintSource>,
         title: Option<String>,
         /// Set on the root run only.
         budget: Option<Micros>,
@@ -104,7 +108,11 @@ pub struct Usage {
 #[ts(export)]
 pub struct Custody {
     pub agent_path: Vec<Slug>,
+    /// The calling run's task as plain text.
     pub parent_task: String,
+    /// What `parent_task` carried from outside when it was delegated; empty when clean.
+    #[serde(default)]
+    pub parent_task_sources: Vec<TaintSource>,
     pub rules: Vec<Rule>,
     pub taint_sources: Vec<TaintSource>,
 }

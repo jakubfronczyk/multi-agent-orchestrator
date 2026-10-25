@@ -55,7 +55,10 @@ pub struct RunView {
     pub parent_call_id: Option<ToolCallId>,
     pub agent_id: AgentId,
     pub title: Option<String>,
+    /// Plain text, never the model's wrapped form.
     pub task: String,
+    /// The taint the task carried when this run was delegated; empty when clean.
+    pub task_sources: Vec<TaintSource>,
     pub status: RunStatus,
     pub outcome: Option<RunOutcome>,
     pub started_at: DateTime<Utc>,
@@ -230,7 +233,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
     let last_event_id = events::last_id(&mut *tx).await?;
 
     let run_rows = sqlx::query!(
-        r#"SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.title, r.task, r.status, r.outcome,
+        r#"SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.title, r.task, r.task_sources, r.status, r.outcome,
                   r.taint_sources, r.started_at, r.finished_at,
                   (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e
                     WHERE e.root_run_id = ?1 AND e.run_id = r.id AND e.type = ?2) AS "cost!: i64"
@@ -282,6 +285,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
                 agent_id: from_text(&row.agent_id).map_err(corrupt)?,
                 title: row.title,
                 task: row.task,
+                task_sources: serde_json::from_str(&row.task_sources).map_err(corrupt)?,
                 status: from_text(&row.status).map_err(corrupt)?,
                 outcome: json_opt(row.outcome.as_deref())?,
                 started_at: parse_timestamp(&row.started_at).map_err(corrupt)?,

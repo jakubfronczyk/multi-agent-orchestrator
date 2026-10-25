@@ -6,4 +6,12 @@ import type { TaintSource } from "./TaintSource";
 /**
  * What an approval shows about how its call came to be.
  */
-export type Custody = { agent_path: Array<Slug>, parent_task: string, rules: Array<Rule>, taint_sources: Array<TaintSource>, };
+export type Custody = { agent_path: Array<Slug>, 
+/**
+ * The calling run's task as plain text.
+ */
+parent_task: string, 
+/**
+ * What `parent_task` carried from outside when it was delegated; empty when clean.
+ */
+parent_task_sources: Array<TaintSource>, rules: Array<Rule>, taint_sources: Array<TaintSource>, };

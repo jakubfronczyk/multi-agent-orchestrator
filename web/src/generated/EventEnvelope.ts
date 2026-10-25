@@ -22,7 +22,15 @@ export type EventEnvelope = { id: EventId, root_run_id: RunId, run_id: RunId, ts
 /**
  * The `delegate` call that started this run; set on delegated runs only.
  */
-parent_call_id: ToolCallId | null, task: string, title: string | null, 
+parent_call_id: ToolCallId | null, 
+/**
+ * Plain text; when `task_sources` is set the model receives it wrapped as data.
+ */
+task: string, 
+/**
+ * The task's taint when this run was delegated; empty for a clean task or a root run.
+ */
+task_sources: Array<TaintSource>, title: string | null, 
 /**
  * Set on the root run only.
  */

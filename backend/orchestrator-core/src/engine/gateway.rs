@@ -322,6 +322,7 @@ async fn ask(
     let custody = Custody {
         agent_path: ctx.agent_path.clone(),
         parent_task: ctx.task_text.clone(),
+        parent_task_sources: ctx.task_sources.clone(),
         rules: reasons.to_vec(),
         taint_sources: ctx.task.taint_sources(),
     };

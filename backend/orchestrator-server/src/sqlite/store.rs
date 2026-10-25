@@ -113,9 +113,11 @@ async fn project(
             parent_run_id,
             parent_call_id,
             task,
+            task_sources,
             title,
             budget: _,
         } => {
+            let task_sources = json(task_sources)?;
             let root = text(&at.root_run_id)?;
             let agent = text(agent_id)?;
             let parent = parent_run_id.as_ref().map(text).transpose()?;
@@ -123,8 +125,8 @@ async fn project(
             let status = text(&RunStatus::Running)?;
             exactly_one(
                 sqlx::query!(
-                    "INSERT INTO runs (id, root_run_id, parent_run_id, parent_call_id, agent_id, title, task, status, started_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO runs (id, root_run_id, parent_run_id, parent_call_id, agent_id, title, task, task_sources, status, started_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     run_id,
                     root,
                     parent,
@@ -132,6 +134,7 @@ async fn project(
                     agent,
                     title,
                     task,
+                    task_sources,
                     status,
                     ts
                 )
@@ -362,6 +365,7 @@ mod tests {
             parent_run_id: None,
             parent_call_id: None,
             task: "t".to_string(),
+            task_sources: Vec::new(),
             title: None,
             budget: None,
         };

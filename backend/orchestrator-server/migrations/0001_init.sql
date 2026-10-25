@@ -40,7 +40,8 @@ CREATE TABLE runs (
     parent_call_id TEXT REFERENCES tool_calls (id), -- the delegate call that started it
     agent_id      TEXT NOT NULL REFERENCES agents (id),
     title         TEXT,
-    task          TEXT NOT NULL,                -- the task text
+    task          TEXT NOT NULL,                -- the task text, plain
+    task_sources  TEXT NOT NULL DEFAULT '[]',   -- JSON, the taint a delegated task carried
     status        TEXT NOT NULL,                -- RunStatus
     outcome       TEXT,                         -- JSON RunOutcome once finished
     taint_sources TEXT,                         -- JSON, root run only

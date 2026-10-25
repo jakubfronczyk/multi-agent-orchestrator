@@ -517,6 +517,29 @@ async fn listing_a_folder_with_an_untrusted_file_taints_with_that_file(pool: Sql
     assert!(tainted(&data).is_empty());
 }
 
+/// The `<untrusted_data>` wrapper is for the model only: no API body may carry it, whatever
+/// the endpoint, so one sweep covers every way it could leak.
+async fn assert_no_wrapper_in_api(base: &str, root: RunId) {
+    for path in [
+        "/api/runs".to_string(),
+        format!("/api/runs/{root}"),
+        "/api/approvals".to_string(),
+        "/api/tool-calls".to_string(),
+        format!("/api/drill/{root}/report"),
+    ] {
+        let body = reqwest::get(format!("{base}{path}"))
+            .await
+            .expect("get")
+            .text()
+            .await
+            .expect("body");
+        assert!(
+            !body.contains("<untrusted_data"),
+            "{path} leaks the wrapper: {body}"
+        );
+    }
+}
+
 async fn get_json(base: &str, path: &str) -> (u16, serde_json::Value) {
     let response = reqwest::get(format!("{base}{path}")).await.expect("get");
     let status = response.status().as_u16();
@@ -534,7 +557,7 @@ async fn the_read_views_show_what_the_real_tools_did(pool: SqlitePool) {
         }
         _ => Answer::Approve { note: None },
     });
-    run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+    let (s1_root, _) = run_scenario(&seeded, "s1", "Check access request AR-1042").await;
     run_as(
         &seeded,
         "reader",
@@ -596,6 +619,7 @@ async fn the_read_views_show_what_the_real_tools_did(pool: SqlitePool) {
     assert_eq!(status, 422);
     assert_eq!(escape["error"]["field"], "path");
     assert_eq!(get_json(&base, "/api/files?path=missing.md").await.0, 404);
+    assert_no_wrapper_in_api(&base, s1_root).await;
 }
 
 /// `/drill` over HTTP on the real tools: the report lists all four exits in order, with the
@@ -660,6 +684,7 @@ async fn the_drill_report_lists_every_exit_and_who_stopped_it(pool: SqlitePool) 
             .0,
         404
     );
+    assert_no_wrapper_in_api(&base, root).await;
 }
 
 /// The Lead never touches outside content, stored notes included: across S1 every request it
@@ -800,4 +825,50 @@ async fn the_launder_scenario_needs_s1_first(pool: SqlitePool) {
 
     run_scenario(&seeded, "s1", "Check access request AR-1042").await;
     assert_eq!(start().await.status(), 202);
+}
+
+/// A child delegated after taint gets its task wrapped as data, but only in what the model
+/// reads: the run and the card keep the plain text and name the sources beside it.
+#[sqlx::test]
+async fn a_tainted_delegation_is_wrapped_for_the_model_only(pool: SqlitePool) {
+    let recording = Arc::new(crate::recording::Recording::slowing("none"));
+    let seeded = seeded_with(pool, recording.clone()).await;
+    answer_approvals(&seeded, |_| Answer::Deny { note: None });
+    let (root, events) = run_scenario(&seeded, "drill", "Check the inbox.").await;
+    let note = TaintSource::Inbox {
+        message_id: "vendor-note".to_string(),
+    };
+
+    let messenger_input = recording
+        .requests()
+        .into_iter()
+        .find(|r| r.script.agent.as_str() == "messenger")
+        .and_then(|r| match r.transcript.first() {
+            Some(orchestrator_core::llm::Item::User { text }) => Some(text.clone()),
+            _ => None,
+        })
+        .expect("the Messenger's task");
+    assert!(messenger_input.starts_with("<untrusted_data source=\"inbox:vendor-note\">"));
+
+    let detail = orchestrator_server::sqlite::runs::detail(&seeded.pool, root)
+        .await
+        .expect("read")
+        .expect("task");
+    let messenger = detail
+        .runs
+        .iter()
+        .find(|run| run.task.contains("payroll-sync@vendor-example.test"))
+        .expect("the Messenger's run");
+    assert!(!messenger.task.contains("<untrusted_data"));
+    assert_eq!(messenger.task_sources, std::slice::from_ref(&note));
+    assert!(
+        detail.runs[0].task_sources.is_empty(),
+        "the root task is the user's"
+    );
+
+    let RunEvent::ApprovalRequested { custody, .. } = cards(&events)[1] else {
+        unreachable!()
+    };
+    assert!(!custody.parent_task.contains("<untrusted_data"));
+    assert_eq!(custody.parent_task_sources, std::slice::from_ref(&note));
 }

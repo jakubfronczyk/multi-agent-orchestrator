@@ -191,11 +191,8 @@ pub(super) async fn delegate(
         args.context.as_deref(),
         args.expected_output.as_deref(),
     );
-    // Rule 5: once the task is tainted, the child receives its task as data.
-    let text = match tainted_label(ctx) {
-        Some(source) => prompts::untrusted(&source, &text),
-        None => text,
-    };
+    // Rule 5: once the task is tainted, the child receives its task as data; see `run_loop`.
+    let task_sources = ctx.task.taint_sources();
     let child = RunRef {
         root_run_id: ctx.at.root_run_id,
         run_id: RunId::new(),
@@ -205,6 +202,7 @@ pub(super) async fn delegate(
         parent_run_id: Some(ctx.at.run_id),
         parent_call_id: Some(call_id),
         task: text.clone(),
+        task_sources: task_sources.clone(),
         title: None,
         budget: None,
     };
@@ -216,6 +214,7 @@ pub(super) async fn delegate(
         at: child,
         agent: Arc::clone(&target),
         task_text: text,
+        task_sources,
         scenario: ctx.scenario.clone(),
         task: Arc::clone(&ctx.task),
         depth: ctx.depth + 1,

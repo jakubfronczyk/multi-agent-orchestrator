@@ -60,6 +60,7 @@ async fn a_crashed_task_is_interrupted_child_first_and_recovery_runs_once(pool: 
                 parent_run_id: None,
                 parent_call_id: None,
                 task: "t".to_string(),
+                task_sources: Vec::new(),
                 title: None,
                 budget: None,
             },
@@ -73,6 +74,7 @@ async fn a_crashed_task_is_interrupted_child_first_and_recovery_runs_once(pool: 
                 parent_run_id: Some(root),
                 parent_call_id: Some(delegate),
                 task: "step".to_string(),
+                task_sources: Vec::new(),
                 title: None,
                 budget: None,
             },
@@ -87,6 +89,7 @@ async fn a_crashed_task_is_interrupted_child_first_and_recovery_runs_once(pool: 
                 custody: Custody {
                     agent_path: vec![Slug::new("worker").expect("slug")],
                     parent_task: "t".to_string(),
+                    parent_task_sources: Vec::new(),
                     rules: Vec::new(),
                     taint_sources: Vec::new(),
                 },

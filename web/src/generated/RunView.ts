@@ -4,10 +4,19 @@ import type { Micros } from "./Micros";
 import type { RunId } from "./RunId";
 import type { RunOutcome } from "./RunOutcome";
 import type { RunStatus } from "./RunStatus";
+import type { TaintSource } from "./TaintSource";
 import type { ToolCallId } from "./ToolCallId";
 
 export type RunView = { id: RunId, parent_run_id: RunId | null, 
 /**
  * The `delegate` call that started this run, so a running child nests under its call.
  */
-parent_call_id: ToolCallId | null, agent_id: AgentId, title: string | null, task: string, status: RunStatus, outcome: RunOutcome | null, started_at: string, finished_at: string | null, cost_micros: Micros, };
+parent_call_id: ToolCallId | null, agent_id: AgentId, title: string | null, 
+/**
+ * Plain text, never the model's wrapped form.
+ */
+task: string, 
+/**
+ * The taint the task carried when this run was delegated; empty when clean.
+ */
+task_sources: Array<TaintSource>, status: RunStatus, outcome: RunOutcome | null, started_at: string, finished_at: string | null, cost_micros: Micros, };

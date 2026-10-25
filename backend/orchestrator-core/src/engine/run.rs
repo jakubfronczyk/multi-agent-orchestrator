@@ -10,18 +10,21 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agents::{AgentSpec, Slug};
 use crate::llm::{CompletionRequest, CompletionResponse, Item, LlmError, ScriptKey, ToolChoice};
+use crate::policy::TaintSource;
 use crate::runs::{FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, StoreError};
 
-use super::{Inner, Task, gateway, prompts};
+use super::{Inner, Task, envelope, gateway, prompts};
 
 const MAX_PARALLEL_CALLS: usize = 4;
 
 pub(super) struct RunCtx {
     pub at: RunRef,
     pub agent: Arc<AgentSpec>,
-    /// The task text this run was given: the user's for a root, the caller's for a child.
+    /// The task text this run was given, plain: the user's for a root, the caller's for a child.
     pub task_text: String,
+    /// The task's taint when this run was delegated; set means the model gets `task_text` as data.
+    pub task_sources: Vec<TaintSource>,
     pub scenario: Option<String>,
     pub task: Arc<Task>,
     /// 0 for a root run, one more for each delegation.
@@ -61,9 +64,13 @@ async fn run_agent(inner: Arc<Inner>, ctx: RunCtx) -> RunOutcome {
 }
 
 async fn run_loop(inner: &Arc<Inner>, ctx: &RunCtx) -> Result<RunOutcome, StoreError> {
-    let mut transcript = vec![Item::User {
-        text: ctx.task_text.clone(),
-    }];
+    // Rule 5: the wrapper exists only in what the model reads; storage and the API keep plain text.
+    let text = if ctx.task_sources.is_empty() {
+        ctx.task_text.clone()
+    } else {
+        prompts::untrusted(&envelope::source_label(&ctx.task_sources), &ctx.task_text)
+    };
+    let mut transcript = vec![Item::User { text }];
     let offered = gateway::offered_specs(inner, ctx);
     let instructions = prompts::instructions(&ctx.agent, ctx.caller.as_deref());
     let mut step = 0;

@@ -282,6 +282,7 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
         parent_run_id: None,
         parent_call_id: None,
         task: "t".to_string(),
+        task_sources: Vec::new(),
         title: None,
         budget: None,
     };
