@@ -13,6 +13,8 @@ import type { Turn } from "@/generated/Turn"
  */
 export interface ThreadState {
   rootRunId: string
+  /** The task's team; fixed for the task's life. */
+  teamId: string
   runs: RunView[]
   turns: Turn[]
   calls: ToolCallView[]
@@ -24,6 +26,7 @@ export interface ThreadState {
 export function initThread(detail: RunDetail): ThreadState {
   return {
     rootRunId: detail.root_run_id,
+    teamId: detail.team_id,
     runs: detail.runs,
     turns: detail.turns,
     calls: detail.tool_calls,
@@ -154,6 +157,7 @@ export function reduceThread(state: ThreadState, event: EventEnvelope): ThreadSt
 export function asDetail(state: ThreadState): RunDetail {
   return {
     root_run_id: state.rootRunId,
+    team_id: state.teamId,
     runs: state.runs,
     turns: state.turns,
     tool_calls: state.calls,
