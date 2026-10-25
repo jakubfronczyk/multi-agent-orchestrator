@@ -138,6 +138,8 @@ pub trait Tool: Send + Sync {
     fn spec(&self) -> &ToolSpec;
     /// Parses and validates the arguments without I/O, describing what the call would do.
     fn check(&self, args: &Value) -> Result<Action, ToolError>;
+    /// Gets exactly the JSON `check` accepted and the approval card showed, and must parse it
+    /// with `parse_args` as `check` did, so what runs is what was decided.
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError>;
 
     /// What the approval card shows: the arguments, unless the tool renders something clearer.

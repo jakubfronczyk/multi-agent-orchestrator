@@ -15,7 +15,8 @@ use crate::policy::{Decision, Rule, TaintSource, Trust, decide};
 use crate::runs::{Answer, ApprovalOutcome, CallStatus, Custody, RunEvent};
 use crate::store::StoreError;
 use crate::tools::{
-    Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, args_preview,
+    Action, PlanStep, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec,
+    args_preview,
 };
 
 use super::approvals::Waited;
@@ -63,29 +64,44 @@ enum Callable {
     Plan,
 }
 
+/// A call whose arguments passed `check`; it runs from what was checked, so the native tools
+/// never parse or validate again. A server tool gets the same JSON its `check` accepted.
+enum Checked {
+    Tool(Arc<dyn Tool>, Value),
+    Delegate(native::DelegateArgs),
+    Plan(Vec<PlanStep>),
+}
+
 impl Callable {
-    async fn preview(&self, args: &Value) -> String {
+    fn check(self, args: &Value, agent: &AgentSpec) -> Result<(Action, Checked), ToolError> {
         match self {
             Callable::Tool(tool) => {
+                let action =
+                    catch_unwind(AssertUnwindSafe(|| tool.check(args))).unwrap_or_else(|_| {
+                        Err(ToolError::InvalidArgs(
+                            "the tool could not check these arguments".to_string(),
+                        ))
+                    })?;
+                Ok((action, Checked::Tool(tool, args.clone())))
+            }
+            Callable::Delegate => native::check_delegate(args, agent.delegate_targets())
+                .map(|(action, args)| (action, Checked::Delegate(args))),
+            Callable::Plan => native::check_plan(args, agent.delegate_targets())
+                .map(|(action, steps)| (action, Checked::Plan(steps))),
+        }
+    }
+}
+
+impl Checked {
+    async fn preview(&self, args: &Value) -> String {
+        match self {
+            Checked::Tool(tool, _) => {
                 let (tool, owned) = (Arc::clone(tool), args.clone());
                 tokio::spawn(async move { tool.preview(&owned).await })
                     .await
                     .unwrap_or_else(|_| args_preview(args))
             }
-            Callable::Delegate | Callable::Plan => args_preview(args),
-        }
-    }
-
-    fn check(&self, args: &Value, agent: &AgentSpec) -> Result<Action, ToolError> {
-        match self {
-            Callable::Tool(tool) => catch_unwind(AssertUnwindSafe(|| tool.check(args)))
-                .unwrap_or_else(|_| {
-                    Err(ToolError::InvalidArgs(
-                        "the tool could not check these arguments".to_string(),
-                    ))
-                }),
-            Callable::Delegate => native::check_delegate(args, agent.delegate_targets()),
-            Callable::Plan => native::check_plan(args, agent.delegate_targets()),
+            Checked::Delegate(_) | Checked::Plan(_) => args_preview(args),
         }
     }
 }
@@ -158,10 +174,10 @@ pub(super) async fn execute(
     let checked = parse_json(&call.arguments).and_then(|args| {
         callable
             .check(&args, &ctx.agent)
-            .map(|action| (args, action))
+            .map(|(action, checked)| (args, action, checked))
             .map_err(|e| e.to_string())
     });
-    let (args, action) = match checked {
+    let (args, action, checked) = match checked {
         Ok(checked) => checked,
         Err(message) => {
             return refuse_early(
@@ -196,12 +212,9 @@ pub(super) async fn execute(
             (Ended::failed(CallStatus::Refused, &message, None), false)
         }
         Decision::Ask => {
-            ask_then_run(inner, ctx, call_id, callable, &args, &action, &reasons).await?
+            ask_then_run(inner, ctx, call_id, checked, &args, &action, &reasons).await?
         }
-        Decision::Allow => (
-            run(inner, ctx, call_id, callable, args.clone()).await?,
-            true,
-        ),
+        Decision::Allow => (run(inner, ctx, call_id, checked).await?, true),
     };
 
     // Rule 4: taint is committed before any model sees the result, whatever the outcome.
@@ -254,18 +267,17 @@ async fn ask_then_run(
     inner: &Arc<Inner>,
     ctx: &RunCtx,
     call_id: ToolCallId,
-    callable: Callable,
+    checked: Checked,
     args: &Value,
     action: &Action,
     reasons: &[Rule],
 ) -> Result<(Ended, bool), StoreError> {
-    let preview = callable.preview(args).await;
+    let preview = checked.preview(args).await;
     Ok(
         match ask(inner, ctx, call_id, action, preview, reasons).await? {
-            Waited::Answered(Answer::Approve { .. }) => (
-                run(inner, ctx, call_id, callable, args.clone()).await?,
-                true,
-            ),
+            Waited::Answered(Answer::Approve { .. }) => {
+                (run(inner, ctx, call_id, checked).await?, true)
+            }
             Waited::Answered(Answer::Deny { note }) => (
                 Ended::failed(CallStatus::DeniedHuman, "a person denied this call", note),
                 false,
@@ -423,16 +435,15 @@ async fn run(
     inner: &Arc<Inner>,
     ctx: &RunCtx,
     call_id: ToolCallId,
-    callable: Callable,
-    args: Value,
+    checked: Checked,
 ) -> Result<Ended, StoreError> {
     inner
         .emit(ctx.at, RunEvent::ToolCallStarted { call_id })
         .await?;
-    match callable {
-        Callable::Tool(tool) => Ok(run_tool(ctx, tool, args).await),
-        Callable::Delegate => native::delegate(inner, ctx, call_id, args).await,
-        Callable::Plan => native::plan(inner, ctx, args).await,
+    match checked {
+        Checked::Tool(tool, args) => Ok(run_tool(ctx, tool, args).await),
+        Checked::Delegate(args) => native::delegate(inner, ctx, call_id, args).await,
+        Checked::Plan(steps) => native::plan(inner, ctx, steps).await,
     }
 }
 

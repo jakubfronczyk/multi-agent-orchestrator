@@ -27,9 +27,10 @@ const PLAN_STEPS: usize = 8;
 const GOAL_CHARS: usize = 300;
 const PLAN_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// Checked delegation arguments; `delegate` runs from these, never from the raw JSON.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-struct DelegateArgs {
+pub(super) struct DelegateArgs {
     /// The teammate to hand this step to.
     agent: String,
     /// What the teammate should do. It sees nothing else of your conversation.
@@ -80,7 +81,10 @@ pub fn plan_spec() -> ToolSpec {
     }
 }
 
-pub(super) fn check_delegate(args: &Value, targets: &[Slug]) -> Result<Action, ToolError> {
+pub(super) fn check_delegate(
+    args: &Value,
+    targets: &[Slug],
+) -> Result<(Action, DelegateArgs), ToolError> {
     let args = parse_args::<DelegateArgs>(args)?;
     let slug = target(&args.agent, targets)?;
     within("task", &args.task, 1, TASK_CHARS)?;
@@ -96,13 +100,17 @@ pub(super) fn check_delegate(args: &Value, targets: &[Slug]) -> Result<Action, T
         0,
         EXPECTED_OUTPUT_CHARS,
     )?;
-    Ok(Action {
+    let action = Action {
         verb: "delegate".to_string(),
         target: Target::Agent { slug },
-    })
+    };
+    Ok((action, args))
 }
 
-pub(super) fn check_plan(args: &Value, targets: &[Slug]) -> Result<Action, ToolError> {
+pub(super) fn check_plan(
+    args: &Value,
+    targets: &[Slug],
+) -> Result<(Action, Vec<PlanStep>), ToolError> {
     let args = parse_args::<PlanArgs>(args)?;
     if args.steps.is_empty() || args.steps.len() > PLAN_STEPS {
         return Err(ToolError::InvalidArgs(format!(
@@ -120,26 +128,20 @@ pub(super) fn check_plan(args: &Value, targets: &[Slug]) -> Result<Action, ToolE
             goal: step.goal,
         });
     }
-    Ok(Action {
+    let action = Action {
         verb: "plan".to_string(),
-        target: Target::Plan { steps },
-    })
+        target: Target::Plan {
+            steps: steps.clone(),
+        },
+    };
+    Ok((action, steps))
 }
 
-pub(super) async fn plan(inner: &Inner, ctx: &RunCtx, args: Value) -> Result<Ended, StoreError> {
-    let steps = match check_plan(&args, ctx.agent.delegate_targets()) {
-        Ok(Action {
-            target: Target::Plan { steps },
-            ..
-        }) => steps,
-        Ok(_) | Err(_) => {
-            return Ok(Ended::failed(
-                CallStatus::InvalidArgs,
-                "the plan is not valid",
-                None,
-            ));
-        }
-    };
+pub(super) async fn plan(
+    inner: &Inner,
+    ctx: &RunCtx,
+    steps: Vec<PlanStep>,
+) -> Result<Ended, StoreError> {
     let count = steps.len();
     inner.emit(ctx.at, RunEvent::PlanRecorded { steps }).await?;
     Ok(Ended::Ok(ToolOutput {
@@ -154,15 +156,8 @@ pub(super) async fn delegate(
     inner: &Arc<Inner>,
     ctx: &RunCtx,
     call_id: ToolCallId,
-    args: Value,
+    args: DelegateArgs,
 ) -> Result<Ended, StoreError> {
-    let Ok(args) = parse_args::<DelegateArgs>(&args) else {
-        return Ok(Ended::failed(
-            CallStatus::InvalidArgs,
-            "the delegation is not valid",
-            None,
-        ));
-    };
     let Some(target) = ctx.task.teammate(&args.agent) else {
         return Ok(Ended::failed(
             CallStatus::Failed,
