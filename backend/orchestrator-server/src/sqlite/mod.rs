@@ -16,6 +16,7 @@ pub mod read;
 pub mod runs;
 mod store;
 pub(crate) mod text;
+pub mod tool_calls;
 
 pub use store::SqliteStore;
 
