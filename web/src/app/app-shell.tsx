@@ -4,6 +4,7 @@ import { Outlet, useNavigate } from "react-router"
 import { Menu, Plus } from "lucide-react"
 import { agentsQuery } from "@/api/agents"
 import { toolsQuery } from "@/api/meta"
+import { HowThisHappenedSheet } from "@/components/how-this-happened"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { isMac } from "@/lib/platform"
@@ -75,6 +76,7 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
+      <HowThisHappenedSheet />
     </div>
   )
 }
