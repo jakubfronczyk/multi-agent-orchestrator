@@ -6,4 +6,5 @@ mod scripts;
 mod xai;
 
 pub use scripted::ScriptedProvider;
+pub use scripts::S1_DECISION;
 pub use xai::XaiProvider;

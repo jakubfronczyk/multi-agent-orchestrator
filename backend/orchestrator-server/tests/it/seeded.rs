@@ -769,3 +769,35 @@ async fn indexing_s1s_decisions_taints_the_new_task_with_the_file(pool: SqlitePo
             .expect("row");
     assert_eq!(trust, "untrusted", "the label follows the data again");
 }
+
+/// `launder` needs S1's decision on disk: before S1 the start is a 409, after it a 202.
+#[sqlx::test]
+async fn the_launder_scenario_needs_s1_first(pool: SqlitePool) {
+    let seeded = seeded(pool).await;
+    answer_approvals(&seeded, |_| Answer::Approve { note: None });
+    let base = crate::serve_state(AppState {
+        pool: seeded.pool.clone(),
+        store: seeded.store.clone(),
+        engine: seeded.engine.clone(),
+        provider: ActiveProvider::Scripted,
+        workspace: Workspace::new(seeded.temp.workspace(), seeded.pool.clone()),
+    })
+    .await;
+    let start = || async {
+        reqwest::Client::new()
+            .post(format!("{base}/api/runs"))
+            .json(&json!({"task": "Index every decision in decisions/", "scenario": "launder"}))
+            .send()
+            .await
+            .expect("post")
+    };
+
+    let early = start().await;
+    assert_eq!(early.status(), 409);
+    let body: serde_json::Value = early.json().await.expect("json");
+    assert_eq!(body["error"]["code"], "conflict");
+    assert_eq!(body["error"]["message"], "run the s1 scenario first");
+
+    run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+    assert_eq!(start().await.status(), 202);
+}

@@ -13,7 +13,9 @@ use ts_rs::TS;
 use super::AppState;
 use super::error::ApiError;
 use super::json::ApiJson;
+use crate::llm::S1_DECISION;
 use crate::sqlite::runs::{self, RunDetail, RunList, RunReadError};
+use crate::tools::files::EntryKind;
 
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 200;
@@ -44,6 +46,9 @@ pub async fn start(
     State(state): State<AppState>,
     ApiJson(request): ApiJson<StartRunRequest>,
 ) -> Result<(StatusCode, Json<StartRunResponse>), ApiError> {
+    if request.scenario.as_deref() == Some("launder") {
+        require_s1_decision(&state).await?;
+    }
     let run_id = state
         .engine
         .start(StartRequest {
@@ -56,6 +61,18 @@ pub async fn start(
         .await
         .map_err(start_error)?;
     Ok((StatusCode::ACCEPTED, Json(StartRunResponse { run_id })))
+}
+
+/// `launder` indexes the file S1 saves; without it the script would describe a file that is not there.
+async fn require_s1_decision(state: &AppState) -> Result<(), ApiError> {
+    match state.workspace.kind_of(S1_DECISION).await {
+        Ok(Some(EntryKind::File)) => Ok(()),
+        Ok(_) => Err(ApiError::conflict("run the s1 scenario first")),
+        Err(error) => {
+            tracing::error!(%error, "could not check for the s1 decision");
+            Err(ApiError::internal())
+        }
+    }
 }
 
 pub(super) fn start_error(error: StartError) -> ApiError {

@@ -164,7 +164,7 @@ fn s1(agent: &str, step: u32, task: &str) -> Reply {
         ("writer", 0) => tool_call(
             step,
             "file_write",
-            json!({"path": "decisions/AR-1042.md", "content": DECISION}),
+            json!({"path": S1_DECISION, "content": DECISION}),
         ),
         ("writer", _) => message("Saved decisions/AR-1042.md."),
         ("messenger", 0) => match first_address(task) {
@@ -230,6 +230,8 @@ fn clean(agent: &str, step: u32) -> Reply {
     }
 }
 
+/// Where S1 saves its decision; `launder` needs it to exist.
+pub const S1_DECISION: &str = "decisions/AR-1042.md";
 const INDEX: &str = "# Decisions\n\n- AR-1042: approved, read-only Payroll exports for 90 days (decisions/AR-1042.md)\n";
 
 /// Run after S1: the decision S1 saved was written by a tainted task, so it is stored untrusted.
@@ -248,7 +250,7 @@ fn launder(agent: &str, step: u32) -> Reply {
         ),
         ("lead", _) => message("The index of decisions is saved in decisions/index.md."),
         ("reader", 0) => tool_call(step, "file_list", json!({"path": "decisions"})),
-        ("reader", 1) => tool_call(step, "file_read", json!({"path": "decisions/AR-1042.md"})),
+        ("reader", 1) => tool_call(step, "file_read", json!({"path": S1_DECISION})),
         ("reader", _) => message(
             "decisions/ holds one decision: AR-1042, approved, read-only Payroll exports for 90 days.",
         ),
