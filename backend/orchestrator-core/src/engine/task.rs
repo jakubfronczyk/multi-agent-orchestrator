@@ -12,7 +12,7 @@ use crate::policy::{Decision, Effect, Facts, TaintSource};
 use crate::runs::RunEvent;
 use crate::tools::{Action, ToolName};
 
-pub struct Task {
+pub(super) struct Task {
     budget: Micros,
     /// Copied from the config at start; fixed for the task's life.
     allowlist: Vec<String>,
@@ -37,7 +37,7 @@ struct TaskState {
 }
 
 impl Task {
-    pub fn new(
+    pub(super) fn new(
         budget: Micros,
         allowlist: Vec<String>,
         team: Vec<Arc<AgentSpec>>,
@@ -58,14 +58,14 @@ impl Task {
         }
     }
 
-    pub fn teammate(&self, slug: &str) -> Option<Arc<AgentSpec>> {
+    pub(super) fn teammate(&self, slug: &str) -> Option<Arc<AgentSpec>> {
         self.team
             .iter()
             .find(|agent| agent.slug().as_str() == slug)
             .cloned()
     }
 
-    pub fn teammates(&self, slugs: &[Slug]) -> Vec<Arc<AgentSpec>> {
+    pub(super) fn teammates(&self, slugs: &[Slug]) -> Vec<Arc<AgentSpec>> {
         slugs
             .iter()
             .filter_map(|slug| self.teammate(slug.as_str()))
@@ -74,7 +74,7 @@ impl Task {
 
     /// Checks and counts a new run in one locked step, so parallel delegations cannot both
     /// take the last slot.
-    pub fn try_start_run(&self, limit: u32) -> bool {
+    pub(super) fn try_start_run(&self, limit: u32) -> bool {
         let mut state = self.lock();
         if state.runs_started >= limit {
             return false;
@@ -84,7 +84,12 @@ impl Task {
     }
 
     /// The taint is cloned under the lock, so no lock is held while deciding.
-    pub fn facts<'a>(&'a self, own: Decision, effect: Effect, action: &'a Action) -> Facts<'a> {
+    pub(super) fn facts<'a>(
+        &'a self,
+        own: Decision,
+        effect: Effect,
+        action: &'a Action,
+    ) -> Facts<'a> {
         Facts {
             own,
             effect,
@@ -95,21 +100,21 @@ impl Task {
         }
     }
 
-    pub fn draft_only(&self) -> bool {
+    pub(super) fn draft_only(&self) -> bool {
         self.draft_only
     }
 
-    pub fn taint_sources(&self) -> Vec<TaintSource> {
+    pub(super) fn taint_sources(&self) -> Vec<TaintSource> {
         self.lock().taint.clone()
     }
 
-    pub fn is_tainted(&self) -> bool {
+    pub(super) fn is_tainted(&self) -> bool {
         !self.lock().taint.is_empty()
     }
 
     /// Records a source the first time it is seen and says whether it was new, in one locked
     /// step, so parallel calls reading the same source emit `task_tainted` once.
-    pub fn claim_taint(&self, source: &TaintSource) -> bool {
+    pub(super) fn claim_taint(&self, source: &TaintSource) -> bool {
         let mut state = self.lock();
         if state.taint.contains(source) {
             return false;
@@ -119,28 +124,28 @@ impl Task {
     }
 
     /// Same tool, equal arguments (`Value ==`).
-    pub fn is_repeat_of_refused(&self, tool: ToolName, args: &Value) -> bool {
+    pub(super) fn is_repeat_of_refused(&self, tool: ToolName, args: &Value) -> bool {
         self.lock()
             .refused
             .iter()
             .any(|(t, a)| *t == tool && a == args)
     }
 
-    pub fn budget(&self) -> Micros {
+    pub(super) fn budget(&self) -> Micros {
         self.budget
     }
 
-    pub fn spent(&self) -> Micros {
+    pub(super) fn spent(&self) -> Micros {
         self.lock().spent
     }
 
     /// Cancelling it cancels every run in the task.
-    pub fn cancel_token(&self) -> CancellationToken {
+    pub(super) fn cancel_token(&self) -> CancellationToken {
         self.cancel.clone()
     }
 
     /// Every variant is listed, so a new event type fails to compile until its effect is decided.
-    pub fn apply(&self, event: &RunEvent) {
+    pub(super) fn apply(&self, event: &RunEvent) {
         match event {
             RunEvent::LlmResponded { cost, .. } => {
                 let mut state = self.lock();
