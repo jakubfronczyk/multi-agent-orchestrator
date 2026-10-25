@@ -162,17 +162,7 @@ pub(super) async fn execute(
         }
     };
 
-    let own = ctx
-        .agent
-        .tools()
-        .get(&name)
-        .copied()
-        .unwrap_or(Decision::Deny);
-    let (mut decision, mut reasons) = decide(&ctx.task.facts(own, name.effect(), &action));
-    if ctx.task.is_repeat_of_refused(name, &args) {
-        decision = Decision::Deny;
-        reasons.insert(0, Rule::RepeatOfRefused);
-    }
+    let (decision, reasons) = verdict(ctx, name, &args, &action);
     let requested = RunEvent::ToolCallRequested {
         call_id,
         tool: call.name.clone(),
@@ -191,29 +181,7 @@ pub(super) async fn execute(
             (Ended::failed(CallStatus::Refused, &message, None), false)
         }
         Decision::Ask => {
-            let preview = callable.preview(&args).await;
-            match ask(inner, ctx, call_id, &action, preview, &reasons).await? {
-                Waited::Answered(Answer::Approve { .. }) => (
-                    run(inner, ctx, call_id, callable, args.clone()).await?,
-                    true,
-                ),
-                Waited::Answered(Answer::Deny { note }) => (
-                    Ended::failed(CallStatus::DeniedHuman, "a person denied this call", note),
-                    false,
-                ),
-                Waited::Expired => (
-                    Ended::failed(
-                        CallStatus::Expired,
-                        "nobody answered the approval in time",
-                        None,
-                    ),
-                    false,
-                ),
-                Waited::Cancelled => (
-                    Ended::failed(CallStatus::Cancelled, "the task was cancelled", None),
-                    false,
-                ),
-            }
+            ask_then_run(inner, ctx, call_id, callable, &args, &action, &reasons).await?
         }
         Decision::Allow => (
             run(inner, ctx, call_id, callable, args.clone()).await?,
@@ -227,18 +195,7 @@ pub(super) async fn execute(
     } else {
         Vec::new()
     };
-    for source in &sources {
-        if ctx.task.claim_taint(source) {
-            inner
-                .emit(
-                    ctx.at,
-                    RunEvent::TaskTainted {
-                        source: source.clone(),
-                    },
-                )
-                .await?;
-        }
-    }
+    commit_taint(inner, ctx, &sources).await?;
 
     // A draft-only refusal says nothing about the call, so it does not make a later one a repeat.
     let refused_or_denied = matches!(
@@ -259,6 +216,80 @@ pub(super) async fn execute(
     .await?;
     let untrusted = envelope::source_label(&sources);
     Ok(envelope::render(&ended, untrusted.as_deref()))
+}
+
+/// The call's decision and every rule that applied; a repeat of a refused call is denied first.
+fn verdict(ctx: &RunCtx, name: ToolName, args: &Value, action: &Action) -> (Decision, Vec<Rule>) {
+    let own = ctx
+        .agent
+        .tools()
+        .get(&name)
+        .copied()
+        .unwrap_or(Decision::Deny);
+    let (mut decision, mut reasons) = decide(&ctx.task.facts(own, name.effect(), action));
+    if ctx.task.is_repeat_of_refused(name, args) {
+        decision = Decision::Deny;
+        reasons.insert(0, Rule::RepeatOfRefused);
+    }
+    (decision, reasons)
+}
+
+/// Waits for a person, then runs the call if approved. The flag is whether it reached the tool.
+async fn ask_then_run(
+    inner: &Arc<Inner>,
+    ctx: &RunCtx,
+    call_id: ToolCallId,
+    callable: Callable,
+    args: &Value,
+    action: &Action,
+    reasons: &[Rule],
+) -> Result<(Ended, bool), StoreError> {
+    let preview = callable.preview(args).await;
+    Ok(
+        match ask(inner, ctx, call_id, action, preview, reasons).await? {
+            Waited::Answered(Answer::Approve { .. }) => (
+                run(inner, ctx, call_id, callable, args.clone()).await?,
+                true,
+            ),
+            Waited::Answered(Answer::Deny { note }) => (
+                Ended::failed(CallStatus::DeniedHuman, "a person denied this call", note),
+                false,
+            ),
+            Waited::Expired => (
+                Ended::failed(
+                    CallStatus::Expired,
+                    "nobody answered the approval in time",
+                    None,
+                ),
+                false,
+            ),
+            Waited::Cancelled => (
+                Ended::failed(CallStatus::Cancelled, "the task was cancelled", None),
+                false,
+            ),
+        },
+    )
+}
+
+/// Records each source the task has not seen yet as `task_tainted`.
+async fn commit_taint(
+    inner: &Inner,
+    ctx: &RunCtx,
+    sources: &[TaintSource],
+) -> Result<(), StoreError> {
+    for source in sources {
+        if ctx.task.claim_taint(source) {
+            inner
+                .emit(
+                    ctx.at,
+                    RunEvent::TaskTainted {
+                        source: source.clone(),
+                    },
+                )
+                .await?;
+        }
+    }
+    Ok(())
 }
 
 /// A successful call's sources are the ones its result names, untrusted stored data included;
