@@ -12,7 +12,7 @@ import { CommonFields, Field } from "./fields"
 import { inputClass, problemOf, type Problem } from "./form"
 import { ToolRows } from "./tool-rows"
 
-export function AddEditor({ onDone }: { onDone: (slug: string | null) => void }) {
+export function AddEditor({ teamId, onDone }: { teamId: string; onDone: (slug: string | null) => void }) {
   const client = useQueryClient()
   const [preset, setPreset] = useState<Preset | null>(null)
   const [draft, setDraft] = useState<AgentInput | null>(null)
@@ -27,7 +27,7 @@ export function AddEditor({ onDone }: { onDone: (slug: string | null) => void })
     try {
       // A fresh read: a Lead rebuilt from the cache would overwrite an edit saved since.
       const agents = await client.fetchQuery({ ...agentsQuery, staleTime: 0 })
-      const lead = agents.find((agent) => agent.role === "lead")
+      const lead = agents.find((agent) => agent.team_id === teamId && agent.role === "lead")
       if (!lead) throw new Error("the team has no Lead")
       if (!lead.delegate_targets.includes(created.slug)) {
         await replaceAgent(lead.id, { ...inputOf(lead), delegate_targets: [...lead.delegate_targets, created.slug] })
@@ -40,11 +40,13 @@ export function AddEditor({ onDone }: { onDone: (slug: string | null) => void })
 
   const add = useMutation({
     mutationFn: async (input: AgentInput) => {
-      const created = joined ?? (await createAgent(input))
+      const created = joined ?? (await createAgent({ ...input, team_id: teamId }))
       return { created, leadError: reachable || joined ? await linkLead(created) : null }
     },
     onSuccess: async ({ created, leadError }) => {
       await client.invalidateQueries({ queryKey: agentsQuery.queryKey })
+      // A team's agent count changes with it; team writes and agent writes emit no events.
+      await client.invalidateQueries({ queryKey: ["teams"] })
       if (leadError) {
         setJoined(created)
         setWarning(`${created.name} joined the team, but Lead can't hand it work yet: ${leadError}`)

@@ -34,6 +34,8 @@ export function AgentEditor({ agent, team, onRemoved }: { agent: AgentRecord; te
     onSuccess: async () => {
       // The Lead's targets change on the server too; the refetch shows both.
       await client.invalidateQueries({ queryKey: agentsQuery.queryKey })
+      // A team's agent count changes with it; team writes and agent writes emit no events.
+      await client.invalidateQueries({ queryKey: ["teams"] })
       onRemoved()
     },
     onError: (error) => setProblem(problemOf(error)),
