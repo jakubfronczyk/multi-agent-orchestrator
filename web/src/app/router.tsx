@@ -4,6 +4,7 @@ import { FilesPage } from "@/pages/files"
 import { HomePage } from "@/pages/home"
 import { NeedsPage } from "@/pages/needs"
 import { NotesPage } from "@/pages/notes"
+import { SentPage } from "@/pages/sent"
 import { TaskThreadPage } from "@/pages/task-thread"
 import { TasksPage } from "@/pages/tasks"
 import { TeamPage } from "@/pages/team/team-page"
@@ -20,7 +21,7 @@ export const router = createBrowserRouter([
       { path: "/team", element: <TeamPage /> },
       { path: "/notes", element: <NotesPage /> },
       { path: "/files", element: <FilesPage /> },
-      { path: "/sent", element: <Placeholder title="Sent messages" issue="10" /> },
+      { path: "/sent", element: <SentPage /> },
       { path: "/activity", element: <Placeholder title="Activity" issue="11" /> },
       { path: "/drill", element: <Placeholder title="Security drill" issue="12" /> },
       { path: "*", element: <Placeholder title="Page not found" /> },
