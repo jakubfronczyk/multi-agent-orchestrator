@@ -76,6 +76,7 @@ pub(super) fn render(ended: &Ended, untrusted: Option<&str>) -> String {
             status,
             message,
             note,
+            ..
         } => {
             let retryable = status.is_retryable();
             let mut body =

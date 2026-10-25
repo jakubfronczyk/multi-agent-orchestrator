@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-use crate::agents::{Slug, ValidationError};
+use crate::agents::{Role, Slug, ValidationError};
 use crate::ids::{AgentId, RunId};
 use crate::policy::{Effect, LeadAccess, TaintSource, Trust};
 
@@ -74,10 +74,9 @@ impl ToolName {
     pub fn lead(self) -> LeadAccess {
         match self {
             ToolName::Delegate | ToolName::Plan => LeadAccess::Only,
-            // Memory too: a note stored untrusted would carry outside content to the Lead.
-            ToolName::MemoryRead
-            | ToolName::MemorySearch
-            | ToolName::MemoryWrite
+            // An untrusted note is outside content, so the Lead's reads skip it.
+            ToolName::MemoryRead | ToolName::MemorySearch => LeadAccess::TrustedOnly,
+            ToolName::MemoryWrite
             | ToolName::FileList
             | ToolName::FileRead
             | ToolName::FileWrite
@@ -121,6 +120,8 @@ pub struct ToolCtx {
     pub run_id: RunId,
     pub root_run_id: RunId,
     pub agent_id: AgentId,
+    /// The caller's role; a Lead's memory reads return trusted notes only.
+    pub role: Role,
     pub trust: Trust,
 }
 

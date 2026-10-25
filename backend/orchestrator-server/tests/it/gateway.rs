@@ -5,12 +5,17 @@ use std::time::Duration;
 
 use orchestrator_core::engine::{Engine, StartRequest};
 use orchestrator_core::ids::ApprovalId;
-use orchestrator_core::policy::{Decision, Rule};
+use orchestrator_core::policy::{Decision, Rule, TaintSource};
 use orchestrator_core::runs::{Answer, ApprovalOutcome, CallStatus, RunEvent, RunOutcome};
+use orchestrator_core::tools::{MemoryScope, NoteKey};
 use orchestrator_server::sqlite::SqliteStore;
 use sqlx::SqlitePool;
 
-use crate::{App, Config, DEADLINE, app, app_with, events_until_finished, request, test_config};
+use crate::recording::Recording;
+use crate::tools::LEAKED;
+use crate::{
+    App, Config, DEADLINE, app, app_with, app_with_llm, events_until_finished, request, test_config,
+};
 
 fn as_worker(app: &App, scenario: &str) -> StartRequest {
     StartRequest {
@@ -328,5 +333,46 @@ async fn a_second_answer_over_http_is_a_conflict(pool: SqlitePool) {
             .expect("second")
             .status(),
         409
+    );
+}
+
+/// A tool that hands the Lead outside content fails as internal and taints the task; the content
+/// reaches neither the Lead's model nor the log.
+#[sqlx::test]
+async fn a_tainted_result_never_reaches_the_lead(pool: SqlitePool) {
+    let recording = Arc::new(Recording::slowing("none"));
+    let app = app_with_llm(pool, test_config(), recording.clone()).await;
+    let mut rx = app.store.subscribe();
+    let run = app
+        .engine
+        .start(request(r#"test:call:memory_search:{"query":"payroll"}"#))
+        .await
+        .expect("start");
+    let events = events_until_finished(&mut rx, run).await;
+
+    assert_eq!(finished_status(&events), CallStatus::Internal);
+    let tainted: Vec<&TaintSource> = events
+        .iter()
+        .filter_map(|e| match e {
+            RunEvent::TaskTainted { source } => Some(source),
+            _ => None,
+        })
+        .collect();
+    let vendor = TaintSource::Note {
+        scope: MemoryScope::Shared,
+        key: NoteKey::new("vendor").expect("key"),
+    };
+    assert_eq!(tainted, [&vendor], "the withheld result still taints");
+    assert!(!format!("{events:?}").contains(LEAKED));
+    let lead_requests: Vec<_> = recording
+        .requests()
+        .into_iter()
+        .filter(|r| r.script.agent.as_str() == "lead")
+        .collect();
+    assert_eq!(lead_requests.len(), 2, "the call, then the answer after it");
+    assert!(
+        lead_requests
+            .iter()
+            .all(|r| !format!("{r:?}").contains(LEAKED))
     );
 }

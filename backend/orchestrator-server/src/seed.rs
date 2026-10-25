@@ -110,7 +110,7 @@ async fn seed_workspace(pool: &SqlitePool, root: &Path) -> Result<(), SeedError>
 }
 
 /// No agent reads outside content and sends unchecked: Reader reads but cannot send, Messenger
-/// sends but only with approval, and the Lead touches no outside content, stored notes included.
+/// sends but only with approval, and the Lead reads trusted notes only and no other outside content.
 fn team() -> Vec<AgentInput> {
     use Decision::{Allow, Ask, Deny};
     let memory = [
@@ -149,7 +149,12 @@ fn team() -> Vec<AgentInput> {
         "compass",
         "indigo",
     );
-    lead.tools = BTreeMap::from([(ToolName::Delegate, Allow), (ToolName::Plan, Allow)]);
+    lead.tools = BTreeMap::from([
+        (ToolName::Delegate, Allow),
+        (ToolName::Plan, Allow),
+        (ToolName::MemoryRead, Allow),
+        (ToolName::MemorySearch, Allow),
+    ]);
     lead.delegate_targets = vec![
         "reader".to_string(),
         "writer".to_string(),

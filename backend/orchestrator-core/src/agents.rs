@@ -155,7 +155,9 @@ impl AgentSpec {
 
         for (&tool, &decision) in &input.tools {
             let allowed_for_role = match (tool.lead(), input.role) {
-                (LeadAccess::Only, Role::Lead) | (LeadAccess::Forbidden, Role::Specialist) => true,
+                (LeadAccess::Only, Role::Lead)
+                | (LeadAccess::Forbidden, Role::Specialist)
+                | (LeadAccess::TrustedOnly, _) => true,
                 (LeadAccess::Only, Role::Specialist) | (LeadAccess::Forbidden, Role::Lead) => false,
             };
             if !allowed_for_role {
@@ -352,19 +354,20 @@ mod tests {
         lead.tools.insert(ToolName::Plan, Decision::Allow);
         lead.delegate_targets = vec!["reader".to_string()];
         assert_eq!(check(lead.clone()).map(|spec| spec.max_steps()), Ok(12));
-        for memory in [
-            ToolName::MemoryRead,
-            ToolName::MemorySearch,
-            ToolName::MemoryWrite,
-        ] {
+        for memory in [ToolName::MemoryRead, ToolName::MemorySearch] {
             let mut with_memory = lead.clone();
             with_memory.tools.insert(memory, Decision::Allow);
-            assert_eq!(
-                check(with_memory).map(|_| ()).map_err(|e| e.field),
-                Err("tools".to_string()),
-                "the Lead never holds {memory:?}"
-            );
+            assert!(check(with_memory).is_ok(), "the Lead may hold {memory:?}");
         }
+        let mut with_write = lead.clone();
+        with_write
+            .tools
+            .insert(ToolName::MemoryWrite, Decision::Allow);
+        assert_eq!(
+            check(with_write).map(|_| ()).map_err(|e| e.field),
+            Err("tools".to_string()),
+            "the Lead never holds memory_write"
+        );
 
         let mut reader = input(Role::Specialist, "reader");
         reader.tools.insert(ToolName::InboxRead, Decision::Allow);

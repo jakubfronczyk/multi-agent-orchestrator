@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use serde_json::Value;
 
-use crate::agents::{AgentSpec, Slug};
+use crate::agents::{AgentSpec, Role, Slug};
 use crate::ids::{ApprovalId, RunId, ToolCallId};
 use crate::llm::FnCall;
 use crate::policy::{Decision, Rule, TaintSource, Trust, decide};
@@ -35,6 +35,8 @@ pub(super) enum Ended {
         status: CallStatus,
         message: String,
         note: Option<String>,
+        /// Sources of a result withheld from the Lead; they still taint the task.
+        withheld: Vec<TaintSource>,
     },
 }
 
@@ -44,6 +46,7 @@ impl Ended {
             status,
             message: message.to_string(),
             note,
+            withheld: Vec::new(),
         }
     }
 }
@@ -257,13 +260,15 @@ pub(super) async fn execute(
     Ok(envelope::render(&ended, untrusted.as_deref()))
 }
 
-/// A successful call's sources are the ones its result names, untrusted stored data included.
+/// A successful call's sources are the ones its result names, untrusted stored data included;
+/// a result withheld from the Lead keeps its sources.
 /// A failure has no result, so for an outside-reading tool the target names the one source (a
 /// fetched URL, a read message); a failed list names none.
 fn taint_sources(name: ToolName, ended: &Ended, action: &Action) -> Vec<TaintSource> {
     match ended {
         Ended::Ok(output) => output.taint.clone(),
         Ended::Child { .. } => Vec::new(),
+        Ended::Failed { withheld, .. } if !withheld.is_empty() => withheld.clone(),
         Ended::Failed { .. } if !name.taints() => Vec::new(),
         Ended::Failed { .. } => match &action.target {
             Target::Host { url, .. } => vec![TaintSource::Web { url: url.clone() }],
@@ -383,13 +388,14 @@ async fn run_tool(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
         run_id: ctx.at.run_id,
         root_run_id: ctx.at.root_run_id,
         agent_id: ctx.agent.id(),
+        role: ctx.agent.role(),
         trust: if ctx.task.is_tainted() {
             Trust::Untrusted
         } else {
             Trust::Trusted
         },
     };
-    let timeout = tool.spec().timeout;
+    let (name, timeout) = (tool.spec().name, tool.spec().timeout);
     let handle = tokio::spawn(async move { tool.run(&tool_ctx, args).await });
     let abort = handle.abort_handle();
 
@@ -406,6 +412,21 @@ async fn run_tool(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
         }
     };
     match joined {
+        // The Lead never reads outside content: a result naming any source is dropped unseen,
+        // and its sources still taint the task.
+        Ok(Ok(output)) if ctx.agent.role() == Role::Lead && !output.taint.is_empty() => {
+            tracing::error!(
+                run_id = ?ctx.at.run_id,
+                tool = ?name,
+                "a tool returned outside content to the Lead"
+            );
+            Ended::Failed {
+                status: CallStatus::Internal,
+                message: "the tool failed".to_string(),
+                note: None,
+                withheld: output.taint,
+            }
+        }
         Ok(Ok(output)) => Ended::Ok(output),
         // `Internal` reaches the model as `Failed` with the same text; only the API tells them apart.
         Ok(Err(error)) => Ended::failed(CallStatus::Failed, &error.to_string(), None),

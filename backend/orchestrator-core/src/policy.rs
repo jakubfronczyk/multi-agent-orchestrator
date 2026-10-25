@@ -34,13 +34,15 @@ pub enum Effect {
     External,
 }
 
-/// Whether a tool belongs to the Lead only or to specialists only.
+/// Whether a tool belongs to the Lead only, to specialists only, or to both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum LeadAccess {
     Only,
     Forbidden,
+    /// Both roles hold it; for the Lead it returns trusted notes only.
+    TrustedOnly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

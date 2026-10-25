@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT e.content, e.trust, e.version, a.slug AS \"author!\"\n               FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id\n               WHERE e.scope = ? AND e.key = ? AND e.owner_agent_id IS ?",
+  "query": "SELECT e.content, e.trust, e.version, a.slug AS \"author!\"\n               FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id\n               WHERE e.scope = ? AND e.key = ? AND e.owner_agent_id IS ?\n                 AND (NOT ? OR e.trust = ?)",
   "describe": {
     "columns": [
       {
@@ -49,7 +49,7 @@
       }
     ],
     "parameters": {
-      "Right": 3
+      "Right": 5
     },
     "nullable": [
       false,
@@ -58,5 +58,5 @@
       false
     ]
   },
-  "hash": "6ecd9ab5b7f577156a018352b7f3c36d8d94801781d6e16bcccb1f47e5f6d950"
+  "hash": "dc2442525f3edf0a94feb0df77330982358773494390c609c4edfee8e7c688fc"
 }

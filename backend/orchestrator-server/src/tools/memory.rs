@@ -1,12 +1,14 @@
 //! Memory tools (§5.1): notes private to an agent or shared by the team, every version kept.
 //! Owner and author come from `ToolCtx`, never from arguments; a note stored untrusted is
-//! reported as a taint source, so reading it taints the reader's task.
+//! reported as a taint source, so reading it taints the reader's task. The Lead's reads and
+//! searches exclude untrusted notes in SQL, so it reads them exactly like missing ones.
 
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use orchestrator_core::policy::TaintSource;
+use orchestrator_core::agents::Role;
+use orchestrator_core::policy::{TaintSource, Trust};
 use orchestrator_core::tools::{
     Action, MemoryScope, NoteKey, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec,
     parse_args,
@@ -117,6 +119,12 @@ fn owner(scope: MemoryScope, ctx: &ToolCtx) -> Result<Option<String>, ToolError>
     }
 }
 
+/// The Lead sees trusted notes only; the filter is in each query, so no untrusted row leaves SQLite.
+fn trusted_only(ctx: &ToolCtx) -> Result<(bool, String), ToolError> {
+    let trusted = to_text(&Trust::Trusted).map_err(storage_failed)?;
+    Ok((ctx.role == Role::Lead, trusted))
+}
+
 fn note_target(scope: MemoryScope, key: NoteKey, verb: &str) -> Action {
     Action {
         verb: verb.to_string(),
@@ -141,13 +149,17 @@ impl Tool for MemoryRead {
         let scope = to_text(&args.scope).map_err(storage_failed)?;
         let owner = owner(args.scope, ctx)?;
         let key = args.key.as_str();
+        let (trusted_only, trusted) = trusted_only(ctx)?;
         let row = sqlx::query!(
             r#"SELECT e.content, e.trust, e.version, a.slug AS "author!"
                FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id
-               WHERE e.scope = ? AND e.key = ? AND e.owner_agent_id IS ?"#,
+               WHERE e.scope = ? AND e.key = ? AND e.owner_agent_id IS ?
+                 AND (NOT ? OR e.trust = ?)"#,
             scope,
             key,
-            owner
+            owner,
+            trusted_only,
+            trusted
         )
         .fetch_optional(&self.pool)
         .await
@@ -211,11 +223,13 @@ impl Tool for MemorySearch {
         let private_scope = to_text(&MemoryScope::Private).map_err(storage_failed)?;
         let shared_scope = to_text(&MemoryScope::Shared).map_err(storage_failed)?;
         let caller = to_text(&ctx.agent_id).map_err(storage_failed)?;
+        let (trusted_only, trusted) = trusted_only(ctx)?;
         let rows = sqlx::query!(
             r#"SELECT e.scope, e.key, e.content, e.trust, a.slug AS "author!"
                FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id
                WHERE (e.key LIKE ?1 ESCAPE '\' OR e.content LIKE ?1 ESCAPE '\')
                  AND ((?2 AND e.scope = ?3) OR (?4 AND e.scope = ?5 AND e.owner_agent_id = ?6))
+                 AND (NOT ?8 OR e.trust = ?9)
                ORDER BY e.updated_at DESC
                LIMIT ?7"#,
             pattern,
@@ -224,7 +238,9 @@ impl Tool for MemorySearch {
             private,
             private_scope,
             caller,
-            SEARCH_LIMIT
+            SEARCH_LIMIT,
+            trusted_only,
+            trusted
         )
         .fetch_all(&self.pool)
         .await

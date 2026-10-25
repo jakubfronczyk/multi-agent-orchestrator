@@ -110,6 +110,7 @@ fn lead() -> AgentInput {
         tools: BTreeMap::from([
             (ToolName::Delegate, Decision::Allow),
             (ToolName::Plan, Decision::Allow),
+            (ToolName::MemorySearch, Decision::Allow),
         ]),
         delegate_targets: ["helper", "helper2", "reader", "messenger"]
             .map(String::from)
@@ -265,12 +266,12 @@ pub async fn task_events(
 /// A tool context for a seeded agent, with a real run row behind it.
 pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCtx {
     use orchestrator_core::store::{RunRef, Store};
-    let agent = agents::list(&app.pool)
+    let (agent, role) = agents::list(&app.pool)
         .await
         .expect("agents")
         .into_iter()
         .find(|record| record.spec.slug().as_str() == slug)
-        .map(|record| record.spec.id())
+        .map(|record| (record.spec.id(), record.spec.role()))
         .expect("seeded agent");
     let run = RunId::new();
     let at = RunRef {
@@ -291,6 +292,7 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
         run_id: run,
         root_run_id: run,
         agent_id: agent,
+        role,
         trust: orchestrator_core::policy::Trust::Trusted,
     }
 }
