@@ -61,6 +61,8 @@ async fn a_waiting_task_is_listed_read_in_detail_and_cancelled(pool: SqlitePool)
         detail["pending_approvals"][0]["tool_call_id"],
         detail["tool_calls"][0]["id"]
     );
+    let (_, cards) = get(&client, &format!("{base}/api/approvals?status=pending")).await;
+    assert_eq!(cards["approvals"][0]["root_run_id"], id_text(root));
 
     let cancel = format!("{base}/api/runs/{}/cancel", id_text(root));
     let response = client.post(&cancel).send().await.expect("cancel");

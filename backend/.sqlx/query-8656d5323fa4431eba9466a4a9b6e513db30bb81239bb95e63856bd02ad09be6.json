@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT a.id, a.tool_call_id, a.custody, a.preview, a.status, a.note, a.expires_at, a.created_at,\n                  a.resolved_at, t.run_id AS \"run_id!\", t.tool AS \"tool!\", t.action\n           FROM approvals a\n           JOIN tool_calls t ON t.id = a.tool_call_id\n           JOIN runs r ON r.id = t.run_id\n           WHERE (?1 IS NULL OR a.status = ?1) AND (?2 IS NULL OR r.root_run_id = ?2)\n           ORDER BY a.created_at, a.id",
+  "query": "SELECT a.id, a.tool_call_id, a.custody, a.preview, a.status, a.note, a.expires_at, a.created_at,\n                  a.resolved_at, t.run_id AS \"run_id!\", r.root_run_id AS \"root_run_id!\", t.tool AS \"tool!\", t.action\n           FROM approvals a\n           JOIN tool_calls t ON t.id = a.tool_call_id\n           JOIN runs r ON r.id = t.run_id\n           WHERE (?1 IS NULL OR a.status = ?1) AND (?2 IS NULL OR r.root_run_id = ?2)\n           ORDER BY a.created_at, a.id",
   "describe": {
     "columns": [
       {
@@ -114,8 +114,19 @@
         }
       },
       {
-        "name": "tool!",
+        "name": "root_run_id!",
         "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "root_run_id"
+          }
+        }
+      },
+      {
+        "name": "tool!",
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "action",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -151,8 +162,9 @@
       true,
       false,
       false,
+      false,
       true
     ]
   },
-  "hash": "6a60f850c22f444fbcf4c4ee51c302164d381f21e39f395199e7620b58a51501"
+  "hash": "8656d5323fa4431eba9466a4a9b6e513db30bb81239bb95e63856bd02ad09be6"
 }

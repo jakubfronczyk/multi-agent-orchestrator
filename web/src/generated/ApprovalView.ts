@@ -9,4 +9,8 @@ import type { ToolCallId } from "./ToolCallId";
 /**
  * One approval card with what it is about.
  */
-export type ApprovalView = { id: ApprovalId, tool_call_id: ToolCallId, run_id: RunId, tool: string, action: Action | null, custody: Custody, preview: string, status: ApprovalStatus, note: string | null, expires_at: string, created_at: string, resolved_at: string | null, };
+export type ApprovalView = { id: ApprovalId, tool_call_id: ToolCallId, run_id: RunId, 
+/**
+ * The task the card belongs to, so a global list can link to its run view.
+ */
+root_run_id: RunId, tool: string, action: Action | null, custody: Custody, preview: string, status: ApprovalStatus, note: string | null, expires_at: string, created_at: string, resolved_at: string | null, };

@@ -19,6 +19,8 @@ pub struct ApprovalView {
     pub id: ApprovalId,
     pub tool_call_id: ToolCallId,
     pub run_id: RunId,
+    /// The task the card belongs to, so a global list can link to its run view.
+    pub root_run_id: RunId,
     pub tool: String,
     pub action: Option<Action>,
     pub custody: Custody,
@@ -62,7 +64,7 @@ pub(crate) async fn views(
     let root = root.as_ref().map(to_text).transpose().map_err(corrupt)?;
     let rows = sqlx::query!(
         r#"SELECT a.id, a.tool_call_id, a.custody, a.preview, a.status, a.note, a.expires_at, a.created_at,
-                  a.resolved_at, t.run_id AS "run_id!", t.tool AS "tool!", t.action
+                  a.resolved_at, t.run_id AS "run_id!", r.root_run_id AS "root_run_id!", t.tool AS "tool!", t.action
            FROM approvals a
            JOIN tool_calls t ON t.id = a.tool_call_id
            JOIN runs r ON r.id = t.run_id
@@ -79,6 +81,7 @@ pub(crate) async fn views(
                 id: from_text(&row.id).map_err(corrupt)?,
                 tool_call_id: from_text(&row.tool_call_id).map_err(corrupt)?,
                 run_id: from_text(&row.run_id).map_err(corrupt)?,
+                root_run_id: from_text(&row.root_run_id).map_err(corrupt)?,
                 tool: row.tool,
                 action: json_opt(row.action.as_deref())?,
                 custody: serde_json::from_str(&row.custody).map_err(corrupt)?,
