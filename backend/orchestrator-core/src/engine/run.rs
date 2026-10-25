@@ -78,7 +78,7 @@ async fn run_loop(inner: &Arc<Inner>, ctx: &RunCtx) -> Result<RunOutcome, StoreE
         prompts::instructions(&ctx.agent, ctx.caller.as_deref(), ctx.task.draft_only());
     let mut step = 0;
     loop {
-        // Checked before the call, so parallel runs can each end one call past the budget.
+        // Checked before the call, so each running run can end one call past the budget.
         if ctx.task.spent() >= ctx.task.budget() {
             ctx.task.cancel_token().cancel();
             return Ok(failed(

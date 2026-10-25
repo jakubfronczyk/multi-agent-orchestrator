@@ -9,7 +9,7 @@ One root run, any follow-ups after it, and every run they delegate. Each is one 
 _Avoid_: job, session, conversation
 
 **Budget**:
-The most a task may spend on model calls. It is checked before each call, so parallel runs can each go past it by the one call they had started. A call that timed out is not counted, since the provider never reported its cost.
+The most a task may spend on model calls. It is checked before each call, so every run that is running can end one call past it. A call that failed, timed out or was cancelled is not counted, since the provider never reported its cost.
 _Avoid_: limit, quota
 
 **Follow-up**:
