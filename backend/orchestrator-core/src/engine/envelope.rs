@@ -12,13 +12,16 @@ const PREVIEW_CHARS: usize = 200;
 /// The longest result text the model receives; past it, the text is cut and marked.
 const RESULT_CHARS: usize = 64_000;
 
-/// How sources appear to the model and on a card: `inbox:<id>` or the URL, in read order.
+/// How sources appear to the model and on a card: `inbox:<id>`, the URL, `note:<key>` or
+/// `file:<path>`, in read order.
 pub(super) fn source_label(sources: &[TaintSource]) -> String {
     sources
         .iter()
         .map(|source| match source {
             TaintSource::Inbox { message_id } => format!("inbox:{message_id}"),
             TaintSource::Web { url } => url.clone(),
+            TaintSource::Note { key, .. } => format!("note:{}", key.as_str()),
+            TaintSource::File { path } => format!("file:{path}"),
         })
         .collect::<Vec<_>>()
         .join(", ")

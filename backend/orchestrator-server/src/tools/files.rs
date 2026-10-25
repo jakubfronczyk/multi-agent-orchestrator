@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use orchestrator_core::policy::{Trust, untrusted};
+use orchestrator_core::policy::{TaintSource, Trust};
 use orchestrator_core::tools::{
     Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, parse_args,
 };
@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use super::sandbox::{relative, resolve};
-use super::{as_stored, is_trusted, spec, storage_failed};
+use super::{escape_like, is_trusted, spec, storage_failed};
 use crate::sqlite::text::{timestamp, to_text};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -54,6 +54,23 @@ impl Workspace {
         let _shared = self.lock.read().await;
         let text = self.read_text(path).await?;
         Ok((text, self.trust_of(path).await?))
+    }
+
+    /// A file is untrusted when its row says so or it has none. A directory has no row of its
+    /// own: it is untrusted when any recorded file under it is, or when none under it is recorded.
+    async fn entry_untrusted(&self, path: &str, is_dir: bool) -> Result<bool, ToolError> {
+        if !is_dir {
+            return Ok(!is_trusted(self.trust_of(path).await?.as_deref()));
+        }
+        let pattern = format!("{}/%", escape_like(path));
+        let trusts = sqlx::query_scalar!(
+            "SELECT trust FROM workspace_files WHERE path LIKE ? ESCAPE '\\'",
+            pattern
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(storage_failed)?;
+        Ok(trusts.is_empty() || trusts.iter().any(|trust| !is_trusted(Some(trust))))
     }
 
     async fn record_trust(&self, path: &str, trust: Trust, run: &str) -> Result<(), ToolError> {
@@ -253,10 +270,14 @@ impl Tool for FileList {
     }
 
     /// Symlinks are listed as such and never followed.
+    /// Entry names are stored text too, so each untrusted entry is a taint source.
     async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         let args: ListArgs = parse_args(&args)?;
         let path = args.path.unwrap_or_else(|| ".".to_string());
+        let base = display(&relative(&path)?);
+        let _shared = self.workspace.lock.read().await;
         let dir = resolve(&self.workspace.root, &path).await?;
+        let mut taint = Vec::new();
         let mut entries = tokio::fs::read_dir(&dir)
             .await
             .map_err(|_| ToolError::Failed(format!("{path} is not a readable directory")))?;
@@ -285,11 +306,23 @@ impl Tool for FileList {
             } else {
                 "file"
             };
+            let entry_path = if base == "." {
+                name.clone()
+            } else {
+                format!("{base}/{name}")
+            };
+            if self
+                .workspace
+                .entry_untrusted(&entry_path, kind == "dir")
+                .await?
+            {
+                taint.push(TaintSource::File { path: entry_path });
+            }
             listed.push(json!({ "name": name, "kind": kind, "bytes": size }));
         }
         Ok(ToolOutput {
             content: json!({ "path": path, "entries": listed }),
-            taint: Vec::new(),
+            taint,
         })
     }
 }
@@ -310,10 +343,10 @@ impl Tool for FileRead {
         let args: ReadArgs = parse_args(&args)?;
         let path = display(&relative(&args.path)?);
         let (text, trust) = self.workspace.read_with_trust(&path).await?;
-        let content = as_stored(&format!("file:{path}"), &text, trust.as_deref());
+        let taint = file_taint(&path, trust.as_deref());
         Ok(ToolOutput {
-            content: json!({ "path": path, "content": content, "trust": trust.unwrap_or_else(|| "untrusted".to_string()) }),
-            taint: Vec::new(),
+            content: json!({ "path": path, "content": text, "trust": trust.unwrap_or_else(|| "untrusted".to_string()) }),
+            taint,
         })
     }
 }
@@ -493,15 +526,21 @@ impl Tool for CsvQuery {
             json!({ "columns": columns, "rows": rows, "total": matching.len() })
         };
 
-        let content = if is_trusted(trust.as_deref()) {
-            result
-        } else {
-            json!({ "trust": "untrusted", "result": untrusted(&format!("file:{path}"), &result.to_string()) })
-        };
         Ok(ToolOutput {
-            content,
-            taint: Vec::new(),
+            content: result,
+            taint: file_taint(&path, trust.as_deref()),
         })
+    }
+}
+
+/// A file read back from storage taints the reader unless its row says trusted.
+fn file_taint(path: &str, trust: Option<&str>) -> Vec<TaintSource> {
+    if is_trusted(trust) {
+        Vec::new()
+    } else {
+        vec![TaintSource::File {
+            path: path.to_string(),
+        }]
     }
 }
 

@@ -1,11 +1,12 @@
 //! Memory tools (§5.1): notes private to an agent or shared by the team, every version kept.
 //! The owner and author always come from `ToolCtx`, never from arguments. A note stored
-//! untrusted is returned wrapped as data; reading it does not taint the reader's task.
+//! untrusted is reported as a taint source, so reading it taints the reader's task.
 
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use orchestrator_core::policy::TaintSource;
 use orchestrator_core::tools::{
     Action, MemoryScope, NoteKey, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec,
     parse_args,
@@ -16,9 +17,9 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use super::{as_stored, spec, storage_failed};
+use super::{escape_like, is_trusted, spec, storage_failed};
 use crate::sqlite::begin_write;
-use crate::sqlite::text::{timestamp, to_text};
+use crate::sqlite::text::{from_text, timestamp, to_text};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 const CONTENT_BYTES: usize = 16 * 1024;
@@ -151,20 +152,30 @@ impl Tool for MemoryRead {
         .fetch_optional(&self.pool)
         .await
         .map_err(storage_failed)?;
-        let content = match row {
-            Some(row) => json!({
+        let Some(row) = row else {
+            return Ok(ToolOutput {
+                content: json!({ "found": false, "key": key }),
+                taint: Vec::new(),
+            });
+        };
+        let taint = if is_trusted(Some(&row.trust)) {
+            Vec::new()
+        } else {
+            vec![TaintSource::Note {
+                scope: args.scope,
+                key: args.key.clone(),
+            }]
+        };
+        Ok(ToolOutput {
+            content: json!({
                 "found": true,
                 "key": key,
-                "content": as_stored(&format!("note:{key}"), &row.content, Some(&row.trust)),
+                "content": row.content,
                 "author": row.author,
                 "trust": row.trust,
                 "version": row.version,
             }),
-            None => json!({ "found": false, "key": key }),
-        };
-        Ok(ToolOutput {
-            content,
-            taint: Vec::new(),
+            taint,
         })
     }
 }
@@ -218,26 +229,31 @@ impl Tool for MemorySearch {
         .fetch_all(&self.pool)
         .await
         .map_err(storage_failed)?;
-        let notes: Vec<Value> = rows
-            .into_iter()
-            .map(|row| {
-                let (start, cut) = match row.content.char_indices().nth(SEARCH_NOTE_CHARS) {
-                    Some((end, _)) => (&row.content[..end], true),
-                    None => (row.content.as_str(), false),
-                };
-                json!({
-                    "scope": row.scope,
-                    "key": row.key,
-                    "content": as_stored(&format!("note:{}", row.key), start, Some(&row.trust)),
-                    "truncated": cut,
-                    "author": row.author,
-                    "trust": row.trust,
-                })
-            })
-            .collect();
+        let mut taint = Vec::new();
+        let mut notes = Vec::with_capacity(rows.len());
+        for row in rows {
+            // One source per untrusted note returned; trusted notes add none.
+            if !is_trusted(Some(&row.trust)) {
+                let scope = from_text(&row.scope).map_err(storage_failed)?;
+                let key = NoteKey::new(&row.key).map_err(storage_failed)?;
+                taint.push(TaintSource::Note { scope, key });
+            }
+            let (start, cut) = match row.content.char_indices().nth(SEARCH_NOTE_CHARS) {
+                Some((end, _)) => (&row.content[..end], true),
+                None => (row.content.as_str(), false),
+            };
+            notes.push(json!({
+                "scope": row.scope,
+                "key": row.key,
+                "content": start,
+                "truncated": cut,
+                "author": row.author,
+                "trust": row.trust,
+            }));
+        }
         Ok(ToolOutput {
             content: json!({ "notes": notes }),
-            taint: Vec::new(),
+            taint,
         })
     }
 }
@@ -338,16 +354,4 @@ impl Tool for MemoryWrite {
             taint: Vec::new(),
         })
     }
-}
-
-/// `%`, `_` and the escape character itself match literally.
-fn escape_like(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for c in text.chars() {
-        if matches!(c, '\\' | '%' | '_') {
-            escaped.push('\\');
-        }
-        escaped.push(c);
-    }
-    escaped
 }

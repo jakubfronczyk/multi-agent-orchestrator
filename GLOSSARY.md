@@ -88,7 +88,7 @@ The mark a task carries once any run in it has read outside content. Nothing cle
 _Avoid_: contamination, flag
 
 **Taint source**:
-One piece of outside content that tainted a task: an inbox message or a web address.
+One piece of outside content that tainted a task: an inbox message, a web address, or a note or file stored as untrusted.
 
 **Trust**:
 Whether a result, note or file is trusted or untrusted. Anything written by a tainted task is untrusted.

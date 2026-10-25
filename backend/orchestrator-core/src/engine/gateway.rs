@@ -219,8 +219,8 @@ pub(super) async fn execute(
     };
 
     // Rule 4: taint is committed before any model sees the result, whatever the outcome.
-    let sources = if ran && name.taints() {
-        taint_sources(&ended, &action)
+    let sources = if ran {
+        taint_sources(name, &ended, &action)
     } else {
         Vec::new()
     };
@@ -257,12 +257,14 @@ pub(super) async fn execute(
     Ok(envelope::render(&ended, untrusted.as_deref()))
 }
 
-/// What a call that ran read from outside. A result says it; a failure has no result, so the
-/// target names the one source (a fetched URL, a read message). A failed list names none.
-fn taint_sources(ended: &Ended, action: &Action) -> Vec<TaintSource> {
+/// What a call that ran read from outside. Any tool's result names the sources it returned,
+/// including untrusted stored data. A failure has no result, so for an outside-reading tool
+/// the target names the one source (a fetched URL, a read message); a failed list names none.
+fn taint_sources(name: ToolName, ended: &Ended, action: &Action) -> Vec<TaintSource> {
     match ended {
         Ended::Ok(output) => output.taint.clone(),
         Ended::Child { .. } => Vec::new(),
+        Ended::Failed { .. } if !name.taints() => Vec::new(),
         Ended::Failed { .. } => match &action.target {
             Target::Host { url, .. } => vec![TaintSource::Web { url: url.clone() }],
             Target::Message { id } => vec![TaintSource::Inbox {

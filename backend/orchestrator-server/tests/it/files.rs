@@ -1,6 +1,6 @@
 //! §13 test 12 and the file tools against a real temporary workspace.
 
-use orchestrator_core::policy::Trust;
+use orchestrator_core::policy::{TaintSource, Trust};
 use orchestrator_core::tools::{Tool, ToolCtx, ToolError};
 use orchestrator_server::tools::files::{CsvQuery, FileList, FileRead, FileWrite, Workspace};
 use serde_json::{Value, json};
@@ -66,7 +66,7 @@ async fn file_tools_reject_traversal_and_symlinks(pool: SqlitePool) {
 }
 
 #[sqlx::test]
-async fn writes_replace_atomically_and_reads_wrap_untrusted_files(pool: SqlitePool) {
+async fn writes_replace_atomically_and_untrusted_files_are_taint_sources(pool: SqlitePool) {
     let app = app(pool.clone()).await;
     let clean = tool_ctx(&app, "worker").await;
     let tainted = ToolCtx {
@@ -117,15 +117,22 @@ async fn writes_replace_atomically_and_reads_wrap_untrusted_files(pool: SqlitePo
     )
     .await
     .expect("write");
-    let wrapped = run(&read, &clean, json!({"path": "out/note.md"}))
+    let read_back = read
+        .run(&clean, json!({"path": "out/note.md"}))
         .await
         .expect("read");
-    assert_eq!(wrapped["trust"], "untrusted");
-    assert!(
-        wrapped["content"]
-            .as_str()
-            .is_some_and(|c| c.starts_with("<untrusted_data source=\"file:out/note.md\">"))
+    assert_eq!(read_back.content["trust"], "untrusted");
+    assert_eq!(
+        read_back.taint,
+        [TaintSource::File {
+            path: "out/note.md".to_string()
+        }]
     );
+    let trusted = read
+        .run(&clean, json!({"path": "out/decision.md"}))
+        .await
+        .expect("read");
+    assert!(trusted.taint.is_empty(), "a trusted file taints nothing");
 
     std::fs::write(temp.workspace().join("unrecorded.md"), "no row").expect("plain file");
     std::fs::write(temp.workspace().join(".left.md.0194.tmp"), "aborted").expect("leftover");
@@ -228,13 +235,15 @@ async fn a_write_whose_final_trust_update_fails_reads_back_untrusted(pool: Sqlit
         .is_err()
     );
 
-    let read_back = run(&read, &ctx, json!({"path": "out/a.md"}))
+    let read_back = read
+        .run(&ctx, json!({"path": "out/a.md"}))
         .await
         .expect("read");
-    assert_eq!(read_back["trust"], "untrusted");
-    assert!(
-        read_back["content"]
-            .as_str()
-            .is_some_and(|c| c.starts_with("<untrusted_data"))
+    assert_eq!(read_back.content["trust"], "untrusted");
+    assert_eq!(
+        read_back.taint,
+        [TaintSource::File {
+            path: "out/a.md".to_string()
+        }]
     );
 }

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT trust FROM workspace_files WHERE path LIKE ? ESCAPE '\\'",
+  "describe": {
+    "columns": [
+      {
+        "name": "trust",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "trust"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "007017d491ab6ac7ab63c5f6af0da17124f88ca127c7ede4c1fdba048daae438"
+}

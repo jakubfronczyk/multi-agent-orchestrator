@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::tools::Action;
+use crate::tools::{Action, MemoryScope, NoteKey};
 
 mod decide;
 
@@ -52,13 +52,16 @@ pub enum Trust {
     Untrusted,
 }
 
-/// One piece of outside content that tainted a task.
+/// One piece of outside content that tainted a task: read from outside directly (inbox, web),
+/// or read back from storage labelled untrusted (a note, a file). The label follows the data.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export)]
 pub enum TaintSource {
     Inbox { message_id: String },
     Web { url: String },
+    Note { scope: MemoryScope, key: NoteKey },
+    File { path: String },
 }
 
 /// A named reason that shaped a call's decision.

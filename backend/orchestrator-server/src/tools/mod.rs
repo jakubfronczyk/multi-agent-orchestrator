@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use orchestrator_core::policy::{Trust, untrusted};
+use orchestrator_core::policy::Trust;
 use orchestrator_core::tools::{MAY_ASK, Tool, ToolError, ToolName, ToolSet, ToolSpec, schema_for};
 use schemars::JsonSchema;
 use sqlx::SqlitePool;
@@ -47,16 +47,8 @@ pub(crate) fn spec<T: JsonSchema>(name: ToolName, purpose: &str, timeout: Durati
     }
 }
 
-/// Stored text goes back as data unless its stored trust says trusted. A missing row or an
-/// unknown value counts as untrusted, so a bad row fails closed.
-pub(crate) fn as_stored(source: &str, content: &str, trust: Option<&str>) -> String {
-    if is_trusted(trust) {
-        content.to_string()
-    } else {
-        untrusted(source, content)
-    }
-}
-
+/// Whether stored data counts as trusted. A missing row or an unknown value counts as
+/// untrusted, so a bad row fails closed.
 pub(crate) fn is_trusted(trust: Option<&str>) -> bool {
     match trust.map(from_text::<Trust>) {
         Some(Ok(Trust::Trusted)) => true,
@@ -68,4 +60,16 @@ pub(crate) fn is_trusted(trust: Option<&str>) -> bool {
 pub(crate) fn storage_failed(error: impl std::fmt::Display) -> ToolError {
     tracing::error!(%error, "tool storage failed");
     ToolError::Failed("storage failed".to_string())
+}
+
+/// `%`, `_` and the escape character itself match literally.
+pub(crate) fn escape_like(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for c in text.chars() {
+        if matches!(c, '\\' | '%' | '_') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
 }
