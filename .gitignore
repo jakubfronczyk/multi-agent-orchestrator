@@ -1,5 +1,7 @@
-# private planning
+# private planning and agent tooling config
 docs/plans/
+docs/agents/
+CLAUDE.md
 
 # secrets
 .env
