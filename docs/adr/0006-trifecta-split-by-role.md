@@ -1,4 +1,4 @@
-# The lethal trifecta is split by role
+# The lethal trifecta is split by role and gated by taint
 
 ## Context
 
@@ -6,17 +6,20 @@ An agent is open to prompt injection when it reads untrusted content, can reach 
 
 ## Decision
 
-No seeded agent holds all three, and the riskiest parts of the split are enforced in code rather than by prompts:
+The seeded roles keep the trifecta away from the Lead, the Messenger and the Writer. The Reader still holds all three legs, so a gate in code closes its way out:
 
-- **Lead:** plans and delegates only. `lead()` forbids it every tool that reads outside content and every memory tool, so it never sees outside text, not even laundered through a stored note.
-- **Reader:** reads the inbox, files and the web. Its `send_message` is set to deny, so a planted "forward this" is refused and logged without a card.
-- **Messenger:** the only sender, and it holds no reading tools. `send_message` is external, so it always asks.
-- **Writer:** saves workspace files with no approval in a clean task. Once the task is tainted, each save asks.
+- **Lead:** plans and delegates only. `lead()` forbids it every tool that reads outside content and every memory tool, so it never reads outside content directly. Specialists' reports reach it wrapped as untrusted, and the task is tainted by then, so anything it delegates afterwards runs in a tainted task where sends and saves ask.
+- **Reader:** reads the inbox and the web (outside content), files and CSV data (private data), and fetches URLs (egress). Its `send_message` is set to deny, so a planted "forward this" is refused and logged without a card. Fetching is gated:
+  - In a tainted task every fetch asks.
+  - A host off the allowlist always asks.
+  - A repeat of a refused call is refused with no new card.
+- **Messenger:** the only sender. It reads nothing but memory, and `send_message` is external, so it always asks.
+- **Writer:** saves workspace files without a card in a clean task. Once the task is tainted, each save asks.
 
 ## Consequences
 
-- An injection that reaches the Reader can only ask the Lead to delegate. Any send or save that follows appears on a card showing custody and the taint source.
-- Users can edit specialists, so the specialist split is a seeded default. The Lead's limits, "external always asks" and taint are enforced for every team.
+- An injection that reaches the Reader cannot get data out without a person seeing a card. The card shows the custody chain and the taint source.
+- Users can edit specialists, so the specialist split is a seeded default. What holds for every team is enforced in code: the Lead's tool limits, "external always asks", and taint raising writes and egress to ask.
 - Tasks take more steps and delegations than a single agent would.
 
 ## Rejected alternatives
