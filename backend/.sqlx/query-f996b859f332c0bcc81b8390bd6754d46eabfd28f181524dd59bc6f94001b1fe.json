@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO memory_entries\n                     (id, scope, owner_agent_id, key, content, author_agent_id, trust, version, created_at, updated_at)\n                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)\n                   ON CONFLICT (key) WHERE scope = 'shared' DO UPDATE SET\n                     content = excluded.content, author_agent_id = excluded.author_agent_id,\n                     trust = excluded.trust, version = memory_entries.version + 1, updated_at = excluded.updated_at\n                   WHERE NOT (memory_entries.trust = 'trusted' AND excluded.trust = 'untrusted')\n                   RETURNING id, version",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "f996b859f332c0bcc81b8390bd6754d46eabfd28f181524dd59bc6f94001b1fe"
+}

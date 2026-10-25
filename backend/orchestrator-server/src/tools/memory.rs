@@ -289,6 +289,8 @@ impl Tool for MemoryWrite {
 
     /// One transaction: the upsert bumps the version, so parallel writes to one key never
     /// share a version number, and the version row records who wrote it in which run.
+    /// The upsert skips an untrusted write over a trusted note in the same statement, so no
+    /// trusted note is ever replaced by a tainted task.
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         let args: WriteArgs = parse_args(&args)?;
         let scope = to_text(&args.scope).map_err(storage_failed)?;
@@ -310,6 +312,7 @@ impl Tool for MemoryWrite {
                    ON CONFLICT (owner_agent_id, key) WHERE scope = 'private' DO UPDATE SET
                      content = excluded.content, author_agent_id = excluded.author_agent_id,
                      trust = excluded.trust, version = memory_entries.version + 1, updated_at = excluded.updated_at
+                   WHERE NOT (memory_entries.trust = 'trusted' AND excluded.trust = 'untrusted')
                    RETURNING id, version"#,
                 id,
                 scope,
@@ -321,9 +324,9 @@ impl Tool for MemoryWrite {
                 now,
                 now
             )
-            .fetch_one(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await
-            .map(|row| (row.id, row.version)),
+            .map(|row| row.map(|row| (row.id, row.version))),
             MemoryScope::Shared => sqlx::query!(
                 r#"INSERT INTO memory_entries
                      (id, scope, owner_agent_id, key, content, author_agent_id, trust, version, created_at, updated_at)
@@ -331,6 +334,7 @@ impl Tool for MemoryWrite {
                    ON CONFLICT (key) WHERE scope = 'shared' DO UPDATE SET
                      content = excluded.content, author_agent_id = excluded.author_agent_id,
                      trust = excluded.trust, version = memory_entries.version + 1, updated_at = excluded.updated_at
+                   WHERE NOT (memory_entries.trust = 'trusted' AND excluded.trust = 'untrusted')
                    RETURNING id, version"#,
                 id,
                 scope,
@@ -342,12 +346,16 @@ impl Tool for MemoryWrite {
                 now,
                 now
             )
-            .fetch_one(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await
-            .map(|row| (row.id, row.version)),
+            .map(|row| row.map(|row| (row.id, row.version))),
         }
         .map_err(storage_failed)?;
-        let (entry_id, version) = stored;
+        let Some((entry_id, version)) = stored else {
+            return Err(ToolError::Failed(format!(
+                "{key} is a trusted note; a task that read outside content cannot replace it, so use a new key"
+            )));
+        };
         sqlx::query!(
             "INSERT INTO memory_versions (entry_id, version, content, author_agent_id, run_id, trust, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
