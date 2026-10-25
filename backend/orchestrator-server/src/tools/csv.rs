@@ -12,9 +12,10 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::files::{Workspace, display, file_action, file_taint};
+use super::files::{file_action, file_taint};
 use super::sandbox::relative;
 use super::spec;
+use super::workspace::{Workspace, display};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 const ROW_LIMIT: usize = 200;
@@ -93,84 +94,88 @@ impl Tool for CsvQuery {
         let args: CsvArgs = parse_args(&args)?;
         let path = display(&relative(&args.path)?);
         let (text, trust) = self.workspace.read_with_trust(&path).await?;
-        let not_csv = || ToolError::Failed(format!("{path} is not valid CSV"));
-        let mut reader = csv::Reader::from_reader(text.as_bytes());
-        let headers: Vec<String> = reader
-            .headers()
-            .map_err(|_| not_csv())?
-            .iter()
-            .map(str::to_string)
-            .collect();
-        let column = |name: &str| {
-            headers
-                .iter()
-                .position(|h| h == name)
-                .ok_or_else(|| ToolError::InvalidArgs(format!("unknown column: {name}")))
-        };
-
-        let filters = args
-            .filter
-            .iter()
-            .map(|f| Ok((column(&f.column)?, f.op, f.value.as_str())))
-            .collect::<Result<Vec<_>, ToolError>>()?;
-        let mut matching = Vec::new();
-        for record in reader.records() {
-            let record = record.map_err(|_| not_csv())?;
-            let keep = filters
-                .iter()
-                .all(|(index, op, value)| matches(record.get(*index).unwrap_or(""), *op, value));
-            if keep {
-                matching.push(record);
-            }
-        }
-
-        // Models often send empty defaults for fields they do not use; empty means absent.
-        let group_by = args.group_by.as_deref().filter(|group| !group.is_empty());
-        let select: Vec<&str> = args
-            .select
-            .iter()
-            .map(String::as_str)
-            .filter(|name| !name.is_empty())
-            .collect();
-        let result = if let Some(group) = group_by {
-            let index = column(group)?;
-            let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-            for record in &matching {
-                *counts
-                    .entry(record.get(index).unwrap_or("").to_string())
-                    .or_insert(0) += 1;
-            }
-            json!({ "group_by": group, "counts": counts })
-        } else if args.count {
-            json!({ "count": matching.len() })
-        } else {
-            let selected = if select.is_empty() {
-                (0..headers.len()).collect()
-            } else {
-                select
-                    .iter()
-                    .map(|name| column(name))
-                    .collect::<Result<Vec<_>, ToolError>>()?
-            };
-            let rows: Vec<Vec<&str>> = matching
-                .iter()
-                .take(ROW_LIMIT)
-                .map(|record| {
-                    selected
-                        .iter()
-                        .map(|i| record.get(*i).unwrap_or(""))
-                        .collect()
-                })
-                .collect();
-            let columns: Vec<&str> = selected.iter().map(|i| headers[*i].as_str()).collect();
-            json!({ "columns": columns, "rows": rows, "total": matching.len() })
-        };
-
         Ok(ToolOutput {
-            content: result,
-            taint: file_taint(&path, trust.as_deref()),
+            content: query(&text, &args, &path)?,
+            taint: file_taint(&path, trust),
         })
     }
+}
+
+/// Filters the rows, then counts them, groups them or projects the selected columns.
+fn query(text: &str, args: &CsvArgs, path: &str) -> Result<Value, ToolError> {
+    let not_csv = || ToolError::Failed(format!("{path} is not valid CSV"));
+    let mut reader = csv::Reader::from_reader(text.as_bytes());
+    let headers: Vec<String> = reader
+        .headers()
+        .map_err(|_| not_csv())?
+        .iter()
+        .map(str::to_string)
+        .collect();
+    let column = |name: &str| {
+        headers
+            .iter()
+            .position(|h| h == name)
+            .ok_or_else(|| ToolError::InvalidArgs(format!("unknown column: {name}")))
+    };
+
+    let filters = args
+        .filter
+        .iter()
+        .map(|f| Ok((column(&f.column)?, f.op, f.value.as_str())))
+        .collect::<Result<Vec<_>, ToolError>>()?;
+    let mut matching = Vec::new();
+    for record in reader.records() {
+        let record = record.map_err(|_| not_csv())?;
+        let keep = filters
+            .iter()
+            .all(|(index, op, value)| matches(record.get(*index).unwrap_or(""), *op, value));
+        if keep {
+            matching.push(record);
+        }
+    }
+
+    // Models often send empty defaults for fields they do not use; empty means absent.
+    let group_by = args.group_by.as_deref().filter(|group| !group.is_empty());
+    let select: Vec<&str> = args
+        .select
+        .iter()
+        .map(String::as_str)
+        .filter(|name| !name.is_empty())
+        .collect();
+    let result = if let Some(group) = group_by {
+        let index = column(group)?;
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for record in &matching {
+            *counts
+                .entry(record.get(index).unwrap_or("").to_string())
+                .or_insert(0) += 1;
+        }
+        json!({ "group_by": group, "counts": counts })
+    } else if args.count {
+        json!({ "count": matching.len() })
+    } else {
+        let selected = if select.is_empty() {
+            (0..headers.len()).collect()
+        } else {
+            select
+                .iter()
+                .map(|name| column(name))
+                .collect::<Result<Vec<_>, ToolError>>()?
+        };
+        let rows: Vec<Vec<&str>> = matching
+            .iter()
+            .take(ROW_LIMIT)
+            .map(|record| {
+                selected
+                    .iter()
+                    .map(|i| record.get(*i).unwrap_or(""))
+                    .collect()
+            })
+            .collect();
+        let columns: Vec<&str> = selected.iter().map(|i| headers[*i].as_str()).collect();
+        json!({ "columns": columns, "rows": rows, "total": matching.len() })
+    };
+    Ok(result)
 }
 
 fn matches(cell: &str, op: FilterOp, value: &str) -> bool {

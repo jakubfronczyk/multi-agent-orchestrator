@@ -13,7 +13,7 @@ use orchestrator_server::api::{ActiveProvider, AppState};
 use orchestrator_server::events::EventEnvelope;
 use orchestrator_server::llm::ScriptedProvider;
 use orchestrator_server::sqlite::SqliteStore;
-use orchestrator_server::tools::files::Workspace;
+use orchestrator_server::tools::workspace::Workspace;
 use orchestrator_server::{seed, tools};
 use serde_json::json;
 use sqlx::SqlitePool;

@@ -9,7 +9,7 @@ use orchestrator_core::runs::RunEvent;
 use orchestrator_server::api::{ActiveProvider, AppState};
 use orchestrator_server::llm::ScriptedProvider;
 use orchestrator_server::sqlite::{SqliteStore, agents};
-use orchestrator_server::tools::files::{FILE_BYTES, Workspace};
+use orchestrator_server::tools::workspace::{FILE_BYTES, Workspace};
 use orchestrator_server::{seed, tools};
 use serde_json::Value;
 use sqlx::SqlitePool;

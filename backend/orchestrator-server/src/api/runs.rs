@@ -16,7 +16,7 @@ use super::json::ApiJson;
 use super::query;
 use crate::llm::S1_DECISION;
 use crate::sqlite::runs::{self, RunDetail, RunList};
-use crate::tools::files::EntryKind;
+use crate::tools::workspace::EntryKind;
 
 const DEFAULT_LIMIT: u32 = 50;
 

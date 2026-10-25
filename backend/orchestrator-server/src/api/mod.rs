@@ -7,10 +7,10 @@ use axum::Router;
 use axum::routing::{get, post};
 use orchestrator_core::engine::Engine;
 use sqlx::SqlitePool;
+use tower_http::trace::TraceLayer;
 
 use crate::sqlite::SqliteStore;
-use crate::tools::files::Workspace;
-use tower_http::trace::TraceLayer;
+use crate::tools::workspace::Workspace;
 
 mod agents;
 mod approvals;

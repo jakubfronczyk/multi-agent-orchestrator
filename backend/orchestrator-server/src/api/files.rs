@@ -15,10 +15,10 @@ use ts_rs::TS;
 use super::AppState;
 use super::error::ApiError;
 use super::error::ErrorCode;
-use crate::tools::files::{EntryKind, FILE_BYTES, UploadError};
+use crate::tools::workspace::{
+    EntryKind, FILE_BYTES, TEXT_EXTENSIONS, UploadError, check_upload_name,
+};
 
-/// The text formats an upload may have, by extension.
-const UPLOAD_EXTENSIONS: [&str; 4] = ["csv", "md", "txt", "json"];
 const UPLOAD_FIELD: &str = "file";
 
 #[derive(Debug, Deserialize)]
@@ -75,11 +75,7 @@ pub async fn view(
                         path: entry.path,
                         kind: entry.kind,
                         bytes: entry.bytes,
-                        trust: if entry.untrusted {
-                            Trust::Untrusted
-                        } else {
-                            Trust::Trusted
-                        },
+                        trust: entry.trust,
                         written_by_root_run_id: entry.written_by_root_run_id,
                     })
                     .collect(),
@@ -122,12 +118,11 @@ pub async fn upload(
         .filter(|field| field.name() == Some(UPLOAD_FIELD))
         .ok_or_else(|| ApiError::invalid(UPLOAD_FIELD, "send one field named file"))?;
     let name = field.file_name().unwrap_or_default().to_string();
-    crate::tools::files::check_upload_name(&name)
-        .map_err(|error| tool_error(UPLOAD_FIELD, error))?;
+    check_upload_name(&name).map_err(|error| tool_error(UPLOAD_FIELD, error))?;
     let extension = name
         .rsplit_once('.')
         .map(|(_, extension)| extension.to_ascii_lowercase());
-    if !extension.is_some_and(|e| UPLOAD_EXTENSIONS.contains(&e.as_str())) {
+    if !extension.is_some_and(|e| TEXT_EXTENSIONS.contains(&e.as_str())) {
         return Err(unsupported());
     }
 

@@ -19,7 +19,7 @@ use orchestrator_server::api::{ActiveProvider, AppState, router};
 use orchestrator_server::events::EventEnvelope;
 use orchestrator_server::llm::ScriptedProvider;
 use orchestrator_server::sqlite::{SqliteStore, agents};
-use orchestrator_server::tools::files::Workspace;
+use orchestrator_server::tools::workspace::Workspace;
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 

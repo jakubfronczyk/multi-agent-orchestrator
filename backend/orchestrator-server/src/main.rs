@@ -9,7 +9,7 @@ use orchestrator_core::llm::LlmProvider;
 use orchestrator_server::api::{self, ActiveProvider, AppState};
 use orchestrator_server::llm::{ScenarioRouter, XaiProvider};
 use orchestrator_server::sqlite::SqliteStore;
-use orchestrator_server::tools::files::Workspace;
+use orchestrator_server::tools::workspace::Workspace;
 use orchestrator_server::{config, recovery, seed, sqlite, tools};
 use secrecy::SecretString;
 use tracing_subscriber::EnvFilter;

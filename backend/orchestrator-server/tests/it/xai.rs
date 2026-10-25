@@ -13,7 +13,7 @@ use orchestrator_core::llm::{
 use orchestrator_core::tools::ToolName;
 use orchestrator_server::llm::XaiProvider;
 use orchestrator_server::tools;
-use orchestrator_server::tools::files::Workspace;
+use orchestrator_server::tools::workspace::Workspace;
 use secrecy::SecretString;
 use sqlx::SqlitePool;
 

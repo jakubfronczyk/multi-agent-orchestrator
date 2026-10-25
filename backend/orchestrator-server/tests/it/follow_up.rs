@@ -11,7 +11,7 @@ use orchestrator_core::runs::{Answer, RunEvent, RunOutcome};
 use orchestrator_core::tools::Target;
 use orchestrator_server::events::EventEnvelope;
 use orchestrator_server::sqlite::{SqliteStore, runs};
-use orchestrator_server::tools::files::Workspace;
+use orchestrator_server::tools::workspace::Workspace;
 use orchestrator_server::{seed, tools};
 use serde_json::json;
 use sqlx::SqlitePool;

@@ -17,10 +17,11 @@ pub mod files;
 pub mod memory;
 pub mod messages;
 mod sandbox;
+pub mod workspace;
 
 /// The eleven server tools; `delegate` and `plan` are run by the engine itself.
 /// `workspace` is shared with the API's file view, so both take the same lock.
-pub fn all(pool: SqlitePool, workspace: files::Workspace) -> ToolSet {
+pub fn all(pool: SqlitePool, workspace: workspace::Workspace) -> ToolSet {
     let tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(memory::MemoryRead::new(pool.clone())),
         Arc::new(memory::MemorySearch::new(pool.clone())),

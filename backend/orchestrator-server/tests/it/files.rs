@@ -3,7 +3,8 @@
 use orchestrator_core::policy::{TaintSource, Trust};
 use orchestrator_core::tools::{Tool, ToolCtx, ToolError};
 use orchestrator_server::tools::csv::CsvQuery;
-use orchestrator_server::tools::files::{FileList, FileRead, FileWrite, Workspace};
+use orchestrator_server::tools::files::{FileList, FileRead, FileWrite};
+use orchestrator_server::tools::workspace::Workspace;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
@@ -256,4 +257,43 @@ async fn a_write_whose_final_trust_update_fails_reads_back_untrusted(pool: Sqlit
             path: "out/a.md".to_string()
         }]
     );
+}
+
+/// A trust value that does not decode fails closed: the file reads, lists and queries as untrusted.
+#[sqlx::test]
+async fn an_unknown_stored_trust_reads_as_untrusted(pool: SqlitePool) {
+    let app = app(pool.clone()).await;
+    let ctx = tool_ctx(&app, "worker").await;
+    let temp = TempDir::new();
+    std::fs::write(temp.workspace().join("odd.csv"), "a\n1\n").expect("file");
+    sqlx::raw_sql(
+        "INSERT INTO workspace_files (path, trust, updated_at)
+         VALUES ('odd.csv', 'TRUSTED', '2026-01-01T00:00:00.000000Z')",
+    )
+    .execute(&pool)
+    .await
+    .expect("row");
+    let workspace = Workspace::new(temp.workspace(), pool);
+    let source = [TaintSource::File {
+        path: "odd.csv".to_string(),
+    }];
+
+    let read = FileRead::new(workspace.clone())
+        .run(&ctx, json!({"path": "odd.csv"}))
+        .await
+        .expect("read");
+    assert_eq!(read.content["trust"], "untrusted");
+    assert_eq!(read.taint, source);
+    let query = CsvQuery::new(workspace.clone())
+        .run(&ctx, json!({"path": "odd.csv"}))
+        .await
+        .expect("query");
+    assert_eq!(query.taint, source);
+    let list = FileList::new(workspace.clone())
+        .run(&ctx, json!({}))
+        .await
+        .expect("list");
+    assert_eq!(list.taint, source);
+    let (_, trust, _) = workspace.read("odd.csv").await.expect("view");
+    assert_eq!(trust, Trust::Untrusted);
 }
