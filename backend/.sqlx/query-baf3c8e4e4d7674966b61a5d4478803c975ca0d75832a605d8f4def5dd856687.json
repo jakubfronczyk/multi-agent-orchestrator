@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT trust FROM memory_entries WHERE key = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "trust",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "trust"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "baf3c8e4e4d7674966b61a5d4478803c975ca0d75832a605d8f4def5dd856687"
+}

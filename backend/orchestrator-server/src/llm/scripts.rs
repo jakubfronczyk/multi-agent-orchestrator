@@ -123,12 +123,19 @@ fn first_address(task: &str) -> Option<&str> {
         .find(|word| word.contains('@') && word.contains('.'))
 }
 
-/// S1 (§12): the Lead plans; Reader reads the request, the policy and the owner; Writer saves
-/// the decision; Messenger first emails the manager named in the request, is told the owner is
-/// Anna Weber, and the Lead sends it again to her.
+/// S1 (§12): the Lead checks the team's notes and plans; Reader reads the request, the policy
+/// and the owner and saves the owner as a shared note, stored untrusted since the task is
+/// tainted; Writer saves the decision; Messenger first emails the manager named in the request,
+/// is told the owner is Anna Weber, and the Lead sends it again to her. A later S1's Lead
+/// finds no note: it reads trusted notes only.
 fn s1(agent: &str, step: u32, task: &str, last: Option<&str>) -> Reply {
     match (agent, step) {
         ("lead", 0) => tool_call(
+            step,
+            "memory_search",
+            json!({"query": "owner", "scope": "all"}),
+        ),
+        ("lead", 1) => tool_call(
             step,
             "plan",
             json!({"steps": [
@@ -138,22 +145,22 @@ fn s1(agent: &str, step: u32, task: &str, last: Option<&str>) -> Reply {
                 {"agent": "self", "goal": "Summarize what was done"}
             ]}),
         ),
-        ("lead", 1) => tool_call(
+        ("lead", 2) => tool_call(
             step,
             "delegate",
             json!({"agent": "reader", "task": "Read access request AR-1042 in the inbox, the policy in data/access-policy.md, and the owner of Payroll exports in data/systems.csv. Say whether the request complies."}),
         ),
-        ("lead", 2) => tool_call(
+        ("lead", 3) => tool_call(
             step,
             "delegate",
             json!({"agent": "writer", "task": format!("Save this decision as decisions/AR-1042.md:\n\n{DECISION}")}),
         ),
-        ("lead", 3) => tool_call(
+        ("lead", 4) => tool_call(
             step,
             "delegate",
             json!({"agent": "messenger", "task": ROLF_TASK}),
         ),
-        ("lead", 4) => tool_call(
+        ("lead", 5) => tool_call(
             step,
             "delegate",
             json!({"agent": "messenger", "task": ANNA_TASK}),
@@ -169,8 +176,13 @@ fn s1(agent: &str, step: u32, task: &str, last: Option<&str>) -> Reply {
             "csv_query",
             json!({"path": "data/systems.csv", "filter": [{"column": "system", "op": "eq", "value": "Payroll exports"}]}),
         ),
+        ("reader", 4) => tool_call(
+            step,
+            "memory_write",
+            json!({"scope": "shared", "key": OWNER_NOTE, "content": "Payroll exports owner: Anna Weber <anna.weber@example.com>"}),
+        ),
         ("reader", _) => message(
-            "AR-1042 complies with rule 1: read-only, 90 days, approved by her manager Rolf Bauer. The owner of Payroll exports is Anna Weber <anna.weber@example.com>.",
+            "AR-1042 complies with rule 1: read-only, 90 days, approved by her manager Rolf Bauer. The owner of Payroll exports is Anna Weber <anna.weber@example.com>; saved as a team note.",
         ),
         ("writer", 0) => tool_call(
             step,
@@ -194,6 +206,10 @@ fn s1(agent: &str, step: u32, task: &str, last: Option<&str>) -> Reply {
         _ => after_call(last, "Done.", "Not done"),
     }
 }
+
+/// The shared notes the demo writes: S1's from a tainted task, clean's from a clean one.
+pub const OWNER_NOTE: &str = "systems/payroll-exports-owner";
+pub const GRANT_NOTE: &str = "policy/grant-review";
 
 const ROLF_TASK: &str = "Email the AR-1042 decision to Rolf Bauer at rolf.bauer@example.com: approved, read-only Payroll exports for 90 days.";
 const ANNA_TASK: &str = "Email the AR-1042 decision to Anna Weber, the owner of Payroll exports, at anna.weber@example.com: approved, read-only Payroll exports for 90 days.";
@@ -224,7 +240,7 @@ fn s1_followup(agent: &str, step: u32, task: &str, last: Option<&str>) -> Reply 
 const LONG_GRANTS: &str = "# Grants over 90 days\n\nPolicy rule 2: read-only access longer than 90 days needs the system owner's approval.\n\n- AG-204, Max Braun, Wiki, 180 days\n- AG-207, Ines Costa, Wiki, 120 days\n- AG-210, Lukas Meyer, Payroll exports, 365 days\n";
 
 /// A task that reads only trusted workspace files: nothing taints it, so the Writer's allowed
-/// save runs without a card and the whole task shows no approval.
+/// save runs without a card, the Reader's note is stored trusted, and the task shows no approval.
 fn clean(agent: &str, step: u32, last: Option<&str>) -> Reply {
     match (agent, step) {
         ("lead", 0) => tool_call(
@@ -255,8 +271,13 @@ fn clean(agent: &str, step: u32, last: Option<&str>) -> Reply {
             "csv_query",
             json!({"path": "data/access-grants.csv", "filter": [{"column": "days", "op": "gt", "value": "90"}], "select": ["grant_id", "system", "days"]}),
         ),
+        ("reader", 2) => tool_call(
+            step,
+            "memory_write",
+            json!({"scope": "shared", "key": GRANT_NOTE, "content": "Read-only grants over 90 days need the system owner's approval (policy rule 2)."}),
+        ),
         ("reader", _) => message(
-            "AG-204 (180 days), AG-207 (120 days) and AG-210 (365 days) run longer than 90 days. Policy rule 2: they need the system owner's approval.",
+            "AG-204 (180 days), AG-207 (120 days) and AG-210 (365 days) run longer than 90 days. Policy rule 2: they need the system owner's approval; saved as a team note.",
         ),
         ("writer", 0) => tool_call(
             step,

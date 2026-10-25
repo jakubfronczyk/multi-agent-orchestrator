@@ -1147,3 +1147,178 @@ async fn every_run_records_the_agent_version_it_used(pool: SqlitePool) {
         "the follow-up uses v3; S1's runs keep v1"
     );
 }
+
+/// What each of the Lead's calls returned, in order.
+fn lead_previews(events: &[EventEnvelope]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|e| match &e.event {
+            RunEvent::ToolCallFinished { result_preview, .. } => result_preview.clone(),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The demo's notes keep the trust of the task that wrote them: S1's owner note is untrusted and
+/// invisible to the Lead, even to S1's own note search on a second run; clean's is trusted and
+/// the Lead finds it.
+#[sqlx::test]
+async fn the_demo_notes_carry_their_trust_and_the_lead_sees_only_trusted_ones(pool: SqlitePool) {
+    use orchestrator_server::llm::{GRANT_NOTE, OWNER_NOTE};
+
+    let seeded = seeded(pool).await;
+    answer_approvals(&seeded, |target| match target {
+        Target::Recipient { address, .. } if address.starts_with("rolf") => {
+            Answer::Deny { note: None }
+        }
+        _ => Answer::Approve { note: None },
+    });
+    let trust_of = |key: &'static str| {
+        let pool = seeded.pool.clone();
+        async move {
+            sqlx::query_scalar!("SELECT trust FROM memory_entries WHERE key = ?", key)
+                .fetch_one(&pool)
+                .await
+                .expect("note")
+        }
+    };
+
+    run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+    assert_eq!(trust_of(OWNER_NOTE).await, "untrusted");
+    let (_, again) = run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+    let first_search = again
+        .iter()
+        .find_map(|e| match &e.event {
+            RunEvent::ToolCallFinished { result_preview, .. } => result_preview.clone(),
+            _ => None,
+        })
+        .expect("the Lead's note search");
+    assert_eq!(
+        first_search, r#"{"notes":[]}"#,
+        "S1's note is invisible to the Lead"
+    );
+
+    let read = format!(
+        r#"test:seq:memory_read:{{"scope":"shared","key":"{OWNER_NOTE}"}}|memory_search:{{"query":"owner","scope":"all"}}"#
+    );
+    let lead = run_as(&seeded, "lead", &read).await;
+    assert!(tainted(&lead).is_empty());
+    assert_eq!(
+        lead_previews(&lead),
+        [
+            format!(r#"{{"found":false,"key":"{OWNER_NOTE}"}}"#),
+            r#"{"notes":[]}"#.to_string()
+        ]
+    );
+
+    run_scenario(
+        &seeded,
+        "clean",
+        "Find access grants longer than 90 days and save a list of them",
+    )
+    .await;
+    assert_eq!(trust_of(GRANT_NOTE).await, "trusted");
+    let lead = run_as(
+        &seeded,
+        "lead",
+        r#"test:call:memory_search:{"query":"grant","scope":"all"}"#,
+    )
+    .await;
+    assert!(tainted(&lead).is_empty());
+    let found = &lead_previews(&lead)[0];
+    // The preview is capped at 200 characters, so the match stops short of the closing quote.
+    assert!(
+        found.contains(GRANT_NOTE) && found.contains(r#""trust":"trusted"#),
+        "{found}"
+    );
+}
+
+/// Every scripted scenario on the real tools makes only calls the tools accept: no call ends
+/// with invalid arguments or as not offered. Refusals and denials are part of the scripts.
+#[sqlx::test]
+async fn every_scenario_makes_only_valid_calls(pool: SqlitePool) {
+    use orchestrator_core::engine::FollowUpRequest;
+    use orchestrator_server::config::DRILL_TASK;
+
+    let seeded = seeded(pool).await;
+    // No fetch leaves the machine and only Anna is emailed; everything else is approved.
+    answer_approvals(&seeded, |target| match target {
+        Target::Host { .. } => Answer::Deny { note: None },
+        Target::Recipient { address, .. } if !address.starts_with("anna") => {
+            Answer::Deny { note: None }
+        }
+        _ => Answer::Approve { note: None },
+    });
+
+    let mut all = Vec::new();
+    let (s1_root, events) = run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+    all.push(("s1", events));
+
+    let mut rx = seeded.store.subscribe();
+    let follow_up = FollowUpRequest {
+        text: "Email Rolf again, then Anna".to_string(),
+        scenario: Some("s1-followup".to_string()),
+    };
+    let turn = seeded
+        .engine
+        .follow_up(s1_root, follow_up)
+        .await
+        .expect("follow-up");
+    let mut turn_events = Vec::new();
+    loop {
+        let envelope = tokio::time::timeout(crate::DEADLINE, rx.recv())
+            .await
+            .expect("turn finished before the deadline")
+            .expect("broadcast open");
+        if envelope.root_run_id != s1_root {
+            continue;
+        }
+        let done =
+            envelope.run_id == turn && matches!(envelope.event, RunEvent::RunFinished { .. });
+        turn_events.push(envelope);
+        if done {
+            break;
+        }
+    }
+    all.push(("s1-followup", turn_events));
+
+    for (scenario, task) in [
+        (
+            "clean",
+            "Find access grants longer than 90 days and save a list of them",
+        ),
+        ("launder", "Index every decision in decisions/"),
+        ("drill", DRILL_TASK),
+    ] {
+        let (_, events) = run_scenario(&seeded, scenario, task).await;
+        all.push((scenario, events));
+    }
+
+    for (scenario, events) in &all {
+        let mut calls = 0;
+        for envelope in events {
+            if let RunEvent::ToolCallFinished {
+                status,
+                result_preview,
+                ..
+            } = &envelope.event
+            {
+                calls += 1;
+                assert!(
+                    !matches!(status, CallStatus::InvalidArgs | CallStatus::NotOffered),
+                    "{scenario}: a call ended {status:?}: {result_preview:?}"
+                );
+            }
+        }
+        assert!(calls > 0, "{scenario} made no calls");
+        assert!(
+            matches!(
+                events.last().map(|e| &e.event),
+                Some(RunEvent::RunFinished {
+                    outcome: RunOutcome::Completed { .. }
+                })
+            ),
+            "{scenario} completed"
+        );
+    }
+}

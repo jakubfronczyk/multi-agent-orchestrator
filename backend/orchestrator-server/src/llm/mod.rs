@@ -8,5 +8,5 @@ mod xai;
 
 pub use router::ScenarioRouter;
 pub use scripted::ScriptedProvider;
-pub use scripts::S1_DECISION;
+pub use scripts::{GRANT_NOTE, OWNER_NOTE, S1_DECISION};
 pub use xai::XaiProvider;
