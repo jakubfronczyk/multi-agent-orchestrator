@@ -4,6 +4,7 @@ import { runsQuery } from "@/api/runs"
 import { FilterPills } from "@/components/filter-pills"
 import { Page } from "@/components/page"
 import { TaskRow } from "@/components/task-row"
+import { useTeamScope } from "@/lib/team-scope"
 import { useInvalidateOn } from "@/events/use-invalidate-on"
 import type { RunSummary } from "@/generated/RunSummary"
 import { money } from "@/lib/thread-view"
@@ -56,15 +57,16 @@ export function TasksPage() {
   const [params, setParams] = useSearchParams()
   const raw = params.get("filter")
   const filter: Filter = isFilter(raw) ? raw : "all"
+  const team = useTeamScope()
 
-  const all = runs.data?.runs ?? []
+  const all = (runs.data?.runs ?? []).filter((run) => team.shows(run.team_id))
   const shown = filter === "all" ? all : all.filter((run) => category(run) === filter)
   const spend = shown.reduce((total, run) => total + run.cost_micros, 0)
 
   return (
     <Page
       title="Tasks"
-      lede={`Every task you've given, and how it ended. Open one to see the plan, what each teammate did, and to give Lead a follow-up.${
+      lede={`Every task you've given, and how it ended. Open one to see the plan, what each teammate did, and to give its Lead a follow-up.${
         runs.data
           ? ` Model spend for the ${shown.length} ${shown.length === 1 ? "task" : "tasks"} shown: ${money(spend)}.${
               all.length === LIMIT ? ` Showing the latest ${LIMIT}.` : ""
@@ -76,14 +78,25 @@ export function TasksPage() {
         label="Show tasks"
         options={FILTERS}
         value={filter}
-        onChange={(next) => setParams(next === "all" ? {} : { filter: next }, { replace: true })}
+        onChange={(next) =>
+          setParams(
+            (current) => {
+              const updated = new URLSearchParams(current)
+              if (next === "all") updated.delete("filter")
+              else updated.set("filter", next)
+              return updated
+            },
+            { replace: true },
+          )
+        }
       />
+      {team.pills}
       {runs.isPending ? null : runs.error ? (
         <p className="m-0 text-sm text-destructive">Couldn't load the tasks. {runs.error.message}</p>
       ) : shown.length > 0 ? (
         <div className="flex flex-col">
           {shown.map((run) => (
-            <TaskRow key={run.id} run={run} />
+            <TaskRow key={run.id} run={run} teamName={team.label(run.team_id)} />
           ))}
         </div>
       ) : (

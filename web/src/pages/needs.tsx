@@ -5,11 +5,13 @@ import { cn } from "cn"
 import { approvalsQuery } from "@/api/approvals"
 import { runsQuery } from "@/api/runs"
 import { AgentShape } from "@/components/agent-shape"
+import { FilterPills } from "@/components/filter-pills"
 import { Page } from "@/components/page"
 import { Slip } from "@/components/slip"
 import { useInvalidateOn } from "@/events/use-invalidate-on"
 import type { ApprovalView } from "@/generated/ApprovalView"
 import { useAgents } from "@/lib/agents"
+import { useTeamNames } from "@/lib/selected-team"
 import { actionCopy, APPROVAL_LABEL, toolLabel } from "@/lib/copy"
 import { sheetSearch } from "@/lib/how-this-happened"
 import { clockTime } from "@/lib/time"
@@ -32,7 +34,14 @@ export function NeedsPage() {
   // A card that was pending while this page was open stays in the stack once resolved, so its
   // outcome shows where it was answered instead of jumping to Earlier.
   const [seen, setSeen] = useState<ReadonlySet<string>>(new Set())
-  const approvals = all.data?.approvals ?? []
+  const names = useTeamNames()
+  // Never filtered by default: a card of a team not on screen would expire unseen.
+  const [teamFilter, setTeamFilter] = useState("all")
+  const everyApproval = all.data?.approvals ?? []
+  const pendingTeams = [...new Set(everyApproval.filter((a) => a.status === "pending").map((a) => a.team_id))]
+  // A team with no card left waiting falls back to all, so the pills and the list agree.
+  const shownTeam = pendingTeams.includes(teamFilter) ? teamFilter : "all"
+  const approvals = everyApproval.filter((a) => shownTeam === "all" || a.team_id === shownTeam)
   const pendingIds = approvals.filter((a) => a.status === "pending").map((a) => a.id)
   if (pendingIds.some((id) => !seen.has(id))) setSeen(new Set([...seen, ...pendingIds]))
 
@@ -48,6 +57,14 @@ export function NeedsPage() {
       title="Needs your OK"
       lede="Your team waits here for a yes or no when a setting or rule asks you: before sending, before opening a site not on your list, and before saving a file once a task has read outside content. If nobody answers before a card runs out, the answer is no."
     >
+      {names.many && pendingTeams.length > 0 && (
+        <FilterPills
+          label="Team"
+          options={[["all", "All teams"], ...pendingTeams.map((id): [string, string] => [id, names.nameOf(id) ?? "Team"])]}
+          value={shownTeam}
+          onChange={setTeamFilter}
+        />
+      )}
       <section aria-label="Waiting for you">
         {all.isPending ? null : all.error ? (
           <p className="m-0 text-sm text-destructive">Couldn't load the cards. {all.error.message}</p>

@@ -7,6 +7,8 @@ import { toolCallsQuery } from "@/api/tool-calls"
 import { AgentShape } from "@/components/agent-shape"
 import { CallRow } from "@/components/call-row"
 import { Page } from "@/components/page"
+import { TeamTag } from "@/components/team-tag"
+import { useTeamScope } from "@/lib/team-scope"
 import { useInvalidateOnToolFinished } from "@/events/use-invalidate-on-tool"
 import type { OutboxMessage } from "@/generated/OutboxMessage"
 import type { ToolCallView } from "@/generated/ToolCallView"
@@ -23,8 +25,11 @@ export function SentPage() {
   useInvalidateOnToolFinished(outboxQuery.queryKey, "send_message")
   useInvalidateOnToolFinished(SENDS.queryKey, "send_message")
 
-  const messages = [...(outbox.data?.messages ?? [])].sort((a, b) => b.sent_at.localeCompare(a.sent_at))
-  const calls = sends.data?.tool_calls ?? []
+  const team = useTeamScope()
+  const messages = [...(outbox.data?.messages ?? [])]
+    .filter((message) => team.shows(message.team_id))
+    .sort((a, b) => b.sent_at.localeCompare(a.sent_at))
+  const calls = (sends.data?.tool_calls ?? []).filter((call) => team.shows(call.team_id))
   const stopped = calls
     .filter((call) => call.phase === "finished" && call.status !== "ok")
     .sort((a, b) => b.requested_at.localeCompare(a.requested_at))
@@ -40,6 +45,8 @@ export function SentPage() {
         </div>
       </div>
 
+      {team.pills}
+
       <section aria-labelledby="sent-heading">
         <h2 id="sent-heading" className="m-0 mb-3 text-sm font-medium text-sidebar-foreground">
           Sent
@@ -49,7 +56,7 @@ export function SentPage() {
         ) : messages.length > 0 ? (
           <div className="flex flex-col gap-3">
             {messages.map((message) => (
-              <SentCard key={message.id} message={message} calls={calls} />
+              <SentCard key={message.id} message={message} calls={calls} teamName={team.label(message.team_id)} />
             ))}
           </div>
         ) : (
@@ -95,20 +102,22 @@ function StoppedRows({ calls }: { calls: ToolCallView[] }) {
 
 /**
  * One delivered message. Every send asked first (send_message is never Allow), so a message
- * in the outbox is one you said yes to. Its call is the run's successful send to the same
- * recipient, which opens the sheet.
+ * in the outbox is one you said yes to. Its call, named on the message, opens the sheet.
  */
-function SentCard({ message, calls }: { message: OutboxMessage; calls: ToolCallView[] }) {
+function SentCard({
+  message,
+  calls,
+  teamName,
+}: {
+  message: OutboxMessage
+  calls: ToolCallView[]
+  teamName?: string
+}) {
   const look = useAgents()
   const location = useLocation()
   const runs = useQuery(runsQuery())
-  const call = calls.find(
-    (c) =>
-      c.run_id === message.run_id &&
-      c.status === "ok" &&
-      c.action?.target.kind === "recipient" &&
-      c.action.target.address === message.recipient,
-  )
+  // The message names its own call, so two sends to one person in a run stay apart.
+  const call = calls.find((c) => c.id === message.tool_call_id)
   const agent = call ? look.byId(call.agent_id) : undefined
   const task = runs.data?.runs.find((run) => run.id === message.root_run_id)
   const link = "text-sm text-sidebar-foreground underline decoration-input underline-offset-[3px] hover:text-foreground"
@@ -119,7 +128,7 @@ function SentCard({ message, calls }: { message: OutboxMessage; calls: ToolCallV
         {agent ? <AgentShape icon={agent.icon} colour={agent.colour} size="md" className="mt-0.5" /> : <span />}
         <div className="min-w-0">
           <b className="block font-medium break-all">
-            {message.channel === "email" ? "Email" : "Chat message"} to {message.recipient}
+            {message.channel === "email" ? "Email" : "Chat message"} to {message.recipient} <TeamTag name={teamName} />
           </b>
           <small className="block text-sm text-muted-foreground">
             {dayTime(message.sent_at)}. You said yes.

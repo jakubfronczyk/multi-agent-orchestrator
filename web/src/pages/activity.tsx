@@ -4,6 +4,7 @@ import { runsQuery } from "@/api/runs"
 import { toolCallsQuery } from "@/api/tool-calls"
 import { CallRow } from "@/components/call-row"
 import { FilterPills } from "@/components/filter-pills"
+import { useTeamScope } from "@/lib/team-scope"
 import { Page } from "@/components/page"
 import { useInvalidateOn } from "@/events/use-invalidate-on"
 import type { ToolCallView } from "@/generated/ToolCallView"
@@ -66,6 +67,7 @@ export function ActivityPage() {
   const [params, setParams] = useSearchParams()
   const raw = params.get("filter")
   const filter: Filter = isFilter(raw) ? raw : "all"
+  const team = useTeamScope()
 
   const fromOutside = (call: ToolCallView) => call.status === "ok" && INBOX_AND_WEB.has(call.tool)
   const matches: Record<Filter, (call: ToolCallView) => boolean> = {
@@ -76,7 +78,7 @@ export function ActivityPage() {
     outside: fromOutside,
   }
 
-  const all = calls.data?.tool_calls ?? []
+  const all = (calls.data?.tool_calls ?? []).filter((call) => team.shows(call.team_id))
   const shown = all.filter(matches[filter])
   const groups: [string, ToolCallView[]][] = []
   for (const call of shown) {
@@ -98,8 +100,19 @@ export function ActivityPage() {
         label="Show activity"
         options={FILTERS}
         value={filter}
-        onChange={(next) => setParams(next === "all" ? {} : { filter: next }, { replace: true })}
+        onChange={(next) =>
+          setParams(
+            (current) => {
+              const updated = new URLSearchParams(current)
+              if (next === "all") updated.delete("filter")
+              else updated.set("filter", next)
+              return updated
+            },
+            { replace: true },
+          )
+        }
       />
+      {team.pills}
       {calls.isPending ? null : calls.error ? (
         <p className="m-0 text-sm text-destructive">Couldn't load the activity. {calls.error.message}</p>
       ) : groups.length > 0 ? (
@@ -109,6 +122,8 @@ export function ActivityPage() {
               <h2 className="m-0 px-3 pt-4 pb-1 text-sm font-medium text-muted-foreground">{label}</h2>
               {rows.map((call) => {
                 const task = runs.data?.runs.find((run) => run.id === call.root_run_id)
+                const title = task ? (task.title ?? task.task) : undefined
+                const teamName = team.label(call.team_id)
                 return (
                   <CallRow
                     key={call.id}
@@ -116,7 +131,7 @@ export function ActivityPage() {
                     taintSources={[]}
                     fromOutside={fromOutside(call)}
                     showAgent
-                    subtitle={task ? (task.title ?? task.task) : undefined}
+                    subtitle={teamName && title ? `${title}, ${teamName}` : (title ?? teamName)}
                   />
                 )
               })}

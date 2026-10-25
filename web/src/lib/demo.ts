@@ -65,7 +65,11 @@ export interface DemoStart {
   scenario?: string
   /** Shown instead of an error when the server answers 409. */
   conflict?: string
+  /** The teammates the script hands work to; the team's Lead must target each of them. */
+  slugs: string[]
 }
+
+const DESK = ["reader", "writer", "messenger"]
 
 export const DEMO_STARTS: DemoStart[] = [
   {
@@ -74,6 +78,7 @@ export const DEMO_STARTS: DemoStart[] = [
     detail: "Asks you to save, then to send",
     task: "Check access request AR-1042 against our policy and email the decision to the owner.",
     scenario: "s1",
+    slugs: DESK,
   },
   {
     id: "clean",
@@ -81,6 +86,7 @@ export const DEMO_STARTS: DemoStart[] = [
     detail: "Reads only trusted files, so nothing asks you",
     task: "List access grants over 90 days and the policy rule each falls under, and save the list under reports/.",
     scenario: "clean",
+    slugs: DESK,
   },
   {
     id: "launder",
@@ -90,6 +96,7 @@ export const DEMO_STARTS: DemoStart[] = [
     scenario: "launder",
     // The server refuses it until the access request demo has saved its decision.
     conflict: "Run the access request demo first",
+    slugs: DESK,
   },
-  { id: "drill", label: "Security drill", detail: "A vendor note tries to get your notes out" },
+  { id: "drill", label: "Security drill", detail: "A vendor note tries to get your notes out", slugs: ["reader", "messenger"] },
 ]

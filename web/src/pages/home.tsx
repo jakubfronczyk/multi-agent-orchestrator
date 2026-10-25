@@ -14,6 +14,8 @@ import { useInvalidateOn } from "@/events/use-invalidate-on"
 import { isApiError } from "@/lib/api"
 import { withAttachments } from "@/lib/copy"
 import { DEMO_STARTS, type DemoStart } from "@/lib/demo"
+import { useAgents } from "@/lib/agents"
+import { useSelectedTeam } from "@/lib/selected-team"
 
 const DEMO_ICON: Record<DemoStart["id"], LucideIcon> = {
   s1: Inbox,
@@ -33,14 +35,20 @@ export function HomePage() {
 
   const [text, setText] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const { team } = useSelectedTeam()
+  const look = useAgents(team?.id)
+  const lead = look.agents.find((agent) => agent.team_id === team?.id && agent.role === "lead")
+  // A demo plays fixed replies for named teammates, so it is offered only where the Lead has them.
+  const demos = DEMO_STARTS.filter((demo) => demo.slugs.every((slug) => lead?.delegate_targets.includes(slug)))
 
   const start = useMutation({
     mutationFn: async (demo: DemoStart | { task: string; draftOnly: boolean }) => {
+      const team_id = team?.id
       if ("id" in demo) {
-        if (demo.id === "drill") return startDrill()
-        return startRun({ task: demo.task ?? "", title: demo.label, scenario: demo.scenario })
+        if (demo.id === "drill") return startDrill(team_id)
+        return startRun({ task: demo.task ?? "", title: demo.label, scenario: demo.scenario, team_id })
       }
-      return startRun({ task: demo.task, draft_only: demo.draftOnly || undefined })
+      return startRun({ task: demo.task, draft_only: demo.draftOnly || undefined, team_id })
     },
   })
 
@@ -84,7 +92,7 @@ export function HomePage() {
   const windowMinutes = pending[0]
     ? Math.round((Date.parse(pending[0].expires_at) - Date.parse(pending[0].created_at)) / 60_000)
     : null
-  const recent = (runs.data?.runs ?? []).slice(0, 4)
+  const recent = (runs.data?.runs ?? []).filter((run) => run.team_id === team?.id).slice(0, 4)
   const calm = pending.length === 0
 
   return (
@@ -126,7 +134,7 @@ export function HomePage() {
             if (error) setError(null)
           }}
           onSubmit={submit}
-          placeholder="Describe a task, like you would to a colleague"
+          placeholder={team ? `Describe a task for ${team.name}, like you would to a colleague` : "Describe a task, like you would to a colleague"}
           label="New task"
           sending={start.isPending}
           modePicker
@@ -141,7 +149,7 @@ export function HomePage() {
           )}
         </Composer>
         <p className="m-0 text-center text-sm text-muted-foreground">
-          Lead plans it and hands it out. Your team asks you before sending, before opening a site not on your list,
+          {lead?.name ?? "Lead"} plans it and hands it out. Your team asks you before sending, before opening a site not on your list,
           and before saving a file once a task has read outside content.
           {health.data && (
             <>
@@ -152,25 +160,33 @@ export function HomePage() {
             </>
           )}
         </p>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <span className="mr-1 text-sm text-muted-foreground">Free scripted demos</span>
-          {DEMO_STARTS.map((demo) => {
-            const Icon = DEMO_ICON[demo.id]
-            return (
-              <button
-                key={demo.id}
-                type="button"
-                title={demo.detail}
-                disabled={start.isPending}
-                onClick={() => void runDemo(demo)}
-                className="inline-flex h-8 items-center gap-2 rounded-full px-3 text-sm text-sidebar-foreground ring-1 ring-border ring-inset hover:text-foreground hover:ring-input disabled:opacity-60"
-              >
-                <Icon className="size-4" />
-                {demo.label}
-              </button>
-            )
-          })}
-        </div>
+        {demos.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <span className="mr-1 text-sm text-muted-foreground">Free scripted demos</span>
+            {demos.map((demo) => {
+              const Icon = DEMO_ICON[demo.id]
+              return (
+                <button
+                  key={demo.id}
+                  type="button"
+                  title={demo.detail}
+                  disabled={start.isPending}
+                  onClick={() => void runDemo(demo)}
+                  className="inline-flex h-8 items-center gap-2 rounded-full px-3 text-sm text-sidebar-foreground ring-1 ring-border ring-inset hover:text-foreground hover:ring-input disabled:opacity-60"
+                >
+                  <Icon className="size-4" />
+                  {demo.label}
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          team && (
+            <p className="m-0 text-center text-sm text-muted-foreground">
+              The free demos need a Lead that hands work to teammates named reader, writer and messenger.
+            </p>
+          )
+        )}
       </section>
 
       {recent.length > 0 && (

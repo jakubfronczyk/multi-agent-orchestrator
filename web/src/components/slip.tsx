@@ -6,12 +6,14 @@ import { cn } from "cn"
 import { answerApproval } from "@/api/approvals"
 import { runsQuery } from "@/api/runs"
 import { AgentShape } from "@/components/agent-shape"
+import { TeamTag } from "@/components/team-tag"
 import { refetchNow } from "@/events/refetch"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import type { AnswerDecision } from "@/generated/AnswerDecision"
 import type { ApprovalView } from "@/generated/ApprovalView"
 import { useAgents } from "@/lib/agents"
+import { useTeamNames } from "@/lib/selected-team"
 import { isApiError } from "@/lib/api"
 import {
   actionCopy,
@@ -39,6 +41,7 @@ const TONE = {
  */
 export function Slip({ approval }: { approval: ApprovalView }) {
   const look = useAgents(approval.team_id)
+  const names = useTeamNames()
   const location = useLocation()
   const client = useQueryClient()
   const runs = useQuery(runsQuery())
@@ -143,7 +146,9 @@ export function Slip({ approval }: { approval: ApprovalView }) {
       <div className="flex min-w-0 flex-col gap-2 p-5">
         <span className="text-sm text-muted-foreground">
           <b className="font-medium text-sidebar-foreground">{agentName}</b> wants to {copy.verb}
-          {taskTitle && <>, in {taskTitle}</>}
+          {taskTitle && <>, in {taskTitle}</>}{" "}
+          {/* One approver answers every team's cards, so each names its team once there are several. */}
+          {names.many && <TeamTag name={names.nameOf(approval.team_id)} />}
         </span>
         <h3 className="m-0 text-base leading-snug font-semibold break-words">{capitalize(copy.ask)}?</h3>
         {sources.length > 0 && (

@@ -1,6 +1,7 @@
 import { Link } from "react-router"
 import { cn } from "cn"
 import { AgentShape } from "@/components/agent-shape"
+import { TeamTag } from "@/components/team-tag"
 import type { RunSummary } from "@/generated/RunSummary"
 import { useAgents } from "@/lib/agents"
 import { clockTime, dayTime } from "@/lib/time"
@@ -47,7 +48,7 @@ function subtitle(run: RunSummary): string | null {
 const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
 
 /** One task as a row that opens its thread: agents, title, outcome line, status, time, cost. */
-export function TaskRow({ run }: { run: RunSummary }) {
+export function TaskRow({ run, teamName }: { run: RunSummary; teamName?: string }) {
   const look = useAgents()
   const status = rowStatus(run)
   const running = run.status === "running"
@@ -64,7 +65,9 @@ export function TaskRow({ run }: { run: RunSummary }) {
         })}
       </span>
       <span className="row-span-2 min-w-0">
-        <b className="block truncate text-base font-medium">{run.title ?? run.task}</b>
+        <b className="block truncate text-base font-medium">
+          {run.title ?? run.task} <TeamTag name={teamName} />
+        </b>
         {subtitle(run) && <small className="block truncate text-sm text-muted-foreground">{subtitle(run)}</small>}
       </span>
       <span className={cn("justify-self-end text-sm whitespace-nowrap", TONE_CLASS[status.tone])}>{status.text}</span>
