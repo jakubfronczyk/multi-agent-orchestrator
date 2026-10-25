@@ -11,6 +11,7 @@ use sqlx::SqlitePool;
 
 use crate::sqlite::text::from_text;
 
+pub mod csv;
 pub mod fetch;
 pub mod files;
 pub mod memory;
@@ -27,7 +28,7 @@ pub fn all(pool: SqlitePool, workspace: files::Workspace) -> ToolSet {
         Arc::new(files::FileList::new(workspace.clone())),
         Arc::new(files::FileRead::new(workspace.clone())),
         Arc::new(files::FileWrite::new(workspace.clone())),
-        Arc::new(files::CsvQuery::new(workspace)),
+        Arc::new(csv::CsvQuery::new(workspace)),
         Arc::new(messages::InboxList::new(pool.clone())),
         Arc::new(messages::InboxRead::new(pool.clone())),
         Arc::new(messages::SendMessage::new(pool)),

@@ -1,7 +1,6 @@
-//! File tools over the workspace sandbox: list, read, write and a small CSV query.
+//! File tools over the workspace sandbox: list, read and write; `csv` holds the CSV query.
 //! Error messages name the path or the argument, never file contents (§6 rule 4).
 
-use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -29,7 +28,6 @@ use crate::sqlite::text::{timestamp, to_text};
 const TIMEOUT: Duration = Duration::from_secs(5);
 const FILE_BYTES: usize = 256 * 1024;
 const LIST_LIMIT: usize = 500;
-const ROW_LIMIT: usize = 200;
 const WRITABLE: [&str; 4] = ["md", "csv", "json", "txt"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -145,7 +143,10 @@ impl Workspace {
     }
 
     /// A file's text and stored trust, read together under the shared lock.
-    async fn read_with_trust(&self, path: &str) -> Result<(String, Option<String>), ToolError> {
+    pub(super) async fn read_with_trust(
+        &self,
+        path: &str,
+    ) -> Result<(String, Option<String>), ToolError> {
         let _shared = self.lock.read().await;
         let text = self.read_text(path).await?;
         Ok((text, self.trust_of(path).await?))
@@ -212,14 +213,14 @@ impl Workspace {
 }
 
 /// The path as stored and shown: relative, `/`-separated, no `.` parts.
-fn display(path: &Path) -> String {
+pub(super) fn display(path: &Path) -> String {
     path.components()
         .map(|part| part.as_os_str().to_string_lossy())
         .collect::<Vec<_>>()
         .join("/")
 }
 
-fn file_action(verb: &str, path: &str) -> Result<Action, ToolError> {
+pub(super) fn file_action(verb: &str, path: &str) -> Result<Action, ToolError> {
     Ok(Action {
         verb: verb.to_string(),
         target: Target::File {
@@ -252,45 +253,6 @@ struct WriteArgs {
     content: String,
 }
 
-#[derive(Clone, Copy, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-enum FilterOp {
-    Eq,
-    Ne,
-    Contains,
-    Gt,
-    Lt,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct Filter {
-    /// A column name from the header row.
-    column: String,
-    /// `eq`, `ne`, `contains`, `gt` or `lt`; `gt` and `lt` compare numbers when both sides are numbers.
-    op: FilterOp,
-    value: String,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct CsvArgs {
-    /// A .csv file inside the workspace.
-    path: String,
-    /// Rows must match every filter.
-    #[serde(default)]
-    filter: Vec<Filter>,
-    /// Columns to return; all columns when absent.
-    #[serde(default)]
-    select: Vec<String>,
-    /// Count matching rows per value of this column.
-    #[serde(default)]
-    group_by: Option<String>,
-    /// Return only the number of matching rows.
-    #[serde(default)]
-    count: bool,
-}
-
 pub struct FileList {
     workspace: Workspace,
     spec: ToolSpec,
@@ -302,11 +264,6 @@ pub struct FileRead {
 }
 
 pub struct FileWrite {
-    workspace: Workspace,
-    spec: ToolSpec,
-}
-
-pub struct CsvQuery {
     workspace: Workspace,
     spec: ToolSpec,
 }
@@ -339,16 +296,6 @@ impl FileWrite {
         Self {
             workspace,
             spec: spec::<WriteArgs>(ToolName::FileWrite, purpose, TIMEOUT),
-        }
-    }
-}
-
-impl CsvQuery {
-    pub fn new(workspace: Workspace) -> Self {
-        let purpose = "Filter, select, count or group the rows of a CSV file in the workspace. No expressions.";
-        Self {
-            workspace,
-            spec: spec::<CsvArgs>(ToolName::CsvQuery, purpose, TIMEOUT),
         }
     }
 }
@@ -502,120 +449,13 @@ impl Tool for FileWrite {
     }
 }
 
-#[async_trait]
-impl Tool for CsvQuery {
-    fn spec(&self) -> &ToolSpec {
-        &self.spec
-    }
-
-    fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: CsvArgs = parse_args(args)?;
-        if !args.path.to_ascii_lowercase().ends_with(".csv") {
-            return Err(ToolError::InvalidArgs(
-                "path: must be a .csv file".to_string(),
-            ));
-        }
-        file_action("query", &args.path)
-    }
-
-    async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: CsvArgs = parse_args(&args)?;
-        let path = display(&relative(&args.path)?);
-        let (text, trust) = self.workspace.read_with_trust(&path).await?;
-        let not_csv = || ToolError::Failed(format!("{path} is not valid CSV"));
-        let mut reader = csv::Reader::from_reader(text.as_bytes());
-        let headers: Vec<String> = reader
-            .headers()
-            .map_err(|_| not_csv())?
-            .iter()
-            .map(str::to_string)
-            .collect();
-        let column = |name: &str| {
-            headers
-                .iter()
-                .position(|h| h == name)
-                .ok_or_else(|| ToolError::InvalidArgs(format!("unknown column: {name}")))
-        };
-
-        let filters = args
-            .filter
-            .iter()
-            .map(|f| Ok((column(&f.column)?, f.op, f.value.as_str())))
-            .collect::<Result<Vec<_>, ToolError>>()?;
-        let mut matching = Vec::new();
-        for record in reader.records() {
-            let record = record.map_err(|_| not_csv())?;
-            let keep = filters
-                .iter()
-                .all(|(index, op, value)| matches(record.get(*index).unwrap_or(""), *op, value));
-            if keep {
-                matching.push(record);
-            }
-        }
-
-        let result = if let Some(group) = &args.group_by {
-            let index = column(group)?;
-            let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-            for record in &matching {
-                *counts
-                    .entry(record.get(index).unwrap_or("").to_string())
-                    .or_insert(0) += 1;
-            }
-            json!({ "group_by": group, "counts": counts })
-        } else if args.count {
-            json!({ "count": matching.len() })
-        } else {
-            let selected = if args.select.is_empty() {
-                (0..headers.len()).collect()
-            } else {
-                args.select
-                    .iter()
-                    .map(|name| column(name))
-                    .collect::<Result<Vec<_>, ToolError>>()?
-            };
-            let rows: Vec<Vec<&str>> = matching
-                .iter()
-                .take(ROW_LIMIT)
-                .map(|record| {
-                    selected
-                        .iter()
-                        .map(|i| record.get(*i).unwrap_or(""))
-                        .collect()
-                })
-                .collect();
-            let columns: Vec<&str> = selected.iter().map(|i| headers[*i].as_str()).collect();
-            json!({ "columns": columns, "rows": rows, "total": matching.len() })
-        };
-
-        Ok(ToolOutput {
-            content: result,
-            taint: file_taint(&path, trust.as_deref()),
-        })
-    }
-}
-
 /// A file read back from storage taints the reader unless its row says trusted.
-fn file_taint(path: &str, trust: Option<&str>) -> Vec<TaintSource> {
+pub(super) fn file_taint(path: &str, trust: Option<&str>) -> Vec<TaintSource> {
     if is_trusted(trust) {
         Vec::new()
     } else {
         vec![TaintSource::File {
             path: path.to_string(),
         }]
-    }
-}
-
-fn matches(cell: &str, op: FilterOp, value: &str) -> bool {
-    let numbers = cell
-        .trim()
-        .parse::<f64>()
-        .ok()
-        .zip(value.trim().parse::<f64>().ok());
-    match op {
-        FilterOp::Eq => cell == value,
-        FilterOp::Ne => cell != value,
-        FilterOp::Contains => cell.to_lowercase().contains(&value.to_lowercase()),
-        FilterOp::Gt => numbers.map_or(cell > value, |(c, v)| c > v),
-        FilterOp::Lt => numbers.map_or(cell < value, |(c, v)| c < v),
     }
 }
