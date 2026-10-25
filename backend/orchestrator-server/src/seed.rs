@@ -109,8 +109,8 @@ async fn seed_workspace(pool: &SqlitePool, root: &Path) -> Result<(), SeedError>
     Ok(())
 }
 
-/// The trifecta is split: Reader reads outside content but cannot send, Messenger sends but
-/// only with approval, and the Lead touches no outside content at all, stored notes included.
+/// No agent reads outside content and sends unchecked: Reader reads but cannot send, Messenger
+/// sends but only with approval, and the Lead touches no outside content, stored notes included.
 fn team() -> Vec<AgentInput> {
     use Decision::{Allow, Ask, Deny};
     let memory = [

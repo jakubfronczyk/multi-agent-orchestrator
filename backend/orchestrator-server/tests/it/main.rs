@@ -117,7 +117,7 @@ fn lead() -> AgentInput {
     }
 }
 
-/// The seed's split of the trifecta: Reader reads outside content but cannot send; Messenger
+/// The seed's roles: Reader reads outside content but cannot send; Messenger
 /// sends but only with approval; Writer saves files without asking until the task is tainted.
 fn drill_team() -> Vec<AgentInput> {
     let agent = |slug: &str, tools: &[(ToolName, Decision)]| AgentInput {
