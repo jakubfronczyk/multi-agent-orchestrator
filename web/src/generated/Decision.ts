@@ -2,5 +2,8 @@
 
 /**
  * An agent's setting for one tool. A tool with no decision is off and not offered.
+ *
+ * The variant order is the policy: `Allow < Ask < Deny`, and `decide` takes the `max`
+ * as the strictest. Reordering these variants would silently flip every verdict.
  */
 export type Decision = "allow" | "ask" | "deny";

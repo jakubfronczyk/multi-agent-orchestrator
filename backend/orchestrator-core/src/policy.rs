@@ -6,7 +6,14 @@ use ts_rs::TS;
 
 use crate::tools::Action;
 
+mod decide;
+
+pub use decide::decide;
+
 /// An agent's setting for one tool. A tool with no decision is off and not offered.
+///
+/// The variant order is the policy: `Allow < Ask < Deny`, and `decide` takes the `max`
+/// as the strictest. Reordering these variants would silently flip every verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -62,11 +69,17 @@ pub enum TaintSource {
 #[ts(export)]
 pub enum Rule {
     AgentPolicy,
-    OffAllowlist { host: String },
-    Taint { source: TaintSource },
+    OffAllowlist {
+        host: String,
+    },
+    Taint {
+        source: TaintSource,
+    },
     NotOffered,
     InvalidArgs,
     RepeatOfRefused,
+    /// An external call the agent allows; external effects always ask.
+    ExternalEffect,
 }
 
 pub struct Facts<'a> {
