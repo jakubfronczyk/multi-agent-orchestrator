@@ -34,7 +34,12 @@ task_sources: Array<TaintSource>, title: string | null,
 /**
  * Set on the root run only.
  */
-budget: Micros | null, } } | { "type": "plan_recorded", "data": { steps: Array<PlanStep>, } } | { "type": "llm_requested", "data": { step: number, } } | { "type": "llm_responded", "data": { step: number, text: string | null, usage: Usage, cost: Micros, } } | { "type": "llm_retrying", "data": { step: number, attempt: number, message: string, } } | { "type": "tool_call_requested", "data": { call_id: ToolCallId, 
+budget: Micros | null, 
+/**
+ * The scripted replies a top-level run plays; `None` for the live model and for
+ * delegated runs, which play their caller's.
+ */
+scenario: string | null, } } | { "type": "plan_recorded", "data": { steps: Array<PlanStep>, } } | { "type": "llm_requested", "data": { step: number, } } | { "type": "llm_responded", "data": { step: number, text: string | null, usage: Usage, cost: Micros, } } | { "type": "llm_retrying", "data": { step: number, attempt: number, message: string, } } | { "type": "tool_call_requested", "data": { call_id: ToolCallId, 
 /**
  * The name as the model sent it; it may not be a real tool.
  */

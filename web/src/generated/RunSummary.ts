@@ -10,6 +10,10 @@ import type { RunStatus } from "./RunStatus";
  */
 export type RunSummary = { id: RunId, agent_id: AgentId, title: string | null, task: string, status: RunStatus, outcome: RunOutcome | null, started_at: string, finished_at: string | null, 
 /**
+ * The scripted replies the root run played; `None` when it ran on the live model.
+ */
+scenario: string | null, 
+/**
  * Approvals in the task still waiting for a person.
  */
 pending_approvals: number, 

@@ -16,6 +16,8 @@ const LIST_LIMIT: u32 = 200;
 pub struct OutboxMessage {
     pub id: String,
     pub run_id: RunId,
+    /// The task's root run, so a row can open its task.
+    pub root_run_id: RunId,
     /// `email` or `chat`.
     pub channel: String,
     pub recipient: String,
@@ -33,8 +35,9 @@ pub struct OutboxList {
 /// Sent messages, newest first, at most 200.
 pub async fn list(pool: &SqlitePool) -> Result<OutboxList, ReadError> {
     let rows = sqlx::query!(
-        "SELECT id, run_id, channel, recipient, subject, body, sent_at
-         FROM outbox_messages ORDER BY sent_at DESC, id DESC LIMIT ?",
+        "SELECT o.id, o.run_id, r.root_run_id, o.channel, o.recipient, o.subject, o.body, o.sent_at
+         FROM outbox_messages o JOIN runs r ON r.id = o.run_id
+         ORDER BY o.sent_at DESC, o.id DESC LIMIT ?",
         LIST_LIMIT
     )
     .fetch_all(pool)
@@ -45,6 +48,7 @@ pub async fn list(pool: &SqlitePool) -> Result<OutboxList, ReadError> {
             Ok(OutboxMessage {
                 id: row.id,
                 run_id: from_text(&row.run_id).map_err(corrupt)?,
+                root_run_id: from_text(&row.root_run_id).map_err(corrupt)?,
                 channel: row.channel,
                 recipient: row.recipient,
                 subject: row.subject,

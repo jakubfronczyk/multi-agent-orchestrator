@@ -130,6 +130,7 @@ mod tests {
             task_sources: Vec::new(),
             title: None,
             budget: Some(Micros(9)),
+            scenario: None,
         }
     }
 

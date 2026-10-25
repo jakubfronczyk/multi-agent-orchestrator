@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT r.id, r.agent_id, r.title, r.task, l.status, l.outcome, r.started_at, l.finished_at,\n                  (SELECT COUNT(*) FROM approvals a\n                     JOIN tool_calls t ON t.id = a.tool_call_id\n                     JOIN runs c ON c.id = t.run_id\n                    WHERE c.root_run_id = r.id AND a.status = ?1) AS \"pending!: i64\",\n                  (SELECT json_group_array(DISTINCT c.agent_id) FROM runs c\n                    WHERE c.root_run_id = r.id) AS \"agents!: String\",\n                  (SELECT COUNT(*) FROM tool_calls t\n                     JOIN runs c ON c.id = t.run_id\n                    WHERE c.root_run_id = r.id AND t.status IN (?2, ?3)) AS \"refusals!: i64\",\n                  (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e\n                    WHERE e.root_run_id = r.id AND e.type = ?4) AS \"cost!: i64\"\n           FROM runs r\n           JOIN runs l ON l.id = (SELECT t.id FROM runs t\n                                   WHERE t.root_run_id = r.id AND t.parent_run_id IS NULL\n                                   ORDER BY t.started_at DESC, t.id DESC LIMIT 1)\n           WHERE r.id = r.root_run_id\n           ORDER BY r.started_at DESC, r.id DESC\n           LIMIT ?5",
+  "query": "SELECT r.id, r.agent_id, r.title, r.task, l.status, l.outcome, r.started_at, l.finished_at,\n                  r.scenario,\n                  (SELECT COUNT(*) FROM approvals a\n                     JOIN tool_calls t ON t.id = a.tool_call_id\n                     JOIN runs c ON c.id = t.run_id\n                    WHERE c.root_run_id = r.id AND a.status = ?1) AS \"pending!: i64\",\n                  (SELECT json_group_array(DISTINCT c.agent_id) FROM runs c\n                    WHERE c.root_run_id = r.id) AS \"agents!: String\",\n                  (SELECT COUNT(*) FROM tool_calls t\n                     JOIN runs c ON c.id = t.run_id\n                    WHERE c.root_run_id = r.id AND t.status IN (?2, ?3)) AS \"refusals!: i64\",\n                  (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e\n                    WHERE e.root_run_id = r.id AND e.type = ?4) AS \"cost!: i64\"\n           FROM runs r\n           JOIN runs l ON l.id = (SELECT t.id FROM runs t\n                                   WHERE t.root_run_id = r.id AND t.parent_run_id IS NULL\n                                   ORDER BY t.started_at DESC, t.id DESC LIMIT 1)\n           WHERE r.id = r.root_run_id\n           ORDER BY r.started_at DESC, r.id DESC\n           LIMIT ?5",
   "describe": {
     "columns": [
       {
@@ -92,26 +92,37 @@
         }
       },
       {
-        "name": "pending!: i64",
+        "name": "scenario",
         "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "scenario"
+          }
+        }
+      },
+      {
+        "name": "pending!: i64",
+        "ordinal": 9,
         "type_info": "Integer",
         "origin": "Expression"
       },
       {
         "name": "agents!: String",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": "Expression"
       },
       {
         "name": "refusals!: i64",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Integer",
         "origin": "Expression"
       },
       {
         "name": "cost!: i64",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Integer",
         "origin": "Expression"
       }
@@ -128,11 +139,12 @@
       true,
       false,
       true,
+      true,
       false,
       true,
       false,
       false
     ]
   },
-  "hash": "d71040ab28da923b383d031264f8165c2a96b29c0d69ef67dad6ddd2b9efe266"
+  "hash": "ba8f667d415685e8862103959fc59f98ef2dc58b44c29406088834203b957192"
 }

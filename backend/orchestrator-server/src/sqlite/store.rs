@@ -120,6 +120,7 @@ async fn project(
             task_sources,
             title,
             budget: _,
+            scenario,
         } => {
             let task_sources = json(task_sources)?;
             let root = text(&at.root_run_id)?;
@@ -129,8 +130,8 @@ async fn project(
             let status = text(&RunStatus::Running)?;
             exactly_one(
                 sqlx::query!(
-                    "INSERT INTO runs (id, root_run_id, parent_run_id, parent_call_id, agent_id, title, task, task_sources, status, started_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO runs (id, root_run_id, parent_run_id, parent_call_id, agent_id, title, task, task_sources, scenario, status, started_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     run_id,
                     root,
                     parent,
@@ -139,6 +140,7 @@ async fn project(
                     title,
                     task,
                     task_sources,
+                    scenario,
                     status,
                     ts
                 )
@@ -372,6 +374,7 @@ mod tests {
             task_sources: Vec::new(),
             title: None,
             budget: None,
+            scenario: None,
         };
         store.emit(at, event).await.expect("run started");
         at

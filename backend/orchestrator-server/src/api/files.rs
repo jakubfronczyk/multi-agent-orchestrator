@@ -3,6 +3,7 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
+use orchestrator_core::ids::RunId;
 use orchestrator_core::policy::Trust;
 use orchestrator_core::tools::ToolError;
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,8 @@ pub struct FileEntryView {
     pub kind: EntryKind,
     pub bytes: u64,
     pub trust: Trust,
+    /// The root run of the task that last wrote the file; null for seeded files and for directories.
+    pub written_by_root_run_id: Option<RunId>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -39,6 +42,8 @@ pub enum FileView {
         path: String,
         content: String,
         trust: Trust,
+        /// The root run of the task that last wrote the file; null for seeded files.
+        written_by_root_run_id: Option<RunId>,
     },
 }
 
@@ -66,16 +71,19 @@ pub async fn view(
                         } else {
                             Trust::Trusted
                         },
+                        written_by_root_run_id: entry.written_by_root_run_id,
                     })
                     .collect(),
             }
         }
         Some(EntryKind::File | EntryKind::Symlink) => {
-            let (content, trust) = workspace.read(&path).await.map_err(tool_error)?;
+            let (content, trust, written_by_root_run_id) =
+                workspace.read(&path).await.map_err(tool_error)?;
             FileView::File {
                 path,
                 content,
                 trust,
+                written_by_root_run_id,
             }
         }
     };

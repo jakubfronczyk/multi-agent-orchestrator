@@ -287,6 +287,7 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
         task_sources: Vec::new(),
         title: None,
         budget: None,
+        scenario: None,
     };
     app.store.emit(at, started).await.expect("run row");
     orchestrator_core::tools::ToolCtx {

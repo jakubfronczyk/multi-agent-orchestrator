@@ -279,3 +279,53 @@ async fn a_trusted_note_overwritten_by_a_tainted_task_is_gone_for_the_lead(pool:
         (Some(2), Some("untrusted"))
     );
 }
+
+/// A note written by a delegated run lists the task's root next to the run that wrote it.
+#[sqlx::test]
+async fn a_delegated_runs_note_version_names_the_task(pool: SqlitePool) {
+    use orchestrator_core::ids::RunId;
+    use orchestrator_core::runs::RunEvent;
+    use orchestrator_core::store::{RunRef, Store};
+    use orchestrator_server::sqlite::memory;
+
+    let app = app(pool.clone()).await;
+    let root_ctx = ctx_for(&app, "helper").await;
+    let child = RunId::new();
+    let started = RunEvent::RunStarted {
+        agent_id: root_ctx.agent_id,
+        parent_run_id: Some(root_ctx.run_id),
+        parent_call_id: None,
+        task: "t".to_string(),
+        task_sources: Vec::new(),
+        title: None,
+        budget: None,
+        scenario: None,
+    };
+    let at = RunRef {
+        root_run_id: root_ctx.root_run_id,
+        run_id: child,
+    };
+    app.store.emit(at, started).await.expect("child run");
+    let child_ctx = ToolCtx {
+        run_id: child,
+        ..root_ctx.clone()
+    };
+    call(
+        &MemoryWrite::new(pool.clone()),
+        &child_ctx,
+        json!({"scope": "shared", "key": "status", "content": "done"}),
+    )
+    .await;
+
+    let entry = sqlx::query_scalar!("SELECT id FROM memory_entries WHERE key = 'status'")
+        .fetch_one(&pool)
+        .await
+        .expect("entry");
+    let versions = memory::versions(&pool, &entry)
+        .await
+        .expect("read")
+        .expect("note")
+        .versions;
+    assert_eq!(versions[0].run_id, child);
+    assert_eq!(versions[0].root_run_id, root_ctx.root_run_id);
+}

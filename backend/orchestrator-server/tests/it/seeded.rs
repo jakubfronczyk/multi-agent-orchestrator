@@ -975,3 +975,71 @@ async fn scenario_tasks_stay_scripted_when_a_live_provider_is_set(pool: SqlitePo
         "free text is live"
     );
 }
+
+/// Records made by delegated runs name their task's root, so global lists can open the task;
+/// the task list keeps the root's scenario and leaves it empty for a typed task.
+#[sqlx::test]
+async fn records_name_their_task_and_the_list_keeps_the_scenario(pool: SqlitePool) {
+    use orchestrator_server::sqlite::{outbox, runs};
+
+    let seeded = seeded(pool).await;
+    answer_approvals(&seeded, |target| match target {
+        Target::Recipient { address, .. } if address.starts_with("rolf") => {
+            Answer::Deny { note: None }
+        }
+        _ => Answer::Approve { note: None },
+    });
+    let (root, _) = run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+
+    let calls = runs::tool_calls(&seeded.pool, runs::ToolCallFilter::default(), 100)
+        .await
+        .expect("calls")
+        .tool_calls;
+    assert!(
+        calls.iter().any(|call| call.run_id != root),
+        "a child's call is listed"
+    );
+    assert!(calls.iter().all(|call| call.root_run_id == root));
+
+    let sent = outbox::list(&seeded.pool).await.expect("outbox").messages;
+    assert_eq!(sent.len(), 1, "only the send to Anna was approved");
+    assert_ne!(sent[0].run_id, root, "the Messenger sent it");
+    assert_eq!(sent[0].root_run_id, root);
+
+    let workspace = Workspace::new(seeded.temp.workspace(), seeded.pool.clone());
+    let (_, _, saved_by) = workspace.read("decisions/AR-1042.md").await.expect("read");
+    assert_eq!(saved_by, Some(root), "the Writer saved it in S1");
+    let (_, _, seeded_by) = workspace.read("data/access-policy.md").await.expect("read");
+    assert_eq!(seeded_by, None, "seeded files have no writer");
+    let top = workspace.list(".").await.expect("list");
+    let decisions = top.iter().find(|e| e.name == "decisions").expect("dir");
+    assert_eq!(
+        decisions.written_by_root_run_id, None,
+        "directories have no writer"
+    );
+    let saved = workspace.list("decisions").await.expect("list");
+    assert_eq!(saved[0].written_by_root_run_id, Some(root));
+
+    let mut rx = seeded.store.subscribe();
+    let typed = seeded
+        .engine
+        .start(StartRequest {
+            agent_id: None,
+            task: "say hi".to_string(),
+            title: None,
+            budget: None,
+            scenario: None,
+        })
+        .await
+        .expect("start");
+    task_events(&mut rx, typed).await;
+    let list = runs::list(&seeded.pool, 10).await.expect("list").runs;
+    let scenario_of = |id: RunId| {
+        list.iter()
+            .find(|run| run.id == id)
+            .map(|run| run.scenario.clone())
+            .expect("listed")
+    };
+    assert_eq!(scenario_of(root).as_deref(), Some("s1"));
+    assert_eq!(scenario_of(typed), None);
+}

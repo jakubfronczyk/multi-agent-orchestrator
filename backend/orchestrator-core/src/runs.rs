@@ -30,6 +30,10 @@ pub enum RunEvent {
         title: Option<String>,
         /// Set on the root run only.
         budget: Option<Micros>,
+        /// The scripted replies a top-level run plays; `None` for the live model and for
+        /// delegated runs, which play their caller's.
+        #[serde(default)]
+        scenario: Option<String>,
     },
     PlanRecorded {
         steps: Vec<PlanStep>,

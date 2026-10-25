@@ -42,6 +42,7 @@ CREATE TABLE runs (
     title         TEXT,
     task          TEXT NOT NULL,                -- the task text, plain
     task_sources  TEXT NOT NULL DEFAULT '[]',   -- JSON, the taint a delegated task carried
+    scenario      TEXT,                         -- scripted replies of a top-level run; null for the live model
     status        TEXT NOT NULL,                -- RunStatus
     outcome       TEXT,                         -- JSON RunOutcome once finished
     taint_sources TEXT,                         -- JSON, root run only

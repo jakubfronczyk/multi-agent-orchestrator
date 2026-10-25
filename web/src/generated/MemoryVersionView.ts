@@ -3,4 +3,8 @@ import type { AgentId } from "./AgentId";
 import type { RunId } from "./RunId";
 import type { Trust } from "./Trust";
 
-export type MemoryVersionView = { version: number, content: string, author_agent_id: AgentId, author_slug: string, run_id: RunId, trust: Trust, created_at: string, };
+export type MemoryVersionView = { version: number, content: string, author_agent_id: AgentId, author_slug: string, run_id: RunId, 
+/**
+ * The task's root run, so a row can open its task.
+ */
+root_run_id: RunId, trust: Trust, created_at: string, };

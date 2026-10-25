@@ -29,6 +29,8 @@ pub struct RunSummary {
     pub outcome: Option<RunOutcome>,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
+    /// The scripted replies the root run played; `None` when it ran on the live model.
+    pub scenario: Option<String>,
     /// Approvals in the task still waiting for a person.
     pub pending_approvals: u32,
     /// Every agent that ran in the task, the root's included.
@@ -71,6 +73,8 @@ pub struct RunView {
 pub struct ToolCallView {
     pub id: ToolCallId,
     pub run_id: RunId,
+    /// The task's root run, so a row can open its task.
+    pub root_run_id: RunId,
     pub agent_id: AgentId,
     /// The name as the model sent it; it may not be a real tool.
     pub tool: String,
@@ -140,6 +144,7 @@ pub struct ToolCallFilter {
 struct ToolCallRow {
     id: String,
     run_id: String,
+    root_run_id: String,
     agent_id: String,
     tool: String,
     args: String,
@@ -160,6 +165,7 @@ impl ToolCallRow {
         Ok(ToolCallView {
             id: from_text(&self.id).map_err(corrupt)?,
             run_id: from_text(&self.run_id).map_err(corrupt)?,
+            root_run_id: from_text(&self.root_run_id).map_err(corrupt)?,
             agent_id: from_text(&self.agent_id).map_err(corrupt)?,
             tool: self.tool,
             args: serde_json::from_str(&self.args).map_err(corrupt)?,
@@ -192,6 +198,7 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
     let last_event_id = events::last_id(&mut *tx).await?;
     let rows = sqlx::query!(
         r#"SELECT r.id, r.agent_id, r.title, r.task, l.status, l.outcome, r.started_at, l.finished_at,
+                  r.scenario,
                   (SELECT COUNT(*) FROM approvals a
                      JOIN tool_calls t ON t.id = a.tool_call_id
                      JOIN runs c ON c.id = t.run_id
@@ -232,6 +239,7 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
                 outcome: json_opt(row.outcome.as_deref())?,
                 started_at: parse_timestamp(&row.started_at).map_err(corrupt)?,
                 finished_at: time_opt(row.finished_at.as_deref())?,
+                scenario: row.scenario,
                 pending_approvals: count(row.pending)?,
                 agents: serde_json::from_str(&row.agents).map_err(corrupt)?,
                 refusals: count(row.refusals)?,
@@ -272,8 +280,8 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
 
     let call_rows = sqlx::query_as!(
         ToolCallRow,
-        r#"SELECT t.id, t.run_id, t.agent_id, t.tool, t.args, t.action, t.decision, t.rules,
-                  t.phase, t.status, t.result_preview, t.child_run_id, t.duration_ms,
+        r#"SELECT t.id, t.run_id, r.root_run_id, t.agent_id, t.tool, t.args, t.action, t.decision,
+                  t.rules, t.phase, t.status, t.result_preview, t.child_run_id, t.duration_ms,
                   t.requested_at, t.finished_at
            FROM tool_calls t JOIN runs r ON r.id = t.run_id
            WHERE r.root_run_id = ?1
@@ -375,12 +383,13 @@ pub async fn tool_calls(
     let last_event_id = events::last_id(&mut *tx).await?;
     let rows = sqlx::query_as!(
         ToolCallRow,
-        r#"SELECT id, run_id, agent_id, tool, args, action, decision, rules, phase, status,
-                  result_preview, child_run_id, duration_ms, requested_at, finished_at
-           FROM tool_calls
-           WHERE (?1 IS NULL OR run_id = ?1) AND (?2 IS NULL OR agent_id = ?2)
-             AND (?3 IS NULL OR tool = ?3) AND (?4 IS NULL OR status = ?4)
-           ORDER BY requested_at DESC, id DESC
+        r#"SELECT t.id, t.run_id, r.root_run_id, t.agent_id, t.tool, t.args, t.action, t.decision,
+                  t.rules, t.phase, t.status, t.result_preview, t.child_run_id, t.duration_ms,
+                  t.requested_at, t.finished_at
+           FROM tool_calls t JOIN runs r ON r.id = t.run_id
+           WHERE (?1 IS NULL OR t.run_id = ?1) AND (?2 IS NULL OR t.agent_id = ?2)
+             AND (?3 IS NULL OR t.tool = ?3) AND (?4 IS NULL OR t.status = ?4)
+           ORDER BY t.requested_at DESC, t.id DESC
            LIMIT ?5"#,
         run,
         agent,

@@ -205,6 +205,7 @@ pub(super) async fn delegate(
         task_sources: task_sources.clone(),
         title: None,
         budget: None,
+        scenario: None,
     };
     inner.emit(child, started).await?;
 

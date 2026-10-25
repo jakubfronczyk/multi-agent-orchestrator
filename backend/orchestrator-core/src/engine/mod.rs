@@ -176,6 +176,7 @@ impl Engine {
                     task_sources: Vec::new(),
                     title: request.title,
                     budget: Some(budget),
+                    scenario: request.scenario.clone(),
                 },
             )
             .await?;
@@ -236,6 +237,7 @@ impl Engine {
                     task_sources: Vec::new(),
                     title: None,
                     budget: None,
+                    scenario: request.scenario.clone(),
                 },
             )
             .await?;

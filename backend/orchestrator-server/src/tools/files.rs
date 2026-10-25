@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use orchestrator_core::ids::RunId;
 use orchestrator_core::policy::{TaintSource, Trust};
 use orchestrator_core::tools::{
     Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, parse_args,
@@ -23,7 +24,7 @@ use uuid::Uuid;
 
 use super::sandbox::{relative, resolve};
 use super::{escape_like, is_trusted, spec, storage_failed};
-use crate::sqlite::text::{timestamp, to_text};
+use crate::sqlite::text::{from_text, timestamp, to_text};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 const FILE_BYTES: usize = 256 * 1024;
@@ -48,6 +49,8 @@ pub struct Entry {
     pub kind: EntryKind,
     pub bytes: u64,
     pub untrusted: bool,
+    /// The root run of the task that last wrote the file; `None` for seeded files and directories.
+    pub written_by_root_run_id: Option<RunId>,
 }
 
 /// The sandbox root and the database that records each file's trust. One lock pairs them:
@@ -120,26 +123,34 @@ impl Workspace {
             let untrusted = self
                 .entry_untrusted(&entry_path, kind == EntryKind::Dir)
                 .await?;
+            let written_by_root_run_id = if kind == EntryKind::File {
+                self.written_by_root(&entry_path).await?
+            } else {
+                None
+            };
             listed.push(Entry {
                 name,
                 path: entry_path,
                 kind,
                 bytes,
                 untrusted,
+                written_by_root_run_id,
             });
         }
         Ok(listed)
     }
 
-    /// A file's text and its trust; a file with no row counts as untrusted.
-    pub async fn read(&self, path: &str) -> Result<(String, Trust), ToolError> {
-        let (text, trust) = self.read_with_trust(path).await?;
-        let trust = if is_trusted(trust.as_deref()) {
+    /// A file's text, its trust and the root run of the task that last wrote it, read together
+    /// under the shared lock; a file with no row counts as untrusted.
+    pub async fn read(&self, path: &str) -> Result<(String, Trust, Option<RunId>), ToolError> {
+        let _shared = self.lock.read().await;
+        let text = self.read_text(path).await?;
+        let trust = if is_trusted(self.trust_of(path).await?.as_deref()) {
             Trust::Trusted
         } else {
             Trust::Untrusted
         };
-        Ok((text, trust))
+        Ok((text, trust, self.written_by_root(path).await?))
     }
 
     /// A file's text and stored trust, read together under the shared lock.
@@ -185,6 +196,20 @@ impl Workspace {
         .await
         .map_err(storage_failed)?;
         Ok(())
+    }
+
+    /// `None` for a file no run wrote, such as a seeded one.
+    async fn written_by_root(&self, path: &str) -> Result<Option<RunId>, ToolError> {
+        let root = sqlx::query_scalar!(
+            "SELECT r.root_run_id FROM workspace_files f JOIN runs r ON r.id = f.written_by_run
+             WHERE f.path = ?",
+            path
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(storage_failed)?;
+        root.map(|root| from_text(&root).map_err(storage_failed))
+            .transpose()
     }
 
     /// The trust stored for a file, or `None` when nothing recorded it.

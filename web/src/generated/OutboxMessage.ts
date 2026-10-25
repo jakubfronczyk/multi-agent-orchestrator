@@ -3,6 +3,10 @@ import type { RunId } from "./RunId";
 
 export type OutboxMessage = { id: string, run_id: RunId, 
 /**
+ * The task's root run, so a row can open its task.
+ */
+root_run_id: RunId, 
+/**
  * `email` or `chat`.
  */
 channel: string, recipient: string, subject: string | null, body: string, sent_at: string, };

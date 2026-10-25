@@ -45,6 +45,8 @@ pub struct MemoryVersionView {
     pub author_agent_id: AgentId,
     pub author_slug: String,
     pub run_id: RunId,
+    /// The task's root run, so a row can open its task.
+    pub root_run_id: RunId,
     pub trust: Trust,
     pub created_at: DateTime<Utc>,
 }
@@ -135,8 +137,10 @@ pub async fn versions(
     }
     let rows = sqlx::query!(
         r#"SELECT v.version, v.content, v.author_agent_id, a.slug AS "author_slug!", v.run_id,
-                  v.trust, v.created_at
-           FROM memory_versions v JOIN agents a ON a.id = v.author_agent_id
+                  r.root_run_id, v.trust, v.created_at
+           FROM memory_versions v
+           JOIN agents a ON a.id = v.author_agent_id
+           JOIN runs r ON r.id = v.run_id
            WHERE v.entry_id = ?
            ORDER BY v.version DESC"#,
         entry_id
@@ -153,6 +157,7 @@ pub async fn versions(
                 author_agent_id: from_text(&row.author_agent_id).map_err(corrupt)?,
                 author_slug: row.author_slug,
                 run_id: from_text(&row.run_id).map_err(corrupt)?,
+                root_run_id: from_text(&row.root_run_id).map_err(corrupt)?,
                 trust: from_text(&row.trust).map_err(corrupt)?,
                 created_at: parse_timestamp(&row.created_at).map_err(corrupt)?,
             })
