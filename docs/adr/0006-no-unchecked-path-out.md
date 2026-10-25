@@ -21,6 +21,7 @@ The seeded roles keep the three abilities apart for the Lead and the Writer. The
 - An injection that reaches the Reader or the Messenger cannot get data out without a person seeing a card. The card shows the custody chain and the taint source.
 - Users can edit specialists, so the specialist split is a seeded default. What holds for every team is enforced in code: the Lead's tool limits and trusted-only notes, "external always asks", and taint raising writes and egress to ask.
 - Tasks take more steps and delegations than a single agent would.
+- It holds per team. Across teams only labelled data is shared, files and uploads, so a read of one taints the reading task as it would in its own team (ADR 0007).
 
 ## Rejected alternatives
 

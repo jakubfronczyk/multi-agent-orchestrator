@@ -41,12 +41,16 @@ The Lead's ordered list of steps for a task, recorded each time it changes.
 
 ## Agents
 
+**Team**:
+A Lead and its specialists. Every task runs inside one team. A team organises work; it is not a security boundary.
+_Avoid_: workspace, tenant, org
+
 **Agent**:
 A configured team member with a slug, a prompt, a model and a decision per tool.
 _Avoid_: bot, assistant
 
 **Lead**:
-The one agent that plans and delegates. It cannot touch outside content itself.
+The one agent in a team that plans and delegates. It cannot touch outside content itself.
 _Avoid_: orchestrator, manager
 
 **Specialist**:
@@ -54,10 +58,10 @@ Any agent that is not the Lead. It works only on task texts delegated to it.
 _Avoid_: worker, sub-agent
 
 **Slug**:
-An agent's short, fixed identifier, the name the model sees.
+An agent's short, fixed identifier, the name the model sees; unique within its team.
 
 **Note**:
-One memory entry, private to an agent or shared by the team, kept with every past version.
+One memory entry, private to an agent or shared by its team, kept with every past version.
 _Avoid_: memory item, record
 
 ## Approval
