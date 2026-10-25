@@ -1,11 +1,38 @@
+db := "sqlite://var/ci.db"
+migrations := "orchestrator-server/migrations"
+
+# install the cargo tools ci and deny need
+setup:
+    cargo install sqlx-cli --locked --no-default-features --features sqlite,rustls
+    cargo install cargo-deny --locked
+
 # run the backend
+[working-directory('backend')]
 dev:
-    cd backend && cargo run -p orchestrator-server
+    cargo run -p orchestrator-server
 
 # run the web app
+[working-directory('web')]
 web:
-    cd web && pnpm dev
+    pnpm dev
 
 # run the backend tests
+[working-directory('backend')]
 test:
-    cd backend && cargo test --workspace
+    cargo test --workspace
+
+# everything that must be green before a commit
+[working-directory('backend')]
+ci:
+    cargo fmt --all --check
+    SQLX_OFFLINE=true cargo clippy --workspace --all-targets -- -D warnings
+    SQLX_OFFLINE=true cargo test --workspace
+    test -z "$(git status --porcelain -- ../web/src/generated)"
+    mkdir -p var
+    DATABASE_URL={{db}} cargo sqlx database reset -y --source {{migrations}}
+    DATABASE_URL={{db}} cargo sqlx prepare --check --workspace -- --all-targets
+
+# licenses and advisories; needs network, run at checkpoints
+[working-directory('backend')]
+deny:
+    cargo deny check
