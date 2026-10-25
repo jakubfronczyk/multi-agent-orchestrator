@@ -5,8 +5,8 @@ import { useSelectedTeam, useTeamNames } from "@/lib/selected-team"
 type Scope = "team" | "all"
 
 /**
- * History pages show the selected team by default, or every team with `?team=all`. Records are
- * filtered by their own `team_id`, so the lists and their event refetches stay global.
+ * History pages show the selected team by default, or every team with `?team=all`. The team goes
+ * into the list query, so the server's page limit applies within it.
  */
 export function useTeamScope() {
   const { team } = useSelectedTeam()
@@ -26,13 +26,16 @@ export function useTeamScope() {
   return {
     scope,
     team,
-    /** Whether a record of this team is shown. */
-    shows: (teamId: string) => scope === "all" || teamId === team?.id,
+    /** The `team_id` to query with; undefined under "All teams". */
+    teamId: scope === "all" ? undefined : team?.id,
+    /** False until the selected team is known, so no list is fetched for the wrong team. */
+    ready: scope === "all" || team !== undefined,
     /** A record's team name, shown under "All teams" when there is more than one team. */
     label: (teamId: string) => (scope === "all" && names.many ? names.nameOf(teamId) : undefined),
     pills: team ? (
       <FilterPills
         label="Team"
+        showLabel
         options={[
           ["team", team.name],
           ["all", "All teams"],

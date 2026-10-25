@@ -7,10 +7,14 @@ import type { StartRunRequest } from "@/generated/StartRunRequest"
 import type { StartRunResponse } from "@/generated/StartRunResponse"
 import { getJson, postJson, query } from "@/lib/api"
 
-export const runsQuery = (limit = 50) =>
+/**
+ * The newest tasks, of one team when `teamId` is set. The team joins the key only when set, so
+ * a key without it (`["runs", { limit }]`) still matches every team's list for refetching.
+ */
+export const runsQuery = (limit = 50, teamId?: string) =>
   queryOptions({
-    queryKey: ["runs", { limit }],
-    queryFn: () => getJson<RunList>(`/runs${query({ limit })}`),
+    queryKey: ["runs", teamId ? { limit, team_id: teamId } : { limit }],
+    queryFn: () => getJson<RunList>(`/runs${query({ limit, team_id: teamId })}`),
   })
 
 export const runQuery = (id: RunId) =>

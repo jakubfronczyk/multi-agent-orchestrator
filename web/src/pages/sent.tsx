@@ -19,17 +19,18 @@ import { dayTime } from "@/lib/time"
 const SENDS = toolCallsQuery({ tool: "send_message", limit: 200 })
 
 export function SentPage() {
+  const team = useTeamScope()
   // The outbox has no `last_event_id`, so it refetches whenever the page is shown.
-  const outbox = useQuery({ ...outboxQuery, refetchOnMount: "always" })
-  const sends = useQuery(SENDS)
-  useInvalidateOnToolFinished(outboxQuery.queryKey, "send_message")
+  const outbox = useQuery({ ...outboxQuery(team.teamId), refetchOnMount: "always", enabled: team.ready })
+  const sends = useQuery({
+    ...toolCallsQuery({ tool: "send_message", limit: 200, team_id: team.teamId }),
+    enabled: team.ready,
+  })
+  useInvalidateOnToolFinished(["outbox"], "send_message")
   useInvalidateOnToolFinished(SENDS.queryKey, "send_message")
 
-  const team = useTeamScope()
-  const messages = [...(outbox.data?.messages ?? [])]
-    .filter((message) => team.shows(message.team_id))
-    .sort((a, b) => b.sent_at.localeCompare(a.sent_at))
-  const calls = (sends.data?.tool_calls ?? []).filter((call) => team.shows(call.team_id))
+  const messages = [...(outbox.data?.messages ?? [])].sort((a, b) => b.sent_at.localeCompare(a.sent_at))
+  const calls = sends.data?.tool_calls ?? []
   const stopped = calls
     .filter((call) => call.phase === "finished" && call.status !== "ok")
     .sort((a, b) => b.requested_at.localeCompare(a.requested_at))
@@ -91,7 +92,6 @@ function StoppedRows({ calls }: { calls: ToolCallView[] }) {
           <CallRow
             key={call.id}
             call={call}
-            taintSources={[]}
             subtitle={task ? (task.title ?? task.task) : undefined}
           />
         )

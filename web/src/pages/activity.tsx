@@ -16,12 +16,9 @@ const FILTERS: [Filter, string][] = [
   ["asked", "Asked you"],
   ["refused", "Not allowed"],
   ["failed", "Didn't work"],
-  ["outside", "Inbox and web"],
+  ["outside", "Outside content"],
 ]
 
-// Only these reads always bring in outside content; a file, table or note read can be trusted,
-// and the call list doesn't say whether it was.
-const INBOX_AND_WEB = new Set(["inbox_read", "inbox_list", "http_fetch"])
 
 // The same groups as the row labels (`callLabel`): a call that was not offered or had invalid
 // arguments reads "Not allowed", so it filters there too.
@@ -51,7 +48,8 @@ function dayLabel(iso: string): string {
 }
 
 export function ActivityPage() {
-  const calls = useQuery(CALLS)
+  const team = useTeamScope()
+  const calls = useQuery({ ...toolCallsQuery({ limit: LIMIT, team_id: team.teamId }), enabled: team.ready })
   const runs = useQuery(runsQuery())
   // Rows can't be built from events alone (a request names no agent), so bursts of call events
   // become one refetch.
@@ -67,9 +65,9 @@ export function ActivityPage() {
   const [params, setParams] = useSearchParams()
   const raw = params.get("filter")
   const filter: Filter = isFilter(raw) ? raw : "all"
-  const team = useTeamScope()
 
-  const fromOutside = (call: ToolCallView) => call.status === "ok" && INBOX_AND_WEB.has(call.tool)
+  // The call itself says whether it brought outside content into its task.
+  const fromOutside = (call: ToolCallView) => call.tainted
   const matches: Record<Filter, (call: ToolCallView) => boolean> = {
     all: () => true,
     asked: (call) => call.decision === "ask",
@@ -78,7 +76,7 @@ export function ActivityPage() {
     outside: fromOutside,
   }
 
-  const all = (calls.data?.tool_calls ?? []).filter((call) => team.shows(call.team_id))
+  const all = calls.data?.tool_calls ?? []
   const shown = all.filter(matches[filter])
   const groups: [string, ToolCallView[]][] = []
   for (const call of shown) {
@@ -128,7 +126,6 @@ export function ActivityPage() {
                   <CallRow
                     key={call.id}
                     call={call}
-                    taintSources={[]}
                     fromOutside={fromOutside(call)}
                     showAgent
                     subtitle={teamName && title ? `${title}, ${teamName}` : (title ?? teamName)}

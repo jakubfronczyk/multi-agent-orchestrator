@@ -1,32 +1,28 @@
 import { Link, useLocation } from "react-router"
 import { cn } from "cn"
 import { AgentShape } from "@/components/agent-shape"
-import type { TaintSource } from "@/generated/TaintSource"
 import type { ToolCallView } from "@/generated/ToolCallView"
 import { useAgents } from "@/lib/agents"
 import { callSummary, toolLabel } from "@/lib/copy"
-import { sheetSearch, taintedBy } from "@/lib/how-this-happened"
+import { sheetSearch } from "@/lib/how-this-happened"
 import { clockTime } from "@/lib/time"
 import { callLabel, money, TONE_CLASS, type CallNode } from "@/lib/thread-view"
 
 /**
- * One call as a row that opens its "How this happened" sheet. Inside a task, "From outside"
- * appears only when this read put one of the task's taint sources there; a global list without
- * task taint passes `fromOutside` instead.
+ * One call as a row that opens its "How this happened" sheet. "From outside" appears when the
+ * call itself brought outside content into its task, as the server records it.
  */
 export function CallRow({
   call,
-  taintSources,
   childCost,
   subtitle,
   fromOutside,
   showAgent,
 }: {
   call: ToolCallView
-  taintSources: TaintSource[]
   childCost?: number
   subtitle?: string
-  /** Set where no task taint is at hand (a global list); otherwise worked out from `taintSources`. */
+  /** Overrides the call's own flag, for a list that marks outside content its own way. */
   fromOutside?: boolean
   /** Names the agent before the call, for rows not nested under a hand-off. */
   showAgent?: boolean
@@ -35,7 +31,7 @@ export function CallRow({
   const location = useLocation()
   const agent = look.byId(call.agent_id)
   const label = callLabel(call)
-  const outside = fromOutside ?? (call.status === "ok" && taintedBy(call, taintSources) !== undefined)
+  const outside = fromOutside ?? call.tainted
   return (
     <Link
       to={{ pathname: location.pathname, search: sheetSearch(call.id, call.root_run_id) }}
@@ -79,15 +75,15 @@ export function CallRow({
 }
 
 /** A run's calls with each delegated run's calls nested under its `delegate` row. */
-export function CallTree({ nodes, taintSources }: { nodes: CallNode[]; taintSources: TaintSource[] }) {
+export function CallTree({ nodes }: { nodes: CallNode[] }) {
   return (
     <div className="flex flex-col">
       {nodes.map((node) => (
         <div key={node.call.id}>
-          <CallRow call={node.call} taintSources={taintSources} childCost={node.child?.cost_micros} />
+          <CallRow call={node.call} childCost={node.child?.cost_micros} />
           {node.children.length > 0 && (
             <div className="ml-[26px] border-l border-border pl-2">
-              <CallTree nodes={node.children} taintSources={taintSources} />
+              <CallTree nodes={node.children} />
             </div>
           )}
         </div>

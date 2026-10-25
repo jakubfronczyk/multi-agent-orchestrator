@@ -46,17 +46,17 @@ function decider(exit: DrillExit): { text: string; leak: boolean } {
 
 export function DrillPage() {
   const navigate = useNavigate()
-  const runs = useQuery(RUNS)
+  const { team } = useSelectedTeam()
+  const runs = useQuery({ ...runsQuery(200, team?.id), enabled: team !== undefined })
   useInvalidateOn(
     RUNS.queryKey,
     (event) => (event.type === "run_started" && event.data.parent_run_id === null) || event.type === "run_finished",
   )
   const [error, setError] = useState<string | null>(null)
-  const { team } = useSelectedTeam()
   const start = useMutation({ mutationFn: () => startDrill(team?.id) })
 
   // The selected team's drills; the drill runs on that team.
-  const drills = (runs.data?.runs ?? []).filter((run) => run.scenario === "drill" && run.team_id === team?.id)
+  const drills = (runs.data?.runs ?? []).filter((run) => run.scenario === "drill")
   const latest = drills[0]
   const running = latest?.status === "running"
   const lastFinished = drills.find((run) => run.status !== "running")
@@ -68,8 +68,9 @@ export function DrillPage() {
       void navigate(`/tasks/${run_id}`)
     } catch (failure) {
       setError(
+        // The server's 409 names the teammates this team's Lead is missing.
         isApiError(failure, 409)
-          ? `${team?.name ?? "This team"} can't run the drill: its Lead needs teammates named reader and messenger.`
+          ? `Couldn't start the drill: ${failure.message}.`
           : `Couldn't start the drill. ${failure instanceof Error ? failure.message : ""}`,
       )
     }
@@ -104,7 +105,7 @@ export function DrillPage() {
               <Link to={`/tasks/${latest.id}`}>Open the drill</Link>
             </Button>
           ) : (
-            <Button disabled={start.isPending || runs.isPending} onClick={() => void run()}>
+            <Button disabled={start.isPending || runs.isPending || !team} onClick={() => void run()}>
               Run security drill
             </Button>
           )}

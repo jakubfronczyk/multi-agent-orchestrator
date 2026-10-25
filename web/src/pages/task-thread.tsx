@@ -516,7 +516,7 @@ function TurnSection({
                 What your team did, {actions} {actions === 1 ? "action" : "actions"}
               </summary>
               <div className="px-1 pb-2">
-                <CallTree nodes={tree} taintSources={state.taintSources} />
+                <CallTree nodes={tree} />
               </div>
             </details>
           )}

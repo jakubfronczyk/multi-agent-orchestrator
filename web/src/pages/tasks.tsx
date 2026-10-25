@@ -44,7 +44,8 @@ const LIMIT = 200
 const isFilter = (value: string | null): value is Filter => FILTERS.some(([key]) => key === value)
 
 export function TasksPage() {
-  const runs = useQuery(runsQuery(LIMIT))
+  const team = useTeamScope()
+  const runs = useQuery({ ...runsQuery(LIMIT, team.teamId), enabled: team.ready })
   // A new task, a turn ending, and a card opening or closing all change rows here.
   useInvalidateOn(
     runsQuery(LIMIT).queryKey,
@@ -57,9 +58,8 @@ export function TasksPage() {
   const [params, setParams] = useSearchParams()
   const raw = params.get("filter")
   const filter: Filter = isFilter(raw) ? raw : "all"
-  const team = useTeamScope()
 
-  const all = (runs.data?.runs ?? []).filter((run) => team.shows(run.team_id))
+  const all = runs.data?.runs ?? []
   const shown = filter === "all" ? all : all.filter((run) => category(run) === filter)
   const spend = shown.reduce((total, run) => total + run.cost_micros, 0)
 

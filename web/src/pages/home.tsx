@@ -12,7 +12,7 @@ import { Slip } from "@/components/slip"
 import { TaskRow } from "@/components/task-row"
 import { useInvalidateOn } from "@/events/use-invalidate-on"
 import { isApiError } from "@/lib/api"
-import { withAttachments } from "@/lib/copy"
+import { listText, withAttachments } from "@/lib/copy"
 import { DEMO_STARTS, type DemoStart } from "@/lib/demo"
 import { useAgents } from "@/lib/agents"
 import { useSelectedTeam } from "@/lib/selected-team"
@@ -27,7 +27,8 @@ const DEMO_ICON: Record<DemoStart["id"], LucideIcon> = {
 export function HomePage() {
   const navigate = useNavigate()
   const health = useQuery(healthQuery)
-  const runs = useQuery(runsQuery())
+  const { team } = useSelectedTeam()
+  const runs = useQuery({ ...runsQuery(50, team?.id), enabled: team !== undefined })
   const approvals = useQuery(approvalsQuery())
   useInvalidateOn(["approvals"], (event) => event.type === "approval_requested" || event.type === "approval_resolved")
   // A row's "Needs your OK" comes from the task's pending count, which changes on card events.
@@ -35,11 +36,13 @@ export function HomePage() {
 
   const [text, setText] = useState("")
   const [error, setError] = useState<string | null>(null)
-  const { team } = useSelectedTeam()
   const look = useAgents(team?.id)
   const lead = look.agents.find((agent) => agent.team_id === team?.id && agent.role === "lead")
   // A demo plays fixed replies for named teammates, so it is offered only where the Lead has them.
   const demos = DEMO_STARTS.filter((demo) => demo.slugs.every((slug) => lead?.delegate_targets.includes(slug)))
+  const missing = [
+    ...new Set(DEMO_STARTS.flatMap((demo) => demo.slugs).filter((slug) => !lead?.delegate_targets.includes(slug))),
+  ]
 
   const start = useMutation({
     mutationFn: async (demo: DemoStart | { task: string; draftOnly: boolean }) => {
@@ -92,7 +95,7 @@ export function HomePage() {
   const windowMinutes = pending[0]
     ? Math.round((Date.parse(pending[0].expires_at) - Date.parse(pending[0].created_at)) / 60_000)
     : null
-  const recent = (runs.data?.runs ?? []).filter((run) => run.team_id === team?.id).slice(0, 4)
+  const recent = (runs.data?.runs ?? []).slice(0, 4)
   const calm = pending.length === 0
 
   return (
@@ -136,7 +139,9 @@ export function HomePage() {
           onSubmit={submit}
           placeholder={team ? `Describe a task for ${team.name}, like you would to a colleague` : "Describe a task, like you would to a colleague"}
           label="New task"
+          // Nothing starts before the selected team is known, so a task never lands on another team.
           sending={start.isPending}
+          disabled={!team}
           modePicker
           attach
           menuBelow
@@ -170,7 +175,7 @@ export function HomePage() {
                   key={demo.id}
                   type="button"
                   title={demo.detail}
-                  disabled={start.isPending}
+                  disabled={start.isPending || !team}
                   onClick={() => void runDemo(demo)}
                   className="inline-flex h-8 items-center gap-2 rounded-full px-3 text-sm text-sidebar-foreground ring-1 ring-border ring-inset hover:text-foreground hover:ring-input disabled:opacity-60"
                 >
@@ -180,12 +185,12 @@ export function HomePage() {
               )
             })}
           </div>
-        ) : (
-          team && (
-            <p className="m-0 text-center text-sm text-muted-foreground">
-              The free demos need a Lead that hands work to teammates named reader, writer and messenger.
-            </p>
-          )
+        ) : null}
+        {team && lead && missing.length > 0 && (
+          <p className="m-0 text-center text-sm text-muted-foreground">
+            {demos.length > 0 ? "More free demos appear" : "The free demos appear"} once {lead.name} can hand work to
+            teammates named {listText(missing)}.
+          </p>
         )}
       </section>
 
