@@ -902,24 +902,28 @@ async fn records_name_their_task_and_the_list_keeps_the_scenario(pool: SqlitePoo
     );
     assert!(calls.iter().all(|call| call.root_run_id == root));
 
-    let sent = outbox::list(&seeded.pool).await.expect("outbox").messages;
+    let sent = outbox::list(&seeded.pool, Default::default())
+        .await
+        .expect("outbox")
+        .messages;
     assert_eq!(sent.len(), 1, "only the send to Anna was approved");
     assert_ne!(sent[0].run_id, root, "the Messenger sent it");
     assert_eq!(sent[0].root_run_id, root);
 
     let workspace = seeded.workspace();
     let (_, _, saved_by) = workspace.read("decisions/AR-1042.md").await.expect("read");
-    assert_eq!(saved_by, Some(root), "the Writer saved it in S1");
+    assert_eq!(
+        saved_by.map(|w| w.root_run_id),
+        Some(root),
+        "the Writer saved it in S1"
+    );
     let (_, _, seeded_by) = workspace.read("data/access-policy.md").await.expect("read");
     assert_eq!(seeded_by, None, "seeded files have no writer");
     let top = workspace.list(".").await.expect("list");
     let decisions = top.iter().find(|e| e.name == "decisions").expect("dir");
-    assert_eq!(
-        decisions.written_by_root_run_id, None,
-        "directories have no writer"
-    );
+    assert_eq!(decisions.written_by, None, "directories have no writer");
     let saved = workspace.list("decisions").await.expect("list");
-    assert_eq!(saved[0].written_by_root_run_id, Some(root));
+    assert_eq!(saved[0].written_by.map(|w| w.root_run_id), Some(root));
 
     let mut rx = seeded.store.subscribe();
     let typed = seeded

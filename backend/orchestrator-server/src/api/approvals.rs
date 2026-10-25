@@ -17,6 +17,7 @@ use crate::sqlite::approvals::{self, ApprovalList};
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     status: Option<String>,
+    team_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, TS)]
@@ -39,7 +40,8 @@ pub async fn list(
     Query(query): Query<ListQuery>,
 ) -> Result<Json<ApprovalList>, ApiError> {
     let status = query::value("status", query.status)?;
-    Ok(Json(approvals::list(&state.pool, status).await?))
+    let team = query::id("team_id", query.team_id)?;
+    Ok(Json(approvals::list(&state.pool, status, team).await?))
 }
 
 pub async fn answer(

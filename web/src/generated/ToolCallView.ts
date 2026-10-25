@@ -6,6 +6,7 @@ import type { CallStatus } from "./CallStatus";
 import type { Decision } from "./Decision";
 import type { Rule } from "./Rule";
 import type { RunId } from "./RunId";
+import type { TeamId } from "./TeamId";
 import type { ToolCallId } from "./ToolCallId";
 import type { JsonValue } from "./serde_json/JsonValue";
 
@@ -14,6 +15,10 @@ export type ToolCallView = { id: ToolCallId, run_id: RunId,
  * The task's root run, so a row can open its task.
  */
 root_run_id: RunId, agent_id: AgentId, 
+/**
+ * The task's team.
+ */
+team_id: TeamId, 
 /**
  * The name as the model sent it; it may not be a real tool.
  */

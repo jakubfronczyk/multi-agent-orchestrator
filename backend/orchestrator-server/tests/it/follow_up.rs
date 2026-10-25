@@ -398,7 +398,7 @@ async fn a_draft_only_turn_changes_nothing_and_a_later_turn_may_act(pool: Sqlite
         .expect("count");
     assert_eq!(notes, 0);
     assert!(
-        outbox::list(&seeded.pool)
+        outbox::list(&seeded.pool, Default::default())
             .await
             .expect("outbox")
             .messages

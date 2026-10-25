@@ -1,7 +1,7 @@
 //! The audit log: every tool call with its decision, rules and result.
 
 use chrono::{DateTime, Utc};
-use orchestrator_core::ids::{AgentId, EventId, RunId, ToolCallId};
+use orchestrator_core::ids::{AgentId, EventId, RunId, TeamId, ToolCallId};
 use orchestrator_core::policy::{Decision, Rule};
 use orchestrator_core::runs::{CallPhase, CallStatus};
 use orchestrator_core::tools::Action;
@@ -23,6 +23,8 @@ pub struct ToolCallView {
     /// The task's root run, so a row can open its task.
     pub root_run_id: RunId,
     pub agent_id: AgentId,
+    /// The task's team.
+    pub team_id: TeamId,
     /// The name as the model sent it; it may not be a real tool.
     pub tool: String,
     pub args: Value,
@@ -50,6 +52,7 @@ pub struct ToolCallList {
 #[derive(Debug, Clone, Default)]
 pub struct ToolCallFilter {
     pub run_id: Option<RunId>,
+    pub team_id: Option<TeamId>,
     pub agent_id: Option<AgentId>,
     /// The name as the model sent it.
     pub tool: Option<String>,
@@ -62,6 +65,7 @@ pub(super) struct ToolCallRow {
     pub(super) run_id: String,
     pub(super) root_run_id: String,
     pub(super) agent_id: String,
+    pub(super) team_id: String,
     pub(super) tool: String,
     pub(super) args: String,
     pub(super) action: Option<String>,
@@ -83,6 +87,7 @@ impl ToolCallRow {
             run_id: decode(&self.run_id)?,
             root_run_id: decode(&self.root_run_id)?,
             agent_id: decode(&self.agent_id)?,
+            team_id: decode(&self.team_id)?,
             tool: self.tool,
             args: decode_json(&self.args)?,
             action: json_opt(self.action.as_deref())?,
@@ -107,23 +112,26 @@ pub async fn tool_calls(
     let run = encode_opt(filter.run_id.as_ref())?;
     let agent = encode_opt(filter.agent_id.as_ref())?;
     let status = encode_opt(filter.status.as_ref())?;
+    let team = encode_opt(filter.team_id.as_ref())?;
     let mut tx = pool.begin().await?;
     let last_event_id = events::last_id(&mut *tx).await?;
     let rows = sqlx::query_as!(
         ToolCallRow,
-        r#"SELECT t.id, t.run_id, r.root_run_id, t.agent_id, t.tool, t.args, t.action, t.decision,
+        r#"SELECT t.id, t.run_id, r.root_run_id, t.agent_id, t.team_id, t.tool, t.args, t.action, t.decision,
                   t.rules, t.phase, t.status, t.result_preview, t.child_run_id, t.duration_ms,
                   t.requested_at, t.finished_at
            FROM tool_calls t JOIN runs r ON r.id = t.run_id
            WHERE (?1 IS NULL OR t.run_id = ?1) AND (?2 IS NULL OR t.agent_id = ?2)
              AND (?3 IS NULL OR t.tool = ?3) AND (?4 IS NULL OR t.status = ?4)
+             AND (?6 IS NULL OR t.team_id = ?6)
            ORDER BY t.requested_at DESC, t.id DESC
            LIMIT ?5"#,
         run,
         agent,
         filter.tool,
         status,
-        limit
+        limit,
+        team
     )
     .fetch_all(&mut *tx)
     .await?;

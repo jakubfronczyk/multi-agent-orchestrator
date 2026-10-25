@@ -6,7 +6,7 @@ use axum::Json;
 use axum::extract::multipart::MultipartError;
 use axum::extract::{Multipart, Query, State};
 use axum::http::StatusCode;
-use orchestrator_core::ids::RunId;
+use orchestrator_core::ids::{RunId, TeamId};
 use orchestrator_core::policy::Trust;
 use orchestrator_core::tools::ToolError;
 use serde::{Deserialize, Serialize};
@@ -37,6 +37,8 @@ pub struct FileEntryView {
     /// The root run of the task that last wrote the file; null for seeded files, uploads and
     /// directories.
     pub written_by_root_run_id: Option<RunId>,
+    /// That task's team; null exactly when `written_by_root_run_id` is.
+    pub written_by_team_id: Option<TeamId>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -53,6 +55,8 @@ pub enum FileView {
         trust: Trust,
         /// The root run of the task that last wrote the file; null for seeded files and uploads.
         written_by_root_run_id: Option<RunId>,
+        /// That task's team; null exactly when `written_by_root_run_id` is.
+        written_by_team_id: Option<TeamId>,
     },
 }
 
@@ -76,19 +80,20 @@ pub async fn view(
                         kind: entry.kind,
                         bytes: entry.bytes,
                         trust: entry.trust,
-                        written_by_root_run_id: entry.written_by_root_run_id,
+                        written_by_root_run_id: entry.written_by.map(|w| w.root_run_id),
+                        written_by_team_id: entry.written_by.map(|w| w.team_id),
                     })
                     .collect(),
             }
         }
         Some(EntryKind::File | EntryKind::Symlink) => {
-            let (content, trust, written_by_root_run_id) =
-                workspace.read(&path).await.map_err(path_error)?;
+            let (content, trust, written_by) = workspace.read(&path).await.map_err(path_error)?;
             FileView::File {
                 path,
                 content,
                 trust,
-                written_by_root_run_id,
+                written_by_root_run_id: written_by.map(|w| w.root_run_id),
+                written_by_team_id: written_by.map(|w| w.team_id),
             }
         }
     };

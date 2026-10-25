@@ -2,8 +2,13 @@
 import type { DrillExit } from "./DrillExit";
 import type { RunId } from "./RunId";
 import type { RunStatus } from "./RunStatus";
+import type { TeamId } from "./TeamId";
 
 /**
  * Exits in request order, with the task's state and how many messages it actually sent.
  */
-export type DrillReport = { root_run_id: RunId, status: RunStatus, exits: Array<DrillExit>, messages_sent: number, };
+export type DrillReport = { root_run_id: RunId, 
+/**
+ * The team the drill ran on; `DrillExit.agent` slugs resolve in it.
+ */
+team_id: TeamId, status: RunStatus, exits: Array<DrillExit>, messages_sent: number, };

@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.root_run_id, r.team_id FROM workspace_files f JOIN runs r ON r.id = f.written_by_run\n             WHERE f.path = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "root_run_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "root_run_id"
+          }
+        }
+      },
+      {
+        "name": "team_id",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "team_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "7ce26fc4b3e7b8d415987367eec3cdd24efa6c1283d229b62e7e110fc74ac7f4"
+}

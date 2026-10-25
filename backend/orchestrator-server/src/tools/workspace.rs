@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::Utc;
-use orchestrator_core::ids::RunId;
+use orchestrator_core::ids::{RunId, TeamId};
 use orchestrator_core::policy::Trust;
 use orchestrator_core::tools::ToolError;
 use serde::Serialize;
@@ -67,6 +67,13 @@ pub enum EntryKind {
     Symlink,
 }
 
+/// The task that last wrote a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Writer {
+    pub root_run_id: RunId,
+    pub team_id: TeamId,
+}
+
 /// One directory entry; `path` is relative to the workspace root.
 #[derive(Debug, Clone)]
 pub struct Entry {
@@ -75,9 +82,8 @@ pub struct Entry {
     pub kind: EntryKind,
     pub bytes: u64,
     pub trust: Trust,
-    /// The root run of the task that last wrote the file; `None` for seeded files, uploads and
-    /// directories.
-    pub written_by_root_run_id: Option<RunId>,
+    /// The task that last wrote the file; `None` for seeded files, uploads and directories.
+    pub written_by: Option<Writer>,
 }
 
 /// The sandbox root and the database that records each file's trust. One lock pairs them:
@@ -158,8 +164,8 @@ impl Workspace {
             let trust = self
                 .entry_trust(&entry_path, kind == EntryKind::Dir)
                 .await?;
-            let written_by_root_run_id = if kind == EntryKind::File {
-                self.written_by_root(&entry_path).await?
+            let written_by = if kind == EntryKind::File {
+                self.written_by(&entry_path).await?
             } else {
                 None
             };
@@ -169,7 +175,7 @@ impl Workspace {
                 kind,
                 bytes,
                 trust,
-                written_by_root_run_id,
+                written_by,
             });
         }
         Ok(listed)
@@ -177,13 +183,13 @@ impl Workspace {
 
     /// A file's text, its trust and the root run of the task that last wrote it, read together
     /// under the shared lock.
-    pub async fn read(&self, path: &str) -> Result<(String, Trust, Option<RunId>), ToolError> {
+    pub async fn read(&self, path: &str) -> Result<(String, Trust, Option<Writer>), ToolError> {
         let _shared = self.lock.read().await;
         let text = self.read_text(path).await?;
         Ok((
             text,
             self.trust_of(path).await?,
-            self.written_by_root(path).await?,
+            self.written_by(path).await?,
         ))
     }
 
@@ -289,17 +295,22 @@ impl Workspace {
     }
 
     /// `None` for a file no run wrote, such as a seeded one.
-    async fn written_by_root(&self, path: &str) -> Result<Option<RunId>, ToolError> {
-        let root = sqlx::query_scalar!(
-            "SELECT r.root_run_id FROM workspace_files f JOIN runs r ON r.id = f.written_by_run
+    async fn written_by(&self, path: &str) -> Result<Option<Writer>, ToolError> {
+        let row = sqlx::query!(
+            "SELECT r.root_run_id, r.team_id FROM workspace_files f JOIN runs r ON r.id = f.written_by_run
              WHERE f.path = ?",
             path
         )
         .fetch_optional(&self.pool)
         .await
         .map_err(storage_failed)?;
-        root.map(|root| from_text(&root).map_err(storage_failed))
-            .transpose()
+        row.map(|row| {
+            Ok(Writer {
+                root_run_id: from_text(&row.root_run_id).map_err(storage_failed)?,
+                team_id: from_text(&row.team_id).map_err(storage_failed)?,
+            })
+        })
+        .transpose()
     }
 
     /// A file with no row, or a row whose value does not decode, is untrusted.

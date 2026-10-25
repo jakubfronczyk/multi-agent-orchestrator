@@ -12,7 +12,7 @@ use sqlx::sqlite::SqliteQueryResult;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use tokio::sync::{Mutex, broadcast};
 
-use super::text::{timestamp, to_text};
+use super::text::{from_text, timestamp, to_text};
 use super::{agents, begin_write, events};
 use crate::events::EventEnvelope;
 
@@ -54,6 +54,13 @@ impl Store for SqliteStore {
         // Projections first: run_started creates the runs row the event references.
         project(&mut tx, at, &event, &ts).await?;
         let id = insert_event(&mut tx, at, &event, &ts).await?;
+        // After the projection, so a root `run_started` finds its own row.
+        let root = text(&at.root_run_id)?;
+        let team = sqlx::query_scalar!("SELECT team_id FROM runs WHERE id = ?", root)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(failed)?;
+        let team_id: TeamId = from_text(&team).map_err(failed)?;
         tx.commit().await.map_err(failed)?;
 
         // Only committed events reach subscribers; having no subscribers is not an error.
@@ -61,6 +68,7 @@ impl Store for SqliteStore {
             id,
             root_run_id: at.root_run_id,
             run_id: at.run_id,
+            team_id,
             ts: now,
             event,
         });

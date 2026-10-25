@@ -14,6 +14,7 @@ const DEFAULT_LIMIT: u32 = 100;
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     run_id: Option<String>,
+    team_id: Option<String>,
     agent_id: Option<String>,
     tool: Option<String>,
     status: Option<String>,
@@ -27,6 +28,7 @@ pub async fn list(
     let limit = query::limit(query.limit, DEFAULT_LIMIT)?;
     let filter = ToolCallFilter {
         run_id: query::id("run_id", query.run_id)?,
+        team_id: query::id("team_id", query.team_id)?,
         agent_id: query::id("agent_id", query.agent_id)?,
         tool: query.tool,
         status: query::value("status", query.status)?,

@@ -308,3 +308,117 @@ async fn a_deleted_team_takes_no_new_run(pool: SqlitePool) {
         .expect("count");
     assert_eq!((runs_after, events_after), (runs_before, events_before));
 }
+
+/// Every envelope, live and replayed, carries its task's team; lists filter by team and keep
+/// each row's label.
+#[sqlx::test]
+async fn records_and_events_carry_their_team(pool: SqlitePool) {
+    use orchestrator_core::ids::EventId;
+    use orchestrator_server::sqlite::{approvals, events, tool_calls};
+
+    let app = app(pool).await;
+    let b = second_team(&app).await;
+    let mut rx = app.store.subscribe();
+    let mut asked = app.store.subscribe();
+    let b_worker = agents::create(
+        &app.pool,
+        serde_json::from_value(json!({
+            "team_id": b, "role": "specialist", "slug": "worker", "name": "w", "description": "d",
+            "system_prompt": "p", "model": "grok-4.3", "icon": "i", "colour": "c",
+            "tools": {"file_write": "ask", "memory_read": "allow"}, "delegate_targets": []
+        }))
+        .expect("input"),
+    )
+    .await
+    .expect("worker")
+    .spec
+    .id();
+    let a_root = app
+        .engine
+        .start(request(r#"test:call:memory_read:{"q":1}"#))
+        .await
+        .expect("a's task");
+    let b_root = app
+        .engine
+        .start(StartRequest {
+            team_id: Some(b),
+            agent_id: Some(b_worker),
+            ..request(r#"test:call:file_write:{"path":"b.md"}"#)
+        })
+        .await
+        .expect("b's task");
+    crate::wait_for(&mut asked, |e| {
+        matches!(e.event, RunEvent::ApprovalRequested { .. }).then_some(())
+    })
+    .await;
+
+    let pending_b = approvals::list(
+        &app.pool,
+        Some(orchestrator_core::runs::ApprovalStatus::Pending),
+        Some(b),
+    )
+    .await
+    .expect("list");
+    assert_eq!(pending_b.approvals.len(), 1);
+    assert_eq!(pending_b.approvals[0].team_id, b);
+    let pending_a = approvals::list(
+        &app.pool,
+        Some(orchestrator_core::runs::ApprovalStatus::Pending),
+        Some(app.team),
+    )
+    .await
+    .expect("list");
+    assert!(pending_a.approvals.is_empty());
+
+    app.engine.cancel(b_root);
+    let mut seen = Vec::new();
+    let mut finished = 0;
+    while finished < 2 {
+        let envelope = tokio::time::timeout(crate::DEADLINE, rx.recv())
+            .await
+            .expect("in time")
+            .expect("open");
+        if matches!(envelope.event, RunEvent::RunFinished { .. })
+            && (envelope.run_id == a_root || envelope.run_id == b_root)
+        {
+            finished += 1;
+        }
+        seen.push((envelope.id, envelope.root_run_id, envelope.team_id));
+    }
+    let team_of = |root| if root == b_root { b } else { app.team };
+    assert!(seen.iter().all(|(_, root, team)| *team == team_of(*root)));
+    assert!(seen.windows(2).all(|w| w[0].0 < w[1].0), "ids increase");
+    let replayed = events::since(&app.pool, EventId(0)).await.expect("replay");
+    assert!(replayed.iter().all(|e| e.team_id == team_of(e.root_run_id)));
+
+    let calls = tool_calls::tool_calls(
+        &app.pool,
+        tool_calls::ToolCallFilter {
+            team_id: Some(app.team),
+            ..Default::default()
+        },
+        100,
+    )
+    .await
+    .expect("calls");
+    assert!(!calls.tool_calls.is_empty());
+    assert!(calls.tool_calls.iter().all(|c| c.team_id == app.team));
+
+    let base = serve(&app).await;
+    for path in [
+        "approvals",
+        "tool-calls",
+        "outbox",
+        "memory",
+        "runs",
+        "agents",
+    ] {
+        let status = reqwest::Client::new()
+            .get(format!("{base}/api/{path}?team_id=nope"))
+            .send()
+            .await
+            .expect("get")
+            .status();
+        assert_eq!(status, 422, "{path}");
+    }
+}

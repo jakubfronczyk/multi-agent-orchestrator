@@ -26,8 +26,9 @@ pub async fn last_id<'e>(
 /// Every committed event with an id above `after`, in id order.
 pub async fn since(pool: &SqlitePool, after: EventId) -> Result<Vec<EventEnvelope>, ReadError> {
     let rows = sqlx::query!(
-        r#"SELECT id AS "id!: i64", root_run_id, run_id, ts, type AS kind, data
-           FROM run_events WHERE id > ? ORDER BY id"#,
+        r#"SELECT e.id AS "id!: i64", e.root_run_id, e.run_id, r.team_id, e.ts, e.type AS kind, e.data
+           FROM run_events e JOIN runs r ON r.id = e.root_run_id
+           WHERE e.id > ? ORDER BY e.id"#,
         after.0
     )
     .fetch_all(pool)
@@ -38,6 +39,7 @@ pub async fn since(pool: &SqlitePool, after: EventId) -> Result<Vec<EventEnvelop
                 id: EventId(row.id),
                 root_run_id: decode(&row.root_run_id)?,
                 run_id: decode(&row.run_id)?,
+                team_id: decode(&row.team_id)?,
                 ts: decode_time(&row.ts)?,
                 event: event(&row.kind, &row.data)?,
             })

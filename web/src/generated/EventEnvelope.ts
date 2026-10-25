@@ -19,7 +19,11 @@ import type { ToolName } from "./ToolName";
 import type { Usage } from "./Usage";
 import type { JsonValue } from "./serde_json/JsonValue";
 
-export type EventEnvelope = { id: EventId, root_run_id: RunId, run_id: RunId, ts: string, } & ({ "type": "run_started", "data": { agent_id: AgentId, 
+export type EventEnvelope = { id: EventId, root_run_id: RunId, run_id: RunId, 
+/**
+ * The team of the event's task.
+ */
+team_id: TeamId, ts: string, } & ({ "type": "run_started", "data": { agent_id: AgentId, 
 /**
  * The task's team; equal on every run of a task.
  */

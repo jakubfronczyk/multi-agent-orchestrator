@@ -4,6 +4,7 @@ import type { ApprovalId } from "./ApprovalId";
 import type { ApprovalStatus } from "./ApprovalStatus";
 import type { Custody } from "./Custody";
 import type { RunId } from "./RunId";
+import type { TeamId } from "./TeamId";
 import type { ToolCallId } from "./ToolCallId";
 
 /**
@@ -13,4 +14,8 @@ export type ApprovalView = { id: ApprovalId, tool_call_id: ToolCallId, run_id: R
 /**
  * The task the card belongs to, so a global list can link to its run view.
  */
-root_run_id: RunId, tool: string, action: Action | null, custody: Custody, preview: string, status: ApprovalStatus, note: string | null, expires_at: string, created_at: string, resolved_at: string | null, };
+root_run_id: RunId, 
+/**
+ * The task's team; one approver answers every team's cards.
+ */
+team_id: TeamId, tool: string, action: Action | null, custody: Custody, preview: string, status: ApprovalStatus, note: string | null, expires_at: string, created_at: string, resolved_at: string | null, };

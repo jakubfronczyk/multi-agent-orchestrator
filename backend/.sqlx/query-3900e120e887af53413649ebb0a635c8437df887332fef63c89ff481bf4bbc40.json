@@ -1,0 +1,134 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT o.id, o.run_id, r.root_run_id, r.team_id, o.tool_call_id, o.channel, o.recipient, o.subject,\n                o.body, o.sent_at\n         FROM outbox_messages o JOIN runs r ON r.id = o.run_id\n         WHERE (?1 IS NULL OR r.team_id = ?1)\n         ORDER BY o.sent_at DESC, o.id DESC LIMIT ?2",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "run_id",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "run_id"
+          }
+        }
+      },
+      {
+        "name": "root_run_id",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "root_run_id"
+          }
+        }
+      },
+      {
+        "name": "team_id",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "team_id"
+          }
+        }
+      },
+      {
+        "name": "tool_call_id",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "tool_call_id"
+          }
+        }
+      },
+      {
+        "name": "channel",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "channel"
+          }
+        }
+      },
+      {
+        "name": "recipient",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "recipient"
+          }
+        }
+      },
+      {
+        "name": "subject",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "subject"
+          }
+        }
+      },
+      {
+        "name": "body",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "name": "sent_at",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "sent_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "3900e120e887af53413649ebb0a635c8437df887332fef63c89ff481bf4bbc40"
+}

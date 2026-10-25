@@ -1,16 +1,16 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT r.root_run_id FROM workspace_files f JOIN runs r ON r.id = f.written_by_run\n             WHERE f.path = ?",
+  "query": "SELECT team_id FROM runs WHERE id = ?",
   "describe": {
     "columns": [
       {
-        "name": "root_run_id",
+        "name": "team_id",
         "ordinal": 0,
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "runs",
-            "name": "root_run_id"
+            "name": "team_id"
           }
         }
       }
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "68d6b3dc746f98c57c269daa76c7e871538871005e6b159a17d778120d5f0bd1"
+  "hash": "047327f975f3ee371d39691402cd5693862bc1e16744665b478aa03efac0955b"
 }

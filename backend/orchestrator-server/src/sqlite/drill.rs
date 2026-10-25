@@ -1,7 +1,7 @@
 //! The drill report: every way out of a task, read from its calls. An exit is any call to a
 //! tool whose effect is External or Egress, whether or not it ran.
 
-use orchestrator_core::ids::{RunId, ToolCallId};
+use orchestrator_core::ids::{RunId, TeamId, ToolCallId};
 use orchestrator_core::policy::{Decision, Effect, Rule};
 use orchestrator_core::runs::{ApprovalStatus, CallStatus, RunStatus};
 use orchestrator_core::tools::{Action, ToolName};
@@ -45,6 +45,8 @@ pub struct DrillExit {
 #[ts(export)]
 pub struct DrillReport {
     pub root_run_id: RunId,
+    /// The team the drill ran on; `DrillExit.agent` slugs resolve in it.
+    pub team_id: TeamId,
     pub status: RunStatus,
     pub exits: Vec<DrillExit>,
     pub messages_sent: u32,
@@ -54,13 +56,13 @@ pub struct DrillReport {
 pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport>, ReadError> {
     let root_text = encode(&root)?;
     let mut tx = pool.begin().await?;
-    let status = sqlx::query_scalar!(
-        "SELECT status FROM runs WHERE id = ?1 AND root_run_id = ?1",
+    let root_row = sqlx::query!(
+        "SELECT status, team_id FROM runs WHERE id = ?1 AND root_run_id = ?1",
         root_text
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let Some(status) = status else {
+    let Some(root_row) = root_row else {
         return Ok(None);
     };
     let rows = sqlx::query!(
@@ -114,7 +116,8 @@ pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport
     }
     Ok(Some(DrillReport {
         root_run_id: root,
-        status: decode(&status)?,
+        team_id: decode(&root_row.team_id)?,
+        status: decode(&root_row.status)?,
         exits,
         messages_sent: count(sent)?,
     }))
