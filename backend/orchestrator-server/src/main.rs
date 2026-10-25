@@ -21,6 +21,10 @@ async fn main() -> anyhow::Result<()> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
+    let raw = std::env::var(config::LLM_CONCURRENCY_VAR).ok();
+    let llm_concurrency = config::parse_concurrency(raw.as_deref()).map_err(anyhow::Error::msg)?;
+    tracing::info!(llm_concurrency, "model calls in flight at most");
+
     std::fs::create_dir_all(config::WORKSPACE_DIR)?;
     let pool = sqlite::connect(config::DATABASE_FILE).await?;
     let workspace_root = PathBuf::from(config::WORKSPACE_DIR);
@@ -41,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
         store.clone(),
         llm,
         tools::all(pool.clone(), workspace.clone()),
-        config::engine_config(),
+        config::engine_config(llm_concurrency),
     ));
     let listener = tokio::net::TcpListener::bind(config::ADDRESS).await?;
     tracing::info!(address = config::ADDRESS, "listening");
