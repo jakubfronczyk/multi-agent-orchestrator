@@ -60,15 +60,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const agents = useQuery(agentsQuery)
   const status = useHubStatus()
 
+  // Any run_finished: a follow-up turn ends with its own run id, not the root's; a child's is
+  // one cheap extra refetch.
   useInvalidateOn(runsQuery().queryKey, (event) =>
-    event.type === "run_started"
-      ? event.data.parent_run_id === null
-      : event.type === "run_finished" && event.run_id === event.root_run_id,
+    event.type === "run_started" ? event.data.parent_run_id === null : event.type === "run_finished",
   )
-  useInvalidateOn(approvalsQuery("pending").queryKey, (event) =>
-    event.type === "approval_requested" ||
-    event.type === "approval_resolved" ||
-    (event.type === "run_finished" && event.run_id === event.root_run_id),
+  useInvalidateOn(
+    approvalsQuery("pending").queryKey,
+    (event) =>
+      event.type === "approval_requested" || event.type === "approval_resolved" || event.type === "run_finished",
   )
 
   const list = runs.data?.runs ?? []

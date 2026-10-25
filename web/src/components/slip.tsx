@@ -6,6 +6,7 @@ import { cn } from "cn"
 import { answerApproval } from "@/api/approvals"
 import { runsQuery } from "@/api/runs"
 import { AgentShape } from "@/components/agent-shape"
+import { refetchNow } from "@/events/refetch"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import type { AnswerDecision } from "@/generated/AnswerDecision"
@@ -65,7 +66,7 @@ export function Slip({ approval }: { approval: ApprovalView }) {
   const answer = useMutation({
     mutationFn: (decision: AnswerDecision) =>
       answerApproval(approval.id, { decision, note: note.trim() || undefined }),
-    onSettled: () => client.invalidateQueries({ queryKey: ["approvals"] }),
+    onSettled: () => refetchNow(client, ["approvals"]),
     onError: (error) => {
       // 409: answered elsewhere, expired or cancelled; the refetch shows that state.
       sent.current = isApiError(error, 409)

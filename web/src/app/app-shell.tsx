@@ -45,8 +45,8 @@ export function AppShell() {
   }, [navigate])
 
   return (
-    <div className="grid h-full grid-cols-1 md:grid-cols-[256px_minmax(0,1fr)]">
-      <aside className="hidden min-w-0 md:block">
+    <div className="grid h-full grid-cols-1 grid-rows-[minmax(0,1fr)] md:grid-cols-[256px_minmax(0,1fr)]">
+      <aside className="hidden min-h-0 min-w-0 md:block">
         <Sidebar />
       </aside>
 

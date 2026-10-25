@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
 import type { EventEnvelope } from "@/generated/EventEnvelope"
 import { bufferedAfter, subscribe } from "./event-hub"
+import { refetchNow } from "./refetch"
 
 function lastEventId(data: unknown): number | null | undefined {
   if (typeof data !== "object" || data === null || !("last_event_id" in data)) return undefined
@@ -25,10 +26,10 @@ export function useInvalidateOn(queryKey: QueryKey, when: (event: EventEnvelope)
       const after = lastEventId(data)
       return after !== undefined && bufferedAfter(after).some(when)
     })
-    if (missed) void client.invalidateQueries({ queryKey })
+    if (missed) void refetchNow(client, queryKey)
     return subscribe((event) => {
       if (latest.current.when(event)) {
-        void client.invalidateQueries({ queryKey: latest.current.queryKey })
+        void refetchNow(client, latest.current.queryKey)
       }
     })
   }, [client])

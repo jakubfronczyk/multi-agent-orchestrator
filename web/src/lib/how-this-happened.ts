@@ -139,7 +139,7 @@ export function explainApproval(
 }
 
 /** The task's taint source an earlier call read, when its target names that source exactly. */
-function taintedBy(call: ToolCallView, sources: TaintSource[]): TaintSource | undefined {
+export function taintedBy(call: ToolCallView, sources: TaintSource[]): TaintSource | undefined {
   const target = call.action?.target
   if (!target) return undefined
   return sources.find(

@@ -243,6 +243,11 @@ export function actionCopy(tool: string, action: Action | null, agentName: (slug
   }
 }
 
+/** The text sent with attachments: their workspace paths on a last line the agent can read. */
+export function withAttachments(text: string, paths: string[]): string {
+  return paths.length > 0 ? `${text}\n\nAttached: ${paths.join(", ")}` : text
+}
+
 export const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 
 export interface PreviewParts {
