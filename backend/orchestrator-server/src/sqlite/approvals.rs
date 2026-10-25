@@ -8,6 +8,8 @@ use serde::Serialize;
 use sqlx::{SqliteConnection, SqlitePool};
 use ts_rs::TS;
 
+use super::events;
+use super::read::{ReadError, corrupt, json_opt, time_opt};
 use super::text::{from_text, parse_timestamp, to_text};
 
 /// One approval card with what it is about.
@@ -36,27 +38,17 @@ pub struct ApprovalList {
     pub last_event_id: Option<EventId>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ApprovalReadError {
-    #[error("storage failed: {0}")]
-    Storage(#[from] sqlx::Error),
-    #[error("stored approval is unreadable: {0}")]
-    Corrupt(String),
-}
-
 pub async fn list(
     pool: &SqlitePool,
     status: Option<ApprovalStatus>,
-) -> Result<ApprovalList, ApprovalReadError> {
+) -> Result<ApprovalList, ReadError> {
     let mut tx = pool.begin().await?;
-    let last_event_id = sqlx::query_scalar!(r#"SELECT MAX(id) AS "id?: i64" FROM run_events"#)
-        .fetch_one(&mut *tx)
-        .await?;
+    let last_event_id = events::last_id(&mut *tx).await?;
     let approvals = views(&mut tx, status, None).await?;
     tx.commit().await?;
     Ok(ApprovalList {
         approvals,
-        last_event_id: last_event_id.map(EventId),
+        last_event_id,
     })
 }
 
@@ -65,7 +57,7 @@ pub(crate) async fn views(
     conn: &mut SqliteConnection,
     status: Option<ApprovalStatus>,
     root: Option<RunId>,
-) -> Result<Vec<ApprovalView>, ApprovalReadError> {
+) -> Result<Vec<ApprovalView>, ReadError> {
     let status = status.as_ref().map(to_text).transpose().map_err(corrupt)?;
     let root = root.as_ref().map(to_text).transpose().map_err(corrupt)?;
     let rows = sqlx::query!(
@@ -88,24 +80,14 @@ pub(crate) async fn views(
                 tool_call_id: from_text(&row.tool_call_id).map_err(corrupt)?,
                 run_id: from_text(&row.run_id).map_err(corrupt)?,
                 tool: row.tool,
-                action: row
-                    .action
-                    .as_deref()
-                    .map(serde_json::from_str)
-                    .transpose()
-                    .map_err(corrupt)?,
+                action: json_opt(row.action.as_deref())?,
                 custody: serde_json::from_str(&row.custody).map_err(corrupt)?,
                 preview: row.preview,
                 status: from_text(&row.status).map_err(corrupt)?,
                 note: row.note,
                 expires_at: parse_timestamp(&row.expires_at).map_err(corrupt)?,
                 created_at: parse_timestamp(&row.created_at).map_err(corrupt)?,
-                resolved_at: row
-                    .resolved_at
-                    .as_deref()
-                    .map(parse_timestamp)
-                    .transpose()
-                    .map_err(corrupt)?,
+                resolved_at: time_opt(row.resolved_at.as_deref())?,
             })
         })
         .collect()
@@ -115,7 +97,7 @@ pub(crate) async fn views(
 pub async fn status(
     pool: &SqlitePool,
     id: ApprovalId,
-) -> Result<Option<ApprovalStatus>, ApprovalReadError> {
+) -> Result<Option<ApprovalStatus>, ReadError> {
     let id = to_text(&id).map_err(corrupt)?;
     let status = sqlx::query_scalar!("SELECT status FROM approvals WHERE id = ?", id)
         .fetch_optional(pool)
@@ -125,8 +107,4 @@ pub async fn status(
         .map(from_text)
         .transpose()
         .map_err(corrupt)
-}
-
-fn corrupt(error: impl std::fmt::Display) -> ApprovalReadError {
-    ApprovalReadError::Corrupt(error.to_string())
 }

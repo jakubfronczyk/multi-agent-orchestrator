@@ -6,6 +6,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 
+use super::read::{ReadError, corrupt};
 use super::text::{from_text, parse_timestamp};
 
 const LIST_LIMIT: u32 = 200;
@@ -29,16 +30,8 @@ pub struct OutboxList {
     pub messages: Vec<OutboxMessage>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum OutboxReadError {
-    #[error("storage failed: {0}")]
-    Storage(#[from] sqlx::Error),
-    #[error("stored message is unreadable: {0}")]
-    Corrupt(String),
-}
-
 /// Sent messages, newest first, at most 200.
-pub async fn list(pool: &SqlitePool) -> Result<OutboxList, OutboxReadError> {
+pub async fn list(pool: &SqlitePool) -> Result<OutboxList, ReadError> {
     let rows = sqlx::query!(
         "SELECT id, run_id, channel, recipient, subject, body, sent_at
          FROM outbox_messages ORDER BY sent_at DESC, id DESC LIMIT ?",
@@ -59,10 +52,6 @@ pub async fn list(pool: &SqlitePool) -> Result<OutboxList, OutboxReadError> {
                 sent_at: parse_timestamp(&row.sent_at).map_err(corrupt)?,
             })
         })
-        .collect::<Result<Vec<_>, OutboxReadError>>()?;
+        .collect::<Result<Vec<_>, ReadError>>()?;
     Ok(OutboxList { messages })
-}
-
-fn corrupt(error: impl std::fmt::Display) -> OutboxReadError {
-    OutboxReadError::Corrupt(error.to_string())
 }

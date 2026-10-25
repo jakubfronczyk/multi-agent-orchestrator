@@ -12,6 +12,7 @@ pub mod drill;
 pub mod events;
 pub mod memory;
 pub mod outbox;
+pub mod read;
 pub mod runs;
 mod store;
 pub(crate) mod text;

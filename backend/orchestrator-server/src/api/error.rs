@@ -8,6 +8,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::sqlite::agents::AgentError;
+use crate::sqlite::read::ReadError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -116,5 +117,13 @@ impl From<AgentError> for ApiError {
                 Self::internal()
             }
         }
+    }
+}
+
+/// A failed read is the server's fault: the detail is logged, the client sees `internal`.
+impl From<ReadError> for ApiError {
+    fn from(error: ReadError) -> Self {
+        tracing::error!(%error, "read failed");
+        ApiError::internal()
     }
 }

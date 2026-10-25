@@ -8,6 +8,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 
+use super::read::{ReadError, corrupt, text_opt};
 use super::text::{from_text, parse_timestamp, to_text};
 use crate::tools::escape_like;
 
@@ -66,16 +67,8 @@ pub struct MemoryFilter {
     pub q: Option<String>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum MemoryReadError {
-    #[error("storage failed: {0}")]
-    Storage(#[from] sqlx::Error),
-    #[error("stored note is unreadable: {0}")]
-    Corrupt(String),
-}
-
 /// Notes, most recently updated first, at most 200.
-pub async fn list(pool: &SqlitePool, filter: MemoryFilter) -> Result<MemoryList, MemoryReadError> {
+pub async fn list(pool: &SqlitePool, filter: MemoryFilter) -> Result<MemoryList, ReadError> {
     let scope = filter
         .scope
         .as_ref()
@@ -110,12 +103,7 @@ pub async fn list(pool: &SqlitePool, filter: MemoryFilter) -> Result<MemoryList,
             Ok(MemoryEntryView {
                 id: row.id,
                 scope: from_text(&row.scope).map_err(corrupt)?,
-                owner_agent_id: row
-                    .owner_agent_id
-                    .as_deref()
-                    .map(from_text)
-                    .transpose()
-                    .map_err(corrupt)?,
+                owner_agent_id: text_opt(row.owner_agent_id.as_deref())?,
                 key: row.key,
                 content: row.content,
                 author_agent_id: from_text(&row.author_agent_id).map_err(corrupt)?,
@@ -126,7 +114,7 @@ pub async fn list(pool: &SqlitePool, filter: MemoryFilter) -> Result<MemoryList,
                 updated_at: parse_timestamp(&row.updated_at).map_err(corrupt)?,
             })
         })
-        .collect::<Result<Vec<_>, MemoryReadError>>()?;
+        .collect::<Result<Vec<_>, ReadError>>()?;
     Ok(MemoryList { entries })
 }
 
@@ -134,7 +122,7 @@ pub async fn list(pool: &SqlitePool, filter: MemoryFilter) -> Result<MemoryList,
 pub async fn versions(
     pool: &SqlitePool,
     entry_id: &str,
-) -> Result<Option<MemoryVersionList>, MemoryReadError> {
+) -> Result<Option<MemoryVersionList>, ReadError> {
     let mut tx = pool.begin().await?;
     let exists = sqlx::query_scalar!(
         r#"SELECT 1 AS "found!: i64" FROM memory_entries WHERE id = ?"#,
@@ -169,13 +157,9 @@ pub async fn versions(
                 created_at: parse_timestamp(&row.created_at).map_err(corrupt)?,
             })
         })
-        .collect::<Result<Vec<_>, MemoryReadError>>()?;
+        .collect::<Result<Vec<_>, ReadError>>()?;
     Ok(Some(MemoryVersionList {
         entry_id: entry_id.to_string(),
         versions,
     }))
-}
-
-fn corrupt(error: impl std::fmt::Display) -> MemoryReadError {
-    MemoryReadError::Corrupt(error.to_string())
 }

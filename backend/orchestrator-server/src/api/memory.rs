@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use super::AppState;
 use super::error::ApiError;
-use crate::sqlite::memory::{self, MemoryFilter, MemoryList, MemoryReadError, MemoryVersionList};
+use crate::sqlite::memory::{self, MemoryFilter, MemoryList, MemoryVersionList};
 use crate::sqlite::text::from_text;
 
 #[derive(Debug, Deserialize)]
@@ -36,11 +36,7 @@ pub async fn list(
             .transpose()?,
         q: query.q.filter(|q| !q.is_empty()),
     };
-    Ok(Json(
-        memory::list(&state.pool, filter)
-            .await
-            .map_err(read_error)?,
-    ))
+    Ok(Json(memory::list(&state.pool, filter).await?))
 }
 
 pub async fn versions(
@@ -48,13 +44,7 @@ pub async fn versions(
     Path(id): Path<String>,
 ) -> Result<Json<MemoryVersionList>, ApiError> {
     memory::versions(&state.pool, &id)
-        .await
-        .map_err(read_error)?
+        .await?
         .map(Json)
         .ok_or_else(ApiError::not_found)
-}
-
-fn read_error(error: MemoryReadError) -> ApiError {
-    tracing::error!(%error, "memory read failed");
-    ApiError::internal()
 }

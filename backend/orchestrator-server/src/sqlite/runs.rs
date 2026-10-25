@@ -5,16 +5,16 @@ use chrono::{DateTime, Utc};
 use orchestrator_core::ids::{AgentId, EventId, RunId, ToolCallId};
 use orchestrator_core::money::Micros;
 use orchestrator_core::policy::{Decision, Rule, TaintSource};
-use orchestrator_core::runs::{
-    ApprovalStatus, CallPhase, CallStatus, RunEvent, RunOutcome, RunStatus, Usage,
-};
+use orchestrator_core::runs::{ApprovalStatus, CallPhase, CallStatus, RunOutcome, RunStatus};
 use orchestrator_core::tools::{Action, PlanStep};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{SqliteConnection, SqlitePool};
+use sqlx::SqlitePool;
 use ts_rs::TS;
 
-use super::approvals::{self, ApprovalReadError, ApprovalView};
+use super::approvals::{self, ApprovalView};
+use super::events::{self, LLM_RESPONDED, PLAN_RECORDED};
+use super::read::{ReadError, corrupt, count, json_opt, text_opt, time_opt};
 use super::text::{from_text, parse_timestamp, to_text};
 
 /// One task, read from its root run.
@@ -100,23 +100,6 @@ pub struct RunDetail {
     pub last_event_id: Option<EventId>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum RunReadError {
-    #[error("storage failed: {0}")]
-    Storage(#[from] sqlx::Error),
-    #[error("stored run is unreadable: {0}")]
-    Corrupt(String),
-}
-
-impl From<ApprovalReadError> for RunReadError {
-    fn from(error: ApprovalReadError) -> Self {
-        match error {
-            ApprovalReadError::Storage(error) => RunReadError::Storage(error),
-            ApprovalReadError::Corrupt(message) => RunReadError::Corrupt(message),
-        }
-    }
-}
-
 /// The audit log, newest first; `last_event_id` is read first, as in `RunList`.
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
@@ -155,7 +138,7 @@ struct ToolCallRow {
 }
 
 impl ToolCallRow {
-    fn view(self) -> Result<ToolCallView, RunReadError> {
+    fn view(self) -> Result<ToolCallView, ReadError> {
         Ok(ToolCallView {
             id: from_text(&self.id).map_err(corrupt)?,
             run_id: from_text(&self.run_id).map_err(corrupt)?,
@@ -182,13 +165,12 @@ struct PlanData {
 }
 
 /// Root runs, newest first, each with its task's counts and cost, in one query.
-pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, RunReadError> {
+pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
     let pending = to_text(&ApprovalStatus::Pending).map_err(corrupt)?;
     let refused = to_text(&CallStatus::Refused).map_err(corrupt)?;
     let denied = to_text(&CallStatus::DeniedHuman).map_err(corrupt)?;
-    let responded = responded_type()?;
     let mut tx = pool.begin().await?;
-    let last_event_id = last_event_id(&mut tx).await?;
+    let last_event_id = events::last_id(&mut *tx).await?;
     let rows = sqlx::query!(
         r#"SELECT r.id, r.agent_id, r.title, r.task, r.status, r.outcome, r.started_at, r.finished_at,
                   (SELECT COUNT(*) FROM approvals a
@@ -209,7 +191,7 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, RunReadError
         pending,
         refused,
         denied,
-        responded,
+        LLM_RESPONDED,
         limit
     )
     .fetch_all(&mut *tx)
@@ -234,7 +216,7 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, RunReadError
                 cost_micros: Micros(row.cost),
             })
         })
-        .collect::<Result<Vec<_>, RunReadError>>()?;
+        .collect::<Result<Vec<_>, ReadError>>()?;
     Ok(RunList {
         runs,
         last_event_id,
@@ -242,12 +224,10 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, RunReadError
 }
 
 /// The task whose root run is `root`, or `None` when no root run has this id.
-pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>, RunReadError> {
+pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>, ReadError> {
     let root_text = to_text(&root).map_err(corrupt)?;
-    let responded = responded_type()?;
-    let planned = plan_type()?;
     let mut tx = pool.begin().await?;
-    let last_event_id = last_event_id(&mut tx).await?;
+    let last_event_id = events::last_id(&mut *tx).await?;
 
     let run_rows = sqlx::query!(
         r#"SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.title, r.task, r.status, r.outcome,
@@ -258,7 +238,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
            WHERE r.root_run_id = ?1
            ORDER BY r.started_at, r.id"#,
         root_text,
-        responded
+        LLM_RESPONDED
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -284,7 +264,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
     let plan = sqlx::query_scalar!(
         "SELECT data FROM run_events WHERE root_run_id = ?1 AND type = ?2 ORDER BY id DESC LIMIT 1",
         root_text,
-        planned
+        PLAN_RECORDED
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -309,11 +289,11 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
                 cost_micros: Micros(row.cost),
             })
         })
-        .collect::<Result<Vec<_>, RunReadError>>()?;
+        .collect::<Result<Vec<_>, ReadError>>()?;
     let tool_calls = call_rows
         .into_iter()
         .map(ToolCallRow::view)
-        .collect::<Result<Vec<_>, RunReadError>>()?;
+        .collect::<Result<Vec<_>, ReadError>>()?;
     let plan = json_opt::<PlanData>(plan.as_deref())?.map(|data| data.steps);
     let cost_micros = runs
         .iter()
@@ -335,7 +315,7 @@ pub async fn tool_calls(
     pool: &SqlitePool,
     filter: ToolCallFilter,
     limit: u32,
-) -> Result<ToolCallList, RunReadError> {
+) -> Result<ToolCallList, ReadError> {
     let run = filter
         .run_id
         .as_ref()
@@ -355,7 +335,7 @@ pub async fn tool_calls(
         .transpose()
         .map_err(corrupt)?;
     let mut tx = pool.begin().await?;
-    let last_event_id = last_event_id(&mut tx).await?;
+    let last_event_id = events::last_id(&mut *tx).await?;
     let rows = sqlx::query_as!(
         ToolCallRow,
         r#"SELECT id, run_id, agent_id, tool, args, action, decision, rules, phase, status,
@@ -377,7 +357,7 @@ pub async fn tool_calls(
     let tool_calls = rows
         .into_iter()
         .map(ToolCallRow::view)
-        .collect::<Result<Vec<_>, RunReadError>>()?;
+        .collect::<Result<Vec<_>, ReadError>>()?;
     Ok(ToolCallList {
         tool_calls,
         last_event_id,
@@ -385,7 +365,7 @@ pub async fn tool_calls(
 }
 
 /// Whether a root run has this id, for telling an unknown task from a finished one.
-pub async fn root_exists(pool: &SqlitePool, root: RunId) -> Result<bool, RunReadError> {
+pub async fn root_exists(pool: &SqlitePool, root: RunId) -> Result<bool, ReadError> {
     let root = to_text(&root).map_err(corrupt)?;
     let found = sqlx::query_scalar!(
         r#"SELECT 1 AS "found!: i64" FROM runs WHERE id = ?1 AND parent_run_id IS NULL"#,
@@ -394,53 +374,4 @@ pub async fn root_exists(pool: &SqlitePool, root: RunId) -> Result<bool, RunRead
     .fetch_optional(pool)
     .await?;
     Ok(found.is_some())
-}
-
-async fn last_event_id(conn: &mut SqliteConnection) -> Result<Option<EventId>, sqlx::Error> {
-    let id = sqlx::query_scalar!(r#"SELECT MAX(id) AS "id?: i64" FROM run_events"#)
-        .fetch_one(conn)
-        .await?;
-    Ok(id.map(EventId))
-}
-
-/// The stored `type` of an event, taken from serde as `Store::emit` stores it.
-fn event_type(event: &RunEvent) -> Result<String, RunReadError> {
-    let value = serde_json::to_value(event).map_err(corrupt)?;
-    value["type"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| RunReadError::Corrupt("event has no type".to_string()))
-}
-
-fn responded_type() -> Result<String, RunReadError> {
-    event_type(&RunEvent::LlmResponded {
-        step: 0,
-        text: None,
-        usage: Usage::default(),
-        cost: Micros(0),
-    })
-}
-
-fn plan_type() -> Result<String, RunReadError> {
-    event_type(&RunEvent::PlanRecorded { steps: Vec::new() })
-}
-
-fn json_opt<T: serde::de::DeserializeOwned>(text: Option<&str>) -> Result<Option<T>, RunReadError> {
-    text.map(serde_json::from_str).transpose().map_err(corrupt)
-}
-
-fn text_opt<T: serde::de::DeserializeOwned>(text: Option<&str>) -> Result<Option<T>, RunReadError> {
-    text.map(from_text).transpose().map_err(corrupt)
-}
-
-fn time_opt(text: Option<&str>) -> Result<Option<DateTime<Utc>>, RunReadError> {
-    text.map(parse_timestamp).transpose().map_err(corrupt)
-}
-
-fn count(value: i64) -> Result<u32, RunReadError> {
-    u32::try_from(value).map_err(corrupt)
-}
-
-fn corrupt(error: impl std::fmt::Display) -> RunReadError {
-    RunReadError::Corrupt(error.to_string())
 }

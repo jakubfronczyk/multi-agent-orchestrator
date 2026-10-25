@@ -8,8 +8,5 @@ use super::error::ApiError;
 use crate::sqlite::outbox::{self, OutboxList};
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<OutboxList>, ApiError> {
-    outbox::list(&state.pool).await.map(Json).map_err(|error| {
-        tracing::error!(%error, "outbox read failed");
-        ApiError::internal()
-    })
+    Ok(Json(outbox::list(&state.pool).await?))
 }

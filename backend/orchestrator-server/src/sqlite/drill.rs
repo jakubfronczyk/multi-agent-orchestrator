@@ -9,6 +9,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 
+use super::read::{ReadError, corrupt, count, json_opt, text_opt};
 use super::text::{from_text, to_text};
 
 /// Who stopped or let through an exit: policy alone, or a person on a card.
@@ -49,16 +50,8 @@ pub struct DrillReport {
     pub messages_sent: u32,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum DrillReadError {
-    #[error("storage failed: {0}")]
-    Storage(#[from] sqlx::Error),
-    #[error("stored call is unreadable: {0}")]
-    Corrupt(String),
-}
-
 /// The report for the task whose root run is `root`, or `None` when no root run has this id.
-pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport>, DrillReadError> {
+pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport>, ReadError> {
     let root_text = to_text(&root).map_err(corrupt)?;
     let mut tx = pool.begin().await?;
     let status = sqlx::query_scalar!(
@@ -101,23 +94,13 @@ pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport
         if !matches!(tool.effect(), Effect::External | Effect::Egress) {
             continue;
         }
-        let decision: Option<Decision> = row
-            .decision
-            .as_deref()
-            .map(from_text)
-            .transpose()
-            .map_err(corrupt)?;
+        let decision: Option<Decision> = text_opt(row.decision.as_deref())?;
         exits.push(DrillExit {
             call_id: from_text(&row.id).map_err(corrupt)?,
             run_id: from_text(&row.run_id).map_err(corrupt)?,
             agent: row.agent,
             tool,
-            action: row
-                .action
-                .as_deref()
-                .map(serde_json::from_str)
-                .transpose()
-                .map_err(corrupt)?,
+            action: json_opt(row.action.as_deref())?,
             decided_by: if decision == Some(Decision::Ask) {
                 DecidedBy::User
             } else {
@@ -125,28 +108,14 @@ pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport
             },
             decision,
             rules: serde_json::from_str(&row.rules).map_err(corrupt)?,
-            approval: row
-                .approval
-                .as_deref()
-                .map(from_text)
-                .transpose()
-                .map_err(corrupt)?,
-            status: row
-                .status
-                .as_deref()
-                .map(from_text)
-                .transpose()
-                .map_err(corrupt)?,
+            approval: text_opt(row.approval.as_deref())?,
+            status: text_opt(row.status.as_deref())?,
         });
     }
     Ok(Some(DrillReport {
         root_run_id: root,
         status: from_text(&status).map_err(corrupt)?,
         exits,
-        messages_sent: u32::try_from(sent).map_err(corrupt)?,
+        messages_sent: count(sent)?,
     }))
-}
-
-fn corrupt(error: impl std::fmt::Display) -> DrillReadError {
-    DrillReadError::Corrupt(error.to_string())
 }

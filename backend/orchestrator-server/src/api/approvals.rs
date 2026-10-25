@@ -11,7 +11,7 @@ use ts_rs::TS;
 use super::AppState;
 use super::error::ApiError;
 use super::json::ApiJson;
-use crate::sqlite::approvals::{self, ApprovalList, ApprovalReadError};
+use crate::sqlite::approvals::{self, ApprovalList};
 use crate::sqlite::text::from_text;
 
 #[derive(Debug, Deserialize)]
@@ -44,11 +44,7 @@ pub async fn list(
         ),
         None => None,
     };
-    Ok(Json(
-        approvals::list(&state.pool, status)
-            .await
-            .map_err(read_error)?,
-    ))
+    Ok(Json(approvals::list(&state.pool, status).await?))
 }
 
 pub async fn answer(
@@ -64,18 +60,10 @@ pub async fn answer(
     if state.engine.answer(id, answer) {
         return Ok(StatusCode::NO_CONTENT);
     }
-    match approvals::status(&state.pool, id)
-        .await
-        .map_err(read_error)?
-    {
+    match approvals::status(&state.pool, id).await? {
         Some(_) => Err(ApiError::conflict(
             "this approval is no longer waiting for an answer",
         )),
         None => Err(ApiError::not_found()),
     }
-}
-
-fn read_error(error: ApprovalReadError) -> ApiError {
-    tracing::error!(%error, "approval read failed");
-    ApiError::internal()
 }

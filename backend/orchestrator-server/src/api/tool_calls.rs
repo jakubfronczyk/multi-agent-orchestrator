@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use super::AppState;
 use super::error::ApiError;
-use crate::sqlite::runs::{self, RunReadError, ToolCallFilter, ToolCallList};
+use crate::sqlite::runs::{self, ToolCallFilter, ToolCallList};
 use crate::sqlite::text::from_text;
 
 const DEFAULT_LIMIT: u32 = 100;
@@ -52,14 +52,5 @@ pub async fn list(
             })
             .transpose()?,
     };
-    Ok(Json(
-        runs::tool_calls(&state.pool, filter, limit)
-            .await
-            .map_err(read_error)?,
-    ))
-}
-
-fn read_error(error: RunReadError) -> ApiError {
-    tracing::error!(%error, "tool call read failed");
-    ApiError::internal()
+    Ok(Json(runs::tool_calls(&state.pool, filter, limit).await?))
 }

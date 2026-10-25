@@ -5,30 +5,27 @@ use orchestrator_core::runs::RunEvent;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
+use super::read::{ReadError, corrupt};
 use super::text::{from_text, parse_timestamp};
 use crate::events::EventEnvelope;
 
-#[derive(Debug, thiserror::Error)]
-pub enum EventReadError {
-    #[error("storage failed: {0}")]
-    Storage(#[from] sqlx::Error),
-    #[error("stored event is unreadable: {0}")]
-    Corrupt(String),
-}
+/// Stored `type` values the reads filter on; a test checks serde writes the same strings.
+pub const LLM_RESPONDED: &str = "llm_responded";
+pub const PLAN_RECORDED: &str = "plan_recorded";
 
-/// The highest committed event id, or `None` when the log is empty.
-pub async fn last_id(pool: &SqlitePool) -> Result<Option<EventId>, EventReadError> {
+/// The highest committed event id, or `None` when the log is empty. Takes a pool or an open
+/// transaction, so a snapshot can read it first.
+pub async fn last_id<'e>(
+    executor: impl sqlx::SqliteExecutor<'e>,
+) -> Result<Option<EventId>, ReadError> {
     let id = sqlx::query_scalar!(r#"SELECT MAX(id) AS "id?: i64" FROM run_events"#)
-        .fetch_one(pool)
+        .fetch_one(executor)
         .await?;
     Ok(id.map(EventId))
 }
 
 /// Every committed event with an id above `after`, in id order.
-pub async fn since(
-    pool: &SqlitePool,
-    after: EventId,
-) -> Result<Vec<EventEnvelope>, EventReadError> {
+pub async fn since(pool: &SqlitePool, after: EventId) -> Result<Vec<EventEnvelope>, ReadError> {
     let rows = sqlx::query!(
         r#"SELECT id AS "id!: i64", root_run_id, run_id, ts, type AS kind, data
            FROM run_events WHERE id > ? ORDER BY id"#,
@@ -53,6 +50,26 @@ pub async fn since(
         .collect()
 }
 
-fn corrupt(error: impl std::fmt::Display) -> EventReadError {
-    EventReadError::Corrupt(error.to_string())
+#[cfg(test)]
+mod tests {
+    use orchestrator_core::money::Micros;
+    use orchestrator_core::runs::Usage;
+
+    use super::*;
+
+    #[test]
+    fn the_type_constants_match_what_serde_stores() {
+        let kind = |event: RunEvent| serde_json::to_value(event).expect("json")["type"].clone();
+        let responded = RunEvent::LlmResponded {
+            step: 0,
+            text: None,
+            usage: Usage::default(),
+            cost: Micros(0),
+        };
+        assert_eq!(kind(responded), LLM_RESPONDED);
+        assert_eq!(
+            kind(RunEvent::PlanRecorded { steps: Vec::new() }),
+            PLAN_RECORDED
+        );
+    }
 }

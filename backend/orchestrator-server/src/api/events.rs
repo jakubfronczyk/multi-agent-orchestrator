@@ -37,16 +37,14 @@ pub async fn stream(
         Some(after) => {
             // An id above the newest one comes from before a database reset: live only, or the
             // filter would hide every new event until the ids caught up.
-            let newest = events::last_id(&state.pool).await.map_err(replay_failed)?;
+            let newest = events::last_id(&state.pool).await?;
             newest.filter(|newest| after <= *newest).map(|_| after)
         }
         None => None,
     };
     let (replayed, sent_up_to) = match after {
         Some(after) => {
-            let replayed = events::since(&state.pool, after)
-                .await
-                .map_err(replay_failed)?;
+            let replayed = events::since(&state.pool, after).await?;
             let last = replayed.last().map_or(after, |envelope| envelope.id);
             (replayed, Some(last))
         }
@@ -58,11 +56,6 @@ pub async fn stream(
         .filter_map(|envelope| frame(&envelope))
         .map(Ok);
     Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(KEEP_ALIVE)))
-}
-
-fn replay_failed(error: events::EventReadError) -> ApiError {
-    tracing::error!(%error, "event replay failed");
-    ApiError::internal()
 }
 
 fn frame(envelope: &EventEnvelope) -> Option<Event> {

@@ -37,11 +37,7 @@ pub async fn report(
 ) -> Result<Json<DrillReport>, ApiError> {
     let root: RunId = id.parse().map_err(|_| ApiError::not_found())?;
     drill::report(&state.pool, root)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "drill report read failed");
-            ApiError::internal()
-        })?
+        .await?
         .map(Json)
         .ok_or_else(ApiError::not_found)
 }

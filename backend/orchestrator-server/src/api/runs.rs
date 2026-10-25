@@ -14,7 +14,7 @@ use super::AppState;
 use super::error::ApiError;
 use super::json::ApiJson;
 use crate::llm::S1_DECISION;
-use crate::sqlite::runs::{self, RunDetail, RunList, RunReadError};
+use crate::sqlite::runs::{self, RunDetail, RunList};
 use crate::tools::files::EntryKind;
 
 const DEFAULT_LIMIT: u32 = 50;
@@ -95,9 +95,7 @@ pub async fn list(
     if !(1..=MAX_LIMIT).contains(&limit) {
         return Err(ApiError::invalid("limit", "use 1 to 200"));
     }
-    Ok(Json(
-        runs::list(&state.pool, limit).await.map_err(read_error)?,
-    ))
+    Ok(Json(runs::list(&state.pool, limit).await?))
 }
 
 pub async fn get(
@@ -106,8 +104,7 @@ pub async fn get(
 ) -> Result<Json<RunDetail>, ApiError> {
     let root: RunId = id.parse().map_err(|_| ApiError::not_found())?;
     runs::detail(&state.pool, root)
-        .await
-        .map_err(read_error)?
+        .await?
         .map(Json)
         .ok_or_else(ApiError::not_found)
 }
@@ -121,17 +118,9 @@ pub async fn cancel(
     if state.engine.cancel(root) {
         return Ok(StatusCode::ACCEPTED);
     }
-    if runs::root_exists(&state.pool, root)
-        .await
-        .map_err(read_error)?
-    {
+    if runs::root_exists(&state.pool, root).await? {
         Err(ApiError::conflict("this task has already finished"))
     } else {
         Err(ApiError::not_found())
     }
-}
-
-fn read_error(error: RunReadError) -> ApiError {
-    tracing::error!(%error, "run read failed");
-    ApiError::internal()
 }
