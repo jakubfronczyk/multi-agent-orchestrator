@@ -145,8 +145,9 @@ export function turnEnding(turn: Turn): string | null {
   }
 }
 
-/** "$0.0123" below a cent, "$1.24" above. */
+/** "$0" for nothing, "$0.0123" below a cent, "$1.24" above. */
 export function money(micros: number): string {
+  if (micros === 0) return "$0"
   const dollars = micros / 1_000_000
   return `$${dollars.toFixed(dollars < 0.01 ? 4 : 2)}`
 }

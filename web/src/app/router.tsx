@@ -3,6 +3,7 @@ import { AppShell } from "./app-shell"
 import { HomePage } from "@/pages/home"
 import { NeedsPage } from "@/pages/needs"
 import { TaskThreadPage } from "@/pages/task-thread"
+import { TasksPage } from "@/pages/tasks"
 import { Placeholder } from "@/pages/placeholder"
 
 export const router = createBrowserRouter([
@@ -11,7 +12,7 @@ export const router = createBrowserRouter([
     children: [
       { path: "/", element: <HomePage /> },
       { path: "/needs", element: <NeedsPage /> },
-      { path: "/tasks", element: <Placeholder title="Tasks" issue="06" /> },
+      { path: "/tasks", element: <TasksPage /> },
       { path: "/tasks/:rootId", element: <TaskThreadPage /> },
       { path: "/team", element: <Placeholder title="Your team" issue="07" /> },
       { path: "/notes", element: <Placeholder title="Team notes" issue="08" /> },

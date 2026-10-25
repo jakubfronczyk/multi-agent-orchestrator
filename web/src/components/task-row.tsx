@@ -23,7 +23,7 @@ function rowStatus(run: RunSummary): { text: string; tone: Tone } {
 }
 
 /** The outcome line under the title; none while a card waits, since the status says so. */
-function subtitle(run: RunSummary): string | null {
+function outcomeLine(run: RunSummary): string | null {
   if (run.pending_approvals > 0) return null
   switch (run.outcome?.kind) {
     case "completed":
@@ -39,6 +39,11 @@ function subtitle(run: RunSummary): string | null {
   }
 }
 
+function subtitle(run: RunSummary): string | null {
+  const parts = [outcomeLine(run), run.refusals > 0 ? `${run.refusals} stopped by your rules` : null]
+  return parts.filter((part) => part !== null).join(", ") || null
+}
+
 const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
 
 /** One task as a row that opens its thread: agents, title, outcome line, status, time, cost. */
@@ -52,13 +57,11 @@ export function TaskRow({ run }: { run: RunSummary }) {
       className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 rounded-md p-3 text-left hover:bg-accent sm:grid-cols-[44px_minmax(0,1fr)_auto]"
     >
       <span className="row-span-2 hidden items-center gap-1 sm:flex">
-        {run.agents
-          .map((id) => look.byId(id))
-          .filter((agent) => agent !== undefined)
-          .slice(0, 3)
-          .map((agent) => (
-            <AgentShape key={agent.id} icon={agent.icon} colour={agent.colour} pulse={running} />
-          ))}
+        {run.agents.slice(0, 3).map((id) => {
+          // An agent deleted since the task ran has no record: it gets the plain hexagon.
+          const agent = look.byId(id)
+          return <AgentShape key={id} icon={agent?.icon ?? ""} colour={agent?.colour} pulse={running} />
+        })}
       </span>
       <span className="row-span-2 min-w-0">
         <b className="block truncate text-base font-medium">{run.title ?? run.task}</b>
