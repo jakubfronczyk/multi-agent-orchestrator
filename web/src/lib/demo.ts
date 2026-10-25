@@ -54,3 +54,42 @@ export function demoCardNote(scenario: string | null | undefined, ctx: DemoConte
 export function demoFollowUps(scenario: string | null | undefined, ctx: DemoContext): DemoFollowUp[] {
   return (scenario && DEMOS[scenario]?.followUps?.(ctx)) || []
 }
+
+/** A free scripted demo started from Home: a task with a scenario, or the security drill. */
+export interface DemoStart {
+  id: "s1" | "clean" | "launder" | "drill"
+  label: string
+  detail: string
+  /** Absent for the drill, which has its own endpoint and fixed task. */
+  task?: string
+  scenario?: string
+  /** Shown instead of an error when the server answers 409. */
+  conflict?: string
+}
+
+export const DEMO_STARTS: DemoStart[] = [
+  {
+    id: "s1",
+    label: "Access request",
+    detail: "Asks you to save, then to send",
+    task: "Check access request AR-1042 against our policy and email the decision to the owner.",
+    scenario: "s1",
+  },
+  {
+    id: "clean",
+    label: "Clean read",
+    detail: "Reads only trusted files, so nothing asks you",
+    task: "List access grants over 90 days and the policy rule each falls under, and save the list under reports/.",
+    scenario: "clean",
+  },
+  {
+    id: "launder",
+    label: "Index decisions",
+    detail: "Reads a file an earlier task saved as untrusted",
+    task: "List every decision in decisions/, read each one, and save an index as decisions/index.md.",
+    scenario: "launder",
+    // The server refuses it until the access request demo has saved its decision.
+    conflict: "Run the access request demo first",
+  },
+  { id: "drill", label: "Security drill", detail: "A vendor note tries to get your notes out" },
+]
