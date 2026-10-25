@@ -183,3 +183,66 @@ async fn an_agent_that_sends_without_asking_is_refused(pool: SqlitePool) {
         "nothing stored: {slugs:?}"
     );
 }
+
+/// DNS rebinding and cross-site posts cannot answer a card: a non-loopback Host is refused on
+/// every request, and a non-loopback Origin on every change. The app's own origin still works.
+#[sqlx::test]
+async fn only_this_app_on_loopback_can_answer_a_card(pool: SqlitePool) {
+    let app = app(pool).await;
+    let base = serve(&app).await;
+    let client = reqwest::Client::new();
+    let mut rx = app.store.subscribe();
+    app.engine
+        .start(StartRequest {
+            agent_id: Some(app.worker),
+            ..request(r#"test:call:file_write:{"path":"a.md"}"#)
+        })
+        .await
+        .expect("start");
+    let approval = wait_for(&mut rx, |envelope| match envelope.event {
+        RunEvent::ApprovalRequested { approval_id, .. } => Some(approval_id),
+        _ => None,
+    })
+    .await;
+    let approval = serde_json::to_value(approval).expect("id");
+    let answer = format!("{base}/api/approvals/{}", approval.as_str().expect("str"));
+    let approve = json!({"decision": "approve"});
+
+    let rebound = client
+        .post(&answer)
+        .header("host", "evil.test:8787")
+        .json(&approve)
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(rebound.status(), 403);
+    let body: Value = rebound.json().await.expect("json");
+    assert_eq!(body["error"]["code"], "forbidden");
+    let read = client
+        .get(format!("{base}/api/approvals?status=pending"))
+        .header("host", "evil.test")
+        .send()
+        .await
+        .expect("get");
+    assert_eq!(read.status(), 403);
+
+    let cross_site = client
+        .post(&answer)
+        .header("origin", "https://evil.test")
+        .json(&approve)
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(cross_site.status(), 403);
+    let (_, pending) = get(&client, &format!("{base}/api/approvals?status=pending")).await;
+    assert_eq!(pending["approvals"][0]["status"], "pending");
+
+    let own = client
+        .post(&answer)
+        .header("origin", "http://localhost:5173")
+        .json(&approve)
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(own.status(), 204);
+}

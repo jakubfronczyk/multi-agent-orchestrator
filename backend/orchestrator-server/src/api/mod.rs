@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use axum::Router;
+use axum::middleware;
 use axum::routing::{get, post};
 use orchestrator_core::engine::Engine;
 use sqlx::SqlitePool;
@@ -21,6 +22,7 @@ mod files;
 mod json;
 mod memory;
 mod meta;
+mod origin;
 mod outbox;
 mod query;
 mod runs;
@@ -65,6 +67,7 @@ pub fn router(state: AppState) -> Router {
         );
     Router::new()
         .nest("/api", api)
+        .layer(middleware::from_fn(origin::loopback_only))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

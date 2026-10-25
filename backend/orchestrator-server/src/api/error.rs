@@ -15,6 +15,8 @@ use crate::sqlite::read::ReadError;
 #[ts(export)]
 pub enum ErrorCode {
     InvalidInput,
+    /// The request came from another site or through a non-loopback host name.
+    Forbidden,
     NotFound,
     Conflict,
     Internal,
@@ -86,6 +88,15 @@ impl ApiError {
             StatusCode::CONFLICT,
             ErrorCode::Conflict,
             message.to_string(),
+            None,
+        )
+    }
+
+    pub fn forbidden() -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden,
+            "requests must come from this app on this machine".to_string(),
             None,
         )
     }
