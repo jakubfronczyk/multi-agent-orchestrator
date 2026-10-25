@@ -1,23 +1,23 @@
-//! Run reads for the API: the task list and one task's detail, all written by `Store::emit`.
+//! Run reads for the API: the task list, one task's detail and the audit log, all written by `Store::emit`.
 //! Costs are summed from `llm_responded` events, the one record of what a call cost.
 
 use chrono::{DateTime, Utc};
 use orchestrator_core::ids::{AgentId, EventId, RunId, ToolCallId};
 use orchestrator_core::money::Micros;
-use orchestrator_core::policy::TaintSource;
-use orchestrator_core::runs::{ApprovalStatus, CallStatus, RunOutcome, RunStatus};
-use orchestrator_core::tools::PlanStep;
+use orchestrator_core::policy::{Decision, Rule, TaintSource};
+use orchestrator_core::runs::{ApprovalStatus, CallPhase, CallStatus, RunOutcome, RunStatus};
+use orchestrator_core::tools::{Action, PlanStep};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 
 use super::approvals::{self, ApprovalView};
 use super::events::{self, LLM_RESPONDED, PLAN_RECORDED};
 use super::read::{
-    ReadError, count, decode, decode_json, decode_time, encode, json_opt, text_opt, time_opt,
+    ReadError, count, decode, decode_json, decode_time, encode, encode_opt, json_opt, text_opt,
+    time_opt,
 };
-pub use super::tool_calls::{ToolCallFilter, tool_calls};
-use super::tool_calls::{ToolCallRow, ToolCallView};
 
 /// One task, read from its root run; status, outcome and finish are its latest turn's.
 #[derive(Debug, Clone, Serialize, TS)]
@@ -74,6 +74,29 @@ pub struct RunView {
     pub cost_micros: Micros,
 }
 
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct ToolCallView {
+    pub id: ToolCallId,
+    pub run_id: RunId,
+    /// The task's root run, so a row can open its task.
+    pub root_run_id: RunId,
+    pub agent_id: AgentId,
+    /// The name as the model sent it; it may not be a real tool.
+    pub tool: String,
+    pub args: Value,
+    pub action: Option<Action>,
+    pub decision: Option<Decision>,
+    pub rules: Vec<Rule>,
+    pub phase: CallPhase,
+    pub status: Option<CallStatus>,
+    pub result_preview: Option<String>,
+    pub child_run_id: Option<RunId>,
+    pub duration_ms: Option<i64>,
+    pub requested_at: DateTime<Utc>,
+    pub finished_at: Option<DateTime<Utc>>,
+}
+
 /// One task: its runs in start order (the root first), calls in request order, and the cards
 /// still pending. `last_event_id` is read first, as in `RunList`.
 #[derive(Debug, Clone, Serialize, TS)]
@@ -105,6 +128,67 @@ pub struct Turn {
     pub outcome: Option<RunOutcome>,
     /// The turn refused every save, note, fetch and send.
     pub draft_only: bool,
+}
+
+/// The audit log, newest first; `last_event_id` is read first, as in `RunList`.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct ToolCallList {
+    pub tool_calls: Vec<ToolCallView>,
+    pub last_event_id: Option<EventId>,
+}
+
+/// Audit filters; each one that is set must match.
+#[derive(Debug, Clone, Default)]
+pub struct ToolCallFilter {
+    pub run_id: Option<RunId>,
+    pub agent_id: Option<AgentId>,
+    /// The name as the model sent it.
+    pub tool: Option<String>,
+    pub status: Option<CallStatus>,
+}
+
+/// One `tool_calls` row, shared by every query that returns calls.
+struct ToolCallRow {
+    id: String,
+    run_id: String,
+    root_run_id: String,
+    agent_id: String,
+    tool: String,
+    args: String,
+    action: Option<String>,
+    decision: Option<String>,
+    rules: String,
+    phase: String,
+    status: Option<String>,
+    result_preview: Option<String>,
+    child_run_id: Option<String>,
+    duration_ms: Option<i64>,
+    requested_at: String,
+    finished_at: Option<String>,
+}
+
+impl ToolCallRow {
+    fn view(self) -> Result<ToolCallView, ReadError> {
+        Ok(ToolCallView {
+            id: decode(&self.id)?,
+            run_id: decode(&self.run_id)?,
+            root_run_id: decode(&self.root_run_id)?,
+            agent_id: decode(&self.agent_id)?,
+            tool: self.tool,
+            args: decode_json(&self.args)?,
+            action: json_opt(self.action.as_deref())?,
+            decision: text_opt(self.decision.as_deref())?,
+            rules: decode_json(&self.rules)?,
+            phase: decode(&self.phase)?,
+            status: text_opt(self.status.as_deref())?,
+            result_preview: self.result_preview,
+            child_run_id: text_opt(self.child_run_id.as_deref())?,
+            duration_ms: self.duration_ms,
+            requested_at: decode_time(&self.requested_at)?,
+            finished_at: time_opt(self.finished_at.as_deref())?,
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -255,7 +339,20 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
     let cost_micros = runs
         .iter()
         .fold(Micros(0), |sum, run| sum.saturating_add(run.cost_micros));
-    let turns = turns(&runs);
+    let turns = runs
+        .iter()
+        .filter(|run| run.parent_run_id.is_none())
+        .map(|run| Turn {
+            run_id: run.id,
+            text: run.task.clone(),
+            summary: match &run.outcome {
+                Some(RunOutcome::Completed { output, .. }) => Some(output.clone()),
+                _ => None,
+            },
+            outcome: run.outcome.clone(),
+            draft_only: run.draft_only,
+        })
+        .collect();
 
     Ok(Some(RunDetail {
         root_run_id: root,
@@ -270,21 +367,43 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
     }))
 }
 
-/// The task's turns: every run without a parent, in start order.
-fn turns(runs: &[RunView]) -> Vec<Turn> {
-    runs.iter()
-        .filter(|run| run.parent_run_id.is_none())
-        .map(|run| Turn {
-            run_id: run.id,
-            text: run.task.clone(),
-            summary: match &run.outcome {
-                Some(RunOutcome::Completed { output, .. }) => Some(output.clone()),
-                _ => None,
-            },
-            outcome: run.outcome.clone(),
-            draft_only: run.draft_only,
-        })
-        .collect()
+pub async fn tool_calls(
+    pool: &SqlitePool,
+    filter: ToolCallFilter,
+    limit: u32,
+) -> Result<ToolCallList, ReadError> {
+    let run = encode_opt(filter.run_id.as_ref())?;
+    let agent = encode_opt(filter.agent_id.as_ref())?;
+    let status = encode_opt(filter.status.as_ref())?;
+    let mut tx = pool.begin().await?;
+    let last_event_id = events::last_id(&mut *tx).await?;
+    let rows = sqlx::query_as!(
+        ToolCallRow,
+        r#"SELECT t.id, t.run_id, r.root_run_id, t.agent_id, t.tool, t.args, t.action, t.decision,
+                  t.rules, t.phase, t.status, t.result_preview, t.child_run_id, t.duration_ms,
+                  t.requested_at, t.finished_at
+           FROM tool_calls t JOIN runs r ON r.id = t.run_id
+           WHERE (?1 IS NULL OR t.run_id = ?1) AND (?2 IS NULL OR t.agent_id = ?2)
+             AND (?3 IS NULL OR t.tool = ?3) AND (?4 IS NULL OR t.status = ?4)
+           ORDER BY t.requested_at DESC, t.id DESC
+           LIMIT ?5"#,
+        run,
+        agent,
+        filter.tool,
+        status,
+        limit
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let tool_calls = rows
+        .into_iter()
+        .map(ToolCallRow::view)
+        .collect::<Result<Vec<_>, ReadError>>()?;
+    Ok(ToolCallList {
+        tool_calls,
+        last_event_id,
+    })
 }
 
 /// Whether a root run has this id, for telling an unknown task from a finished one.
