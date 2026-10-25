@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t.id, a.id AS \"approval_id?\"\n               FROM tool_calls t\n               LEFT JOIN approvals a ON a.tool_call_id = t.id AND a.status = ?1\n               WHERE t.run_id = ?2 AND t.phase != ?3\n               ORDER BY t.requested_at, t.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "approval_id?",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "approvals",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "5385ae9ee4d837d3ec204257a6d4e22d93c6d9d3ca883c53b0263a6caee07897"
+}

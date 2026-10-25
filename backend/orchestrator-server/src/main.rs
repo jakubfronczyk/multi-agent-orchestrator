@@ -10,7 +10,7 @@ use orchestrator_server::api::{self, ActiveProvider, AppState};
 use orchestrator_server::llm::{ScriptedProvider, XaiProvider};
 use orchestrator_server::sqlite::SqliteStore;
 use orchestrator_server::tools::files::Workspace;
-use orchestrator_server::{config, seed, sqlite, tools};
+use orchestrator_server::{config, recovery, seed, sqlite, tools};
 use secrecy::SecretString;
 use tracing_subscriber::EnvFilter;
 
@@ -28,6 +28,13 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("seeded the team, the inbox and the workspace");
     }
     let store = Arc::new(SqliteStore::new(pool.clone()));
+    let interrupted = recovery::interrupt_unfinished(&pool, store.as_ref()).await?;
+    if interrupted > 0 {
+        tracing::info!(
+            interrupted,
+            "marked runs from the previous process as interrupted"
+        );
+    }
     let workspace = Workspace::new(workspace_root, pool.clone());
     let (llm, provider) = provider().await?;
     let engine = Arc::new(Engine::new(

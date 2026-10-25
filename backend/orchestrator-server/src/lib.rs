@@ -5,6 +5,7 @@ pub mod api;
 pub mod config;
 pub mod events;
 pub mod llm;
+pub mod recovery;
 pub mod seed;
 pub mod sqlite;
 pub mod tools;

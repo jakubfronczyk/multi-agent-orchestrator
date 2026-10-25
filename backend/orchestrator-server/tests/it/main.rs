@@ -31,6 +31,7 @@ mod gateway;
 mod memory;
 mod messages;
 mod recording;
+mod recovery;
 mod runs;
 mod seeded;
 mod taint;
