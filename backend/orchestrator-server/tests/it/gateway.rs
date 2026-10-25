@@ -215,7 +215,7 @@ async fn panics_failures_and_unoffered_tools_each_end_one_call(pool: SqlitePool)
     for (scenario, status) in [
         ("test:call:file_list:{}", CallStatus::Internal),
         ("test:call:file_read:{}", CallStatus::Failed),
-        ("test:call:inbox_read:{}", CallStatus::NotOffered),
+        ("test:call:memory_search:{}", CallStatus::NotOffered),
     ] {
         let events = run_to_end(&app, scenario).await;
         assert_eq!(finished_status(&events), status, "{scenario}");

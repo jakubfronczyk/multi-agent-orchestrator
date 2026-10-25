@@ -10,26 +10,30 @@ use serde_json::{Value, json};
 use crate::agents::{AgentSpec, Slug};
 use crate::ids::{ApprovalId, RunId, ToolCallId};
 use crate::llm::FnCall;
-use crate::policy::{Decision, Rule, Trust, decide};
+use crate::policy::{Decision, Rule, TaintSource, Trust, decide};
 use crate::runs::{Answer, ApprovalOutcome, CallStatus, Custody, RunEvent};
 use crate::store::StoreError;
-use crate::tools::{Action, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec};
+use crate::tools::{Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec};
 
 use super::approvals::Waited;
 use super::run::RunCtx;
-use super::{Inner, native};
+use super::{Inner, native, prompts};
 
 const PREVIEW_CHARS: usize = 200;
+/// The longest result text the model receives; past it, the text is cut and marked.
+const RESULT_CHARS: usize = 64_000;
 
 /// How a call ended, before it is rendered for the model.
 pub(super) enum Ended {
     Ok(ToolOutput),
-    /// A delegated run that completed; its output goes back verbatim.
+    /// A delegated run that completed; its output goes back verbatim, wrapped when tainted.
     Child {
         agent: Slug,
         run_id: RunId,
         truncated: bool,
         output: String,
+        /// The task's sources when it was tainted at the child's end.
+        untrusted: Option<String>,
     },
     Failed {
         status: CallStatus,
@@ -156,7 +160,11 @@ pub(super) async fn execute(
         .get(&name)
         .copied()
         .unwrap_or(Decision::Deny);
-    let (decision, reasons) = decide(&ctx.task.facts(own, name.effect(), &action));
+    let (mut decision, mut reasons) = decide(&ctx.task.facts(own, name.effect(), &action));
+    if ctx.task.is_repeat_of_refused(name, &args) {
+        decision = Decision::Deny;
+        reasons.insert(0, Rule::RepeatOfRefused);
+    }
     let requested = RunEvent::ToolCallRequested {
         call_id,
         tool: call.name.clone(),
@@ -167,8 +175,10 @@ pub(super) async fn execute(
     };
     inner.emit(ctx.at, requested).await?;
 
+    let mut ran = true;
     let ended = match decision {
         Decision::Deny => {
+            ran = false;
             let rule = reasons.first().map_or("agent_policy", Rule::kind);
             Ended::failed(
                 CallStatus::Refused,
@@ -181,19 +191,43 @@ pub(super) async fn execute(
                 run(inner, ctx, call_id, callable, args.clone()).await?
             }
             Waited::Answered(Answer::Deny { note }) => {
+                ran = false;
                 Ended::failed(CallStatus::DeniedHuman, "a person denied this call", note)
             }
-            Waited::Expired => Ended::failed(
-                CallStatus::Expired,
-                "nobody answered the approval in time",
-                None,
-            ),
+            Waited::Expired => {
+                ran = false;
+                Ended::failed(
+                    CallStatus::Expired,
+                    "nobody answered the approval in time",
+                    None,
+                )
+            }
             Waited::Cancelled => {
+                ran = false;
                 Ended::failed(CallStatus::Cancelled, "the task was cancelled", None)
             }
         },
         Decision::Allow => run(inner, ctx, call_id, callable, args.clone()).await?,
     };
+
+    // Rule 4: taint is committed before any model sees the result, whatever the outcome.
+    let sources = if ran && name.taints() {
+        taint_sources(&ended, &action)
+    } else {
+        Vec::new()
+    };
+    for source in &sources {
+        if ctx.task.claim_taint(source) {
+            inner
+                .emit(
+                    ctx.at,
+                    RunEvent::TaskTainted {
+                        source: source.clone(),
+                    },
+                )
+                .await?;
+        }
+    }
 
     let refused_or_denied = matches!(
         &ended,
@@ -211,7 +245,29 @@ pub(super) async fn execute(
         refused_or_denied.then_some((name, args)),
     )
     .await?;
-    Ok(render(&ended))
+    let untrusted = (!sources.is_empty()).then(|| prompts::source_label(&sources));
+    Ok(render(&ended, untrusted.as_deref()))
+}
+
+/// What a call that ran read from outside. A result says it; a failure has no result, so the
+/// target names the one source (a fetched URL, a read message). A failed list names none.
+fn taint_sources(ended: &Ended, action: &Action) -> Vec<TaintSource> {
+    match ended {
+        Ended::Ok(output) => output.taint.clone(),
+        Ended::Child { .. } => Vec::new(),
+        Ended::Failed { .. } => match &action.target {
+            Target::Host { url, .. } => vec![TaintSource::Web { url: url.clone() }],
+            Target::Message { id } => vec![TaintSource::Inbox {
+                message_id: id.clone(),
+            }],
+            Target::File { .. }
+            | Target::Recipient { .. }
+            | Target::Note { .. }
+            | Target::Query { .. }
+            | Target::Agent { .. }
+            | Target::Plan { .. } => Vec::new(),
+        },
+    }
 }
 
 /// Not offered and invalid arguments: logged and refused before any decision. Arguments that
@@ -238,7 +294,7 @@ async fn refuse_early(
     inner.emit(ctx.at, requested).await?;
     let ended = Ended::failed(status, &message, None);
     finish(inner, ctx, call_id, Instant::now(), &ended, None).await?;
-    Ok(render(&ended))
+    Ok(render(&ended, None))
 }
 
 async fn ask(
@@ -317,7 +373,11 @@ async fn run_tool(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
         run_id: ctx.at.run_id,
         root_run_id: ctx.at.root_run_id,
         agent_id: ctx.agent.id(),
-        trust: Trust::Trusted,
+        trust: if ctx.task.is_tainted() {
+            Trust::Untrusted
+        } else {
+            Trust::Trusted
+        },
     };
     let timeout = tool.spec().timeout;
     let handle = tokio::spawn(async move { tool.run(&tool_ctx, args).await });
@@ -383,17 +443,50 @@ async fn finish(
     Ok(())
 }
 
-fn render(ended: &Ended) -> String {
+/// `untrusted` names this call's sources when its result is outside content.
+fn render(ended: &Ended, untrusted: Option<&str>) -> String {
     match ended {
-        Ended::Ok(output) => json!({"ok": true, "result": output.content}).to_string(),
+        Ended::Ok(output) => {
+            let (text, cut) = capped(&output.content.to_string());
+            let mut body = match untrusted {
+                Some(source) => json!({
+                    "ok": true,
+                    "trust": "untrusted",
+                    "source": source,
+                    "result": prompts::untrusted(source, &text),
+                }),
+                None if cut => json!({"ok": true, "result": text}),
+                None => json!({"ok": true, "result": output.content}),
+            };
+            if cut {
+                body["truncated"] = json!(true);
+            }
+            body.to_string()
+        }
         Ended::Child {
             agent,
             truncated,
             output,
+            untrusted,
             ..
         } => {
             let status = if *truncated { "truncated" } else { "completed" };
-            json!({"ok": true, "agent": agent, "status": status, "output": output}).to_string()
+            let (text, cut) = capped(output);
+            let mut body = match untrusted {
+                Some(source) => json!({
+                    "ok": true,
+                    "agent": agent,
+                    "status": status,
+                    "trust": "untrusted",
+                    "source": source,
+                    "output": prompts::untrusted(source, &text),
+                }),
+                None => json!({"ok": true, "agent": agent, "status": status, "output": text}),
+            };
+            if cut {
+                body["truncated"] = json!(true);
+            }
+            body.to_string()
         }
         Ended::Failed {
             status,
@@ -413,6 +506,14 @@ fn render(ended: &Ended) -> String {
 
 fn parse_args(raw: &str) -> Result<Value, String> {
     serde_json::from_str(raw).map_err(|error| format!("arguments are not valid JSON: {error}"))
+}
+
+/// Cuts on a character boundary, so the envelope stays valid JSON.
+fn capped(text: &str) -> (String, bool) {
+    match text.char_indices().nth(RESULT_CHARS) {
+        Some((end, _)) => (text[..end].to_string(), true),
+        None => (text.to_string(), false),
+    }
 }
 
 fn preview(text: &str) -> String {

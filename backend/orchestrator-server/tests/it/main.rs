@@ -25,6 +25,7 @@ mod delegate;
 mod gateway;
 mod recording;
 mod runs;
+mod taint;
 mod tools;
 
 /// Upper bound for any wait in a test; reaching it is a failure, not a delay.
@@ -45,7 +46,7 @@ pub fn test_config() -> Config {
         retry_backoff: vec![Duration::from_millis(5); 3],
         default_budget: Micros(500_000),
         approval_timeout: DEADLINE,
-        allowlist: Vec::new(),
+        allowlist: vec!["example.com".to_string()],
         max_depth: 2,
         max_runs: 12,
     }
@@ -65,6 +66,9 @@ pub async fn app_with_llm(pool: SqlitePool, config: Config, llm: Arc<dyn LlmProv
         agents::create(&pool, helper(slug))
             .await
             .expect("seed helper");
+    }
+    for agent in drill_team() {
+        agents::create(&pool, agent).await.expect("seed drill team");
     }
     agents::create(&pool, lead()).await.expect("seed lead");
     let worker = agents::create(&pool, worker())
@@ -97,8 +101,39 @@ fn lead() -> AgentInput {
             (ToolName::Delegate, Decision::Allow),
             (ToolName::Plan, Decision::Allow),
         ]),
-        delegate_targets: vec!["helper".to_string(), "helper2".to_string()],
+        delegate_targets: ["helper", "helper2", "reader", "messenger"]
+            .map(String::from)
+            .to_vec(),
     }
+}
+
+/// The seed's split of the trifecta: Reader reads outside content but cannot send; Messenger
+/// sends but only with approval; Writer saves files without asking until the task is tainted.
+fn drill_team() -> Vec<AgentInput> {
+    let agent = |slug: &str, tools: &[(ToolName, Decision)]| AgentInput {
+        tools: tools.iter().copied().collect(),
+        ..helper(slug)
+    };
+    vec![
+        agent(
+            "reader",
+            &[
+                (ToolName::InboxList, Decision::Allow),
+                (ToolName::InboxRead, Decision::Allow),
+                (ToolName::HttpFetch, Decision::Allow),
+                (ToolName::SendMessage, Decision::Deny),
+            ],
+        ),
+        agent("messenger", &[(ToolName::SendMessage, Decision::Ask)]),
+        agent(
+            "writer",
+            &[
+                (ToolName::InboxRead, Decision::Allow),
+                (ToolName::FileWrite, Decision::Allow),
+                (ToolName::MemoryWrite, Decision::Allow),
+            ],
+        ),
+    ]
 }
 
 fn helper(slug: &str) -> AgentInput {
@@ -121,6 +156,9 @@ fn worker() -> AgentInput {
         (ToolName::FileList, Decision::Allow),
         (ToolName::FileRead, Decision::Allow),
         (ToolName::SendMessage, Decision::Deny),
+        (ToolName::InboxList, Decision::Allow),
+        (ToolName::InboxRead, Decision::Allow),
+        (ToolName::HttpFetch, Decision::Allow),
     ]);
     AgentInput {
         role: Role::Specialist,

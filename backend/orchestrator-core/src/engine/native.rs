@@ -144,6 +144,7 @@ pub(super) async fn plan(inner: &Inner, ctx: &RunCtx, args: Value) -> Result<End
     inner.emit(ctx.at, RunEvent::PlanRecorded { steps }).await?;
     Ok(Ended::Ok(ToolOutput {
         content: json!({ "recorded_steps": count }),
+        taint: Vec::new(),
     }))
 }
 
@@ -189,6 +190,11 @@ pub(super) async fn delegate(
         args.context.as_deref(),
         args.expected_output.as_deref(),
     );
+    // Rule 5: once the task is tainted, the child receives its task as data.
+    let text = match tainted_label(ctx) {
+        Some(source) => prompts::untrusted(&source, &text),
+        None => text,
+    };
     let child = RunRef {
         root_run_id: ctx.at.root_run_id,
         run_id: RunId::new(),
@@ -243,6 +249,7 @@ pub(super) async fn delegate(
             run_id: child.run_id,
             truncated,
             output,
+            untrusted: tainted_label(ctx),
         },
         RunOutcome::Failed { message, .. } => {
             Ended::failed(CallStatus::ChildFailed, &message, None)
@@ -253,6 +260,12 @@ pub(super) async fn delegate(
             None,
         ),
     })
+}
+
+fn tainted_label(ctx: &RunCtx) -> Option<String> {
+    ctx.task
+        .is_tainted()
+        .then(|| prompts::source_label(&ctx.task.taint_sources()))
 }
 
 fn parse<T: for<'de> Deserialize<'de>>(args: &Value) -> Result<T, ToolError> {

@@ -9,7 +9,8 @@ use crate::agents::{AgentSpec, Slug};
 use crate::money::Micros;
 use crate::policy::{Decision, Effect, Facts, TaintSource};
 use crate::runs::RunEvent;
-use crate::tools::Action;
+use crate::tools::{Action, ToolName};
+use serde_json::Value;
 
 pub struct Task {
     budget: Micros,
@@ -28,6 +29,8 @@ struct TaskState {
     taint: Vec<TaintSource>,
     /// Runs started in this task, the root included.
     runs_started: u32,
+    /// Calls refused by agent policy or denied by a person; a repeat is refused without a card.
+    refused: Vec<(ToolName, Value)>,
 }
 
 impl Task {
@@ -41,6 +44,7 @@ impl Task {
                 spent: Micros(0),
                 taint: Vec::new(),
                 runs_started: 1,
+                refused: Vec::new(),
             }),
         }
     }
@@ -85,6 +89,30 @@ impl Task {
         self.lock().taint.clone()
     }
 
+    pub fn is_tainted(&self) -> bool {
+        !self.lock().taint.is_empty()
+    }
+
+    /// Records a source the first time it is seen and says whether it was new, in one locked
+    /// step, so parallel calls reading the same source emit `task_tainted` once. With
+    /// `try_start_run`, one of the two state changes that do not go through `apply`.
+    pub fn claim_taint(&self, source: &TaintSource) -> bool {
+        let mut state = self.lock();
+        if state.taint.contains(source) {
+            return false;
+        }
+        state.taint.push(source.clone());
+        true
+    }
+
+    /// Same tool, equal arguments (`Value ==`).
+    pub fn is_repeat_of_refused(&self, tool: ToolName, args: &Value) -> bool {
+        self.lock()
+            .refused
+            .iter()
+            .any(|(t, a)| *t == tool && a == args)
+    }
+
     pub fn budget(&self) -> Micros {
         self.budget
     }
@@ -105,13 +133,20 @@ impl Task {
                 let mut state = self.lock();
                 state.spent = state.spent.saturating_add(*cost);
             }
-            RunEvent::TaskTainted { source } => {
+            // Refused and denied calls carry their tool and arguments; nothing else does.
+            RunEvent::ToolCallFinished {
+                tool: Some(tool),
+                args: Some(args),
+                ..
+            } => {
                 let mut state = self.lock();
-                if !state.taint.contains(source) {
-                    state.taint.push(source.clone());
+                if !state.refused.iter().any(|(t, a)| t == tool && a == args) {
+                    state.refused.push((*tool, args.clone()));
                 }
             }
-            RunEvent::RunStarted { .. }
+            // The source was recorded by `claim_taint` before this event was emitted.
+            RunEvent::TaskTainted { .. }
+            | RunEvent::RunStarted { .. }
             | RunEvent::PlanRecorded { .. }
             | RunEvent::LlmRequested { .. }
             | RunEvent::LlmRetrying { .. }

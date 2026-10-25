@@ -13,7 +13,7 @@ use ts_rs::TS;
 
 use crate::agents::{Slug, ValidationError};
 use crate::ids::{AgentId, RunId};
-use crate::policy::{Effect, LeadAccess, Trust};
+use crate::policy::{Effect, LeadAccess, TaintSource, Trust};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -119,6 +119,8 @@ pub struct ToolCtx {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolOutput {
     pub content: Value,
+    /// The outside content this result carries; read only when the tool's name taints.
+    pub taint: Vec<TaintSource>,
 }
 
 #[async_trait]
@@ -221,6 +223,7 @@ pub struct Action {
 pub enum Target {
     File { path: String },
     Recipient { channel: String, address: String },
+    Message { id: String },
     Host { url: String, host: String },
     Note { scope: MemoryScope, key: NoteKey },
     Query { text: String },

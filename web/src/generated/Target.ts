@@ -4,4 +4,4 @@ import type { NoteKey } from "./NoteKey";
 import type { PlanStep } from "./PlanStep";
 import type { Slug } from "./Slug";
 
-export type Target = { "kind": "file", path: string, } | { "kind": "recipient", channel: string, address: string, } | { "kind": "host", url: string, host: string, } | { "kind": "note", scope: MemoryScope, key: NoteKey, } | { "kind": "query", text: string, } | { "kind": "agent", slug: Slug, } | { "kind": "plan", steps: Array<PlanStep>, };
+export type Target = { "kind": "file", path: string, } | { "kind": "recipient", channel: string, address: string, } | { "kind": "message", id: string, } | { "kind": "host", url: string, host: string, } | { "kind": "note", scope: MemoryScope, key: NoteKey, } | { "kind": "query", text: string, } | { "kind": "agent", slug: Slug, } | { "kind": "plan", steps: Array<PlanStep>, };
