@@ -5,6 +5,7 @@ import type { Trust } from "./Trust";
 
 export type FileEntryView = { name: string, path: string, kind: EntryKind, bytes: number, trust: Trust, 
 /**
- * The root run of the task that last wrote the file; null for seeded files and for directories.
+ * The root run of the task that last wrote the file; null for seeded files, uploads and
+ * directories.
  */
 written_by_root_run_id: RunId | null, };

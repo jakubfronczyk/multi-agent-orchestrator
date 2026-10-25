@@ -53,7 +53,7 @@ pub fn router(state: AppState) -> Router {
         .route("/memory", get(memory::list))
         .route("/memory/{id}/versions", get(memory::versions))
         .route("/outbox", get(outbox::list))
-        .route("/files", get(files::view))
+        .route("/files", get(files::view).post(files::upload))
         .route("/drill", post(drill::start))
         .route("/drill/{id}/report", get(drill::report))
         .route("/approvals", get(approvals::list))

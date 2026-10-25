@@ -30,6 +30,37 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 const FILE_BYTES: usize = 256 * 1024;
 const LIST_LIMIT: usize = 500;
 const WRITABLE: [&str; 4] = ["md", "csv", "json", "txt"];
+/// The one directory uploads go to.
+pub const UPLOADS_DIR: &str = "uploads";
+const UPLOAD_NAME_CHARS: usize = 100;
+
+/// Why an upload was not stored.
+#[derive(Debug, thiserror::Error)]
+pub enum UploadError {
+    #[error("a file with this name was already uploaded")]
+    Exists,
+    #[error(transparent)]
+    Tool(#[from] ToolError),
+}
+
+/// A bare file name of ASCII letters, digits, `.`, `_` and `-`, at most 100 characters, not
+/// starting with a dot; so it names one file directly inside `uploads/`.
+pub fn check_upload_name(name: &str) -> Result<(), ToolError> {
+    let valid = !name.is_empty()
+        && name.len() <= UPLOAD_NAME_CHARS
+        && !name.starts_with('.')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if valid {
+        Ok(())
+    } else {
+        Err(ToolError::InvalidArgs(
+            "file: the name must be up to 100 letters, digits, '.', '_' or '-', not starting with '.'"
+                .to_string(),
+        ))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -49,7 +80,8 @@ pub struct Entry {
     pub kind: EntryKind,
     pub bytes: u64,
     pub untrusted: bool,
-    /// The root run of the task that last wrote the file; `None` for seeded files and directories.
+    /// The root run of the task that last wrote the file; `None` for seeded files, uploads and
+    /// directories.
     pub written_by_root_run_id: Option<RunId>,
 }
 
@@ -180,7 +212,13 @@ impl Workspace {
         Ok(trusts.is_empty() || trusts.iter().any(|trust| !is_trusted(Some(trust))))
     }
 
-    async fn record_trust(&self, path: &str, trust: Trust, run: &str) -> Result<(), ToolError> {
+    /// `run` is `None` for a file no run wrote, such as an upload.
+    async fn record_trust(
+        &self,
+        path: &str,
+        trust: Trust,
+        run: Option<&str>,
+    ) -> Result<(), ToolError> {
         let trust = to_text(&trust).map_err(storage_failed)?;
         let now = timestamp(Utc::now());
         sqlx::query!(
@@ -196,6 +234,42 @@ impl Workspace {
         .await
         .map_err(storage_failed)?;
         Ok(())
+    }
+
+    /// Saves an upload as `uploads/<name>` and returns that path; an existing upload is never
+    /// replaced. Uploads come from outside, so the row is untrusted with no writing run, and
+    /// it is recorded under the exclusive lock before any byte is written.
+    pub async fn store_upload(&self, name: &str, text: &str) -> Result<String, UploadError> {
+        check_upload_name(name)?;
+        let path = format!("{UPLOADS_DIR}/{name}");
+        let failed = || ToolError::Failed(format!("{path} cannot be written"));
+        let _exclusive = self.lock.write().await;
+
+        let target = resolve(&self.root, &path).await?;
+        let parent = target.parent().ok_or_else(failed)?.to_path_buf();
+        tokio::fs::create_dir_all(&parent)
+            .await
+            .map_err(|_| failed())?;
+        // The directory may have been created just now; it is checked again before the write.
+        resolve(&self.root, &path).await?;
+        if tokio::fs::try_exists(&target).await.unwrap_or(true) {
+            return Err(UploadError::Exists);
+        }
+
+        self.record_trust(&path, Trust::Untrusted, None).await?;
+        let temp = parent.join(format!(".{name}.{}.tmp", Uuid::now_v7()));
+        let written = async {
+            let mut file = tokio::fs::File::create_new(&temp).await?;
+            file.write_all(text.as_bytes()).await?;
+            file.sync_all().await?;
+            tokio::fs::rename(&temp, &target).await
+        }
+        .await;
+        if written.is_err() {
+            let _ = tokio::fs::remove_file(&temp).await;
+            return Err(failed().into());
+        }
+        Ok(path)
     }
 
     /// `None` for a file no run wrote, such as a seeded one.
@@ -429,7 +503,7 @@ impl Tool for FileWrite {
         let replaced = tokio::fs::try_exists(&target).await.unwrap_or(false);
 
         self.workspace
-            .record_trust(&path, Trust::Untrusted, &run)
+            .record_trust(&path, Trust::Untrusted, Some(&run))
             .await?;
         let name = target
             .file_name()
@@ -447,7 +521,9 @@ impl Tool for FileWrite {
             let _ = tokio::fs::remove_file(&temp).await;
             return Err(failed());
         }
-        self.workspace.record_trust(&path, ctx.trust, &run).await?;
+        self.workspace
+            .record_trust(&path, ctx.trust, Some(&run))
+            .await?;
 
         let trust = to_text(&ctx.trust).map_err(storage_failed)?;
         Ok(ToolOutput {

@@ -1,8 +1,11 @@
 //! `GET /api/files?path=`: read-only view of the workspace through the same sandbox and lock as
-//! the file tools. A file's trust follows the tools' rule: no record means untrusted.
+//! the file tools; a file's trust follows the tools' rule: no record means untrusted.
+//! `POST /api/files`: one uploaded text file, stored untrusted under `uploads/`.
 
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::multipart::MultipartError;
+use axum::extract::{Multipart, Query, State};
+use axum::http::StatusCode;
 use orchestrator_core::ids::RunId;
 use orchestrator_core::policy::Trust;
 use orchestrator_core::tools::ToolError;
@@ -11,7 +14,14 @@ use ts_rs::TS;
 
 use super::AppState;
 use super::error::ApiError;
-use crate::tools::files::EntryKind;
+use super::error::ErrorCode;
+use crate::tools::files::{EntryKind, UploadError};
+
+/// The largest upload accepted.
+const UPLOAD_BYTES: usize = 1024 * 1024;
+/// The text formats an upload may have, by extension.
+const UPLOAD_EXTENSIONS: [&str; 4] = ["csv", "md", "txt", "json"];
+const UPLOAD_FIELD: &str = "file";
 
 #[derive(Debug, Deserialize)]
 pub struct FileQuery {
@@ -26,7 +36,8 @@ pub struct FileEntryView {
     pub kind: EntryKind,
     pub bytes: u64,
     pub trust: Trust,
-    /// The root run of the task that last wrote the file; null for seeded files and for directories.
+    /// The root run of the task that last wrote the file; null for seeded files, uploads and
+    /// directories.
     pub written_by_root_run_id: Option<RunId>,
 }
 
@@ -42,7 +53,7 @@ pub enum FileView {
         path: String,
         content: String,
         trust: Trust,
-        /// The root run of the task that last wrote the file; null for seeded files.
+        /// The root run of the task that last wrote the file; null for seeded files and uploads.
         written_by_root_run_id: Option<RunId>,
     },
 }
@@ -88,6 +99,112 @@ pub async fn view(
         }
     };
     Ok(Json(view))
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct UploadResponse {
+    /// `uploads/<name>`, relative to the workspace root.
+    pub path: String,
+    pub bytes: u64,
+    /// Always untrusted: an upload is outside content.
+    pub trust: Trust,
+}
+
+/// 201 with the stored path. 422 for a missing field or a bad name, 409 when the name is taken,
+/// 413 over 1 MB, 415 for anything but UTF-8 .csv, .md, .txt or .json.
+pub async fn upload(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<(StatusCode, Json<UploadResponse>), ApiError> {
+    let mut field = multipart
+        .next_field()
+        .await
+        .map_err(multipart_error)?
+        .filter(|field| field.name() == Some(UPLOAD_FIELD))
+        .ok_or_else(|| ApiError::invalid(UPLOAD_FIELD, "send one field named file"))?;
+    let name = field.file_name().unwrap_or_default().to_string();
+    crate::tools::files::check_upload_name(&name).map_err(tool_error_on_file)?;
+    let extension = name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase());
+    if !extension.is_some_and(|e| UPLOAD_EXTENSIONS.contains(&e.as_str())) {
+        return Err(unsupported());
+    }
+
+    let mut bytes = Vec::new();
+    while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
+        if bytes.len() + chunk.len() > UPLOAD_BYTES {
+            return Err(too_large());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    drop(field);
+    if multipart
+        .next_field()
+        .await
+        .map_err(multipart_error)?
+        .is_some()
+    {
+        return Err(ApiError::invalid(UPLOAD_FIELD, "send one field named file"));
+    }
+    let text = String::from_utf8(bytes).map_err(|_| unsupported())?;
+
+    let path = state
+        .workspace
+        .store_upload(&name, &text)
+        .await
+        .map_err(|error| match error {
+            UploadError::Exists => ApiError::conflict("a file with this name was already uploaded"),
+            UploadError::Tool(error) => tool_error_on_file(error),
+        })?;
+    let response = UploadResponse {
+        path,
+        bytes: text.len() as u64,
+        trust: Trust::Untrusted,
+    };
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+fn too_large() -> ApiError {
+    ApiError::new(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        ErrorCode::InvalidInput,
+        "the file is larger than 1 MB".to_string(),
+        Some(UPLOAD_FIELD.to_string()),
+    )
+}
+
+fn unsupported() -> ApiError {
+    ApiError::new(
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ErrorCode::InvalidInput,
+        "only UTF-8 text files ending in .csv, .md, .txt or .json".to_string(),
+        Some(UPLOAD_FIELD.to_string()),
+    )
+}
+
+/// A body over the server's limit is 413 like an oversized file; any other parse failure is 422.
+fn multipart_error(error: MultipartError) -> ApiError {
+    if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        too_large()
+    } else {
+        ApiError::invalid(UPLOAD_FIELD, "not a valid multipart upload")
+    }
+}
+
+/// Upload path errors name the `file` field; infrastructure failures stay 500.
+fn tool_error_on_file(error: ToolError) -> ApiError {
+    match error {
+        ToolError::InvalidArgs(message) | ToolError::Failed(message) => {
+            let message = message
+                .strip_prefix("file: ")
+                .or_else(|| message.strip_prefix("path: "))
+                .unwrap_or(&message);
+            ApiError::invalid(UPLOAD_FIELD, message)
+        }
+        ToolError::Internal(_) => ApiError::internal(),
+    }
 }
 
 /// Tool messages name the path or the limit, never file contents, so they are safe to return.

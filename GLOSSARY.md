@@ -103,5 +103,5 @@ Whether a result, note or file is trusted or untrusted. Anything written by a ta
 _Avoid_: safety, confidence
 
 **Outside content**:
-Anything that did not come from the user or the team: the inbox and the web.
+Anything that is not the user's own message or the team's work: the inbox, the web and uploaded files. An upload counts even though the user attached it, since its text was written elsewhere.
 _Avoid_: external data, input
