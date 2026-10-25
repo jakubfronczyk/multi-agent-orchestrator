@@ -399,7 +399,7 @@ impl Tool for FileWrite {
         tokio::fs::create_dir_all(&parent)
             .await
             .map_err(|_| failed())?;
-        // Directories created just now are checked again before anything is written in them.
+        // Directories this call created are checked again before anything is written in them.
         resolve(&self.workspace.root, &path).await?;
         let replaced = tokio::fs::try_exists(&target).await.unwrap_or(false);
 

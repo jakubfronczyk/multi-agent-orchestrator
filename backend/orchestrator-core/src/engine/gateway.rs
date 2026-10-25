@@ -257,9 +257,9 @@ pub(super) async fn execute(
     Ok(envelope::render(&ended, untrusted.as_deref()))
 }
 
-/// What a call that ran read from outside. Any tool's result names the sources it returned,
-/// including untrusted stored data. A failure has no result, so for an outside-reading tool
-/// the target names the one source (a fetched URL, a read message); a failed list names none.
+/// A successful call's sources are the ones its result names, untrusted stored data included.
+/// A failure has no result, so for an outside-reading tool the target names the one source (a
+/// fetched URL, a read message); a failed list names none.
 fn taint_sources(name: ToolName, ended: &Ended, action: &Action) -> Vec<TaintSource> {
     match ended {
         Ended::Ok(output) => output.taint.clone(),

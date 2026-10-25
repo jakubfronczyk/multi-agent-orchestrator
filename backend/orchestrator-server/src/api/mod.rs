@@ -1,5 +1,5 @@
 //! The HTTP API under `/api`: JSON in and out, errors as `{error: {code, message, field?}}`.
-//! Handlers write through `sqlite` and, from checkpoint A on, the engine.
+//! Handlers read through `sqlite` and act through the engine.
 
 use std::sync::Arc;
 

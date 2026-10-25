@@ -1,6 +1,6 @@
 //! Memory tools (§5.1): notes private to an agent or shared by the team, every version kept.
-//! The owner and author always come from `ToolCtx`, never from arguments. A note stored
-//! untrusted is reported as a taint source, so reading it taints the reader's task.
+//! Owner and author come from `ToolCtx`, never from arguments; a note stored untrusted is
+//! reported as a taint source, so reading it taints the reader's task.
 
 use std::time::Duration;
 

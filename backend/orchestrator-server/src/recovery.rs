@@ -21,9 +21,8 @@ pub enum RecoveryError {
     Emit(#[from] StoreError),
 }
 
-/// Runs before the engine starts, so nothing else writes meanwhile. Children are closed before
-/// their parents (newest run first), the same order a live task finishes in. Returns how many
-/// runs were interrupted.
+/// Runs before the engine starts, so nothing else writes meanwhile; returns how many runs it
+/// interrupted. Children are closed before their parents (newest first), as a live task ends.
 pub async fn interrupt_unfinished(
     pool: &SqlitePool,
     store: &dyn Store,

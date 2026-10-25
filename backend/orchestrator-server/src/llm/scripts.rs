@@ -1,5 +1,16 @@
 //! Fixed replies for the scripted provider, keyed by scenario, step and attempt.
 //! Replies use the xAI output-item shape so they pass through the same parser.
+//!
+//! Scenarios:
+//! - `s1`: the demo task
+//! - `clean`: reads only trusted files, so no card
+//! - `launder`: indexes the decisions S1 saved
+//! - `drill`: the vendor-note exfiltration attempt
+//! - `test:call:<tool>:<json args>`: one call, then an answer
+//! - `test:seq:<tool>:<args>|<tool>:<args>`: one call per step
+//! - `test:twice:<tool>:<args>`: the same call twice in one step
+//! - `test:loop:<tool>`: a call on every step allowed
+//! - `test:delegate*`: the Lead delegates first; teammates answer with their slug
 
 use orchestrator_core::llm::{LlmError, ToolChoice};
 use serde_json::{Value, json};
@@ -13,13 +24,8 @@ pub enum Reply {
     Hang,
 }
 
-/// `test:seq:<tool>:<args>|<tool>:<args>` makes one call per step. `test:twice:<tool>:<args>`
-/// makes the same call twice in one step. `s1` is the demo task; `clean` reads only trusted
-/// files; `launder` indexes S1's decisions; `drill` plays the vendor-note exfiltration attempt.
-/// `test:call:<tool>:<json args>` calls once, then answers. `test:loop:<tool>` calls on every
-/// step it may. In `test:delegate*` the Lead delegates on its first step and teammates answer
-/// with their slug. With `tool_choice` none, every script answers in text, as xAI does.
-/// `task` is the run's user message; scripts that need a recipient read it from there.
+/// With `tool_choice` none every script answers in text, as xAI does. Scripts that need a
+/// recipient read it from `task`, the run's user message.
 pub fn reply(
     scenario: Option<&str>,
     agent: &str,

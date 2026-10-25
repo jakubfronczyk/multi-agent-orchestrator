@@ -1,10 +1,5 @@
-//! The xAI adapter: plain reqwest against the Responses API (§11). Everything shaped by xAI
-//! lives here: the typed request (xAI ignores unknown fields, so a misspelt one would silently
-//! change nothing), the reply and error types, the output parser and the cost conversion.
-//!
-//! Tool schemas pass through as the JSON Schema `schema_for` generates; another provider's
-//! adapter converts them to its own format. A second provider means a new adapter plus one
-//! routing struct implementing `LlmProvider` that dispatches on `request.model.provider()`.
+//! The xAI adapter: plain reqwest against the Responses API (§11), and everything shaped by xAI.
+//! The request is a typed struct because xAI ignores unknown fields, so a misspelt one would change nothing.
 
 mod parse;
 

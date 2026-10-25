@@ -1,4 +1,4 @@
-//! Run reads for the API: the task list and one task's detail. Runs are written only by `Store::emit`.
+//! Run reads for the API: the task list, one task's detail and the audit log, all written by `Store::emit`.
 //! Costs are summed from `llm_responded` events, the one record of what a call cost.
 
 use chrono::{DateTime, Utc};

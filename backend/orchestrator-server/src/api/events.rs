@@ -1,6 +1,5 @@
 //! `GET /api/events`: committed run events as server-sent events. Without `Last-Event-ID` the
 //! stream is live only; with it, every event after that id is replayed first, then live follows.
-//! A subscriber that falls behind the broadcast buffer has its stream ended and reconnects.
 
 use std::convert::Infallible;
 use std::time::Duration;
@@ -21,7 +20,8 @@ const KEEP_ALIVE: Duration = Duration::from_secs(15);
 const LAST_EVENT_ID: &str = "last-event-id";
 
 /// Subscribes before reading the log, so an event committed during the replay is either in the
-/// replay or in the live stream; the live stream skips ids the replay already sent.
+/// replay or in the live stream. A subscriber that falls behind the broadcast buffer has its
+/// stream ended and reconnects.
 pub async fn stream(
     State(state): State<AppState>,
     headers: HeaderMap,

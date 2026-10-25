@@ -187,7 +187,6 @@ impl Engine {
         self.inner.approvals.answer(approval, answer)
     }
 
-    /// Cancels every run in the task; false when no live task has this root.
     /// Every tool, in `ToolName` order. `delegate` is listed without targets; each Lead's
     /// schema names its own.
     pub fn tool_specs(&self) -> Vec<ToolSpec> {
@@ -197,7 +196,7 @@ impl Engine {
         specs
     }
 
-    /// False when no live task has this root run id.
+    /// Cancels every run in the task; false when no live task has this root.
     pub fn cancel(&self, root: RunId) -> bool {
         match self.inner.tasks().get(&root) {
             Some(task) => {
