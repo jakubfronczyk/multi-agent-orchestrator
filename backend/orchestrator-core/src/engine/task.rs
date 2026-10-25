@@ -193,3 +193,41 @@ impl Task {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::agents::{AgentInput, Role};
+    use crate::ids::AgentId;
+    use crate::llm::Model;
+
+    fn agent(team: TeamId, slug: &str) -> Arc<AgentSpec> {
+        let input = AgentInput {
+            team_id: None,
+            role: Role::Specialist,
+            slug: slug.to_string(),
+            name: slug.to_string(),
+            description: "d".to_string(),
+            system_prompt: "p".to_string(),
+            model: Model::Grok43,
+            reasoning_effort: None,
+            icon: "i".to_string(),
+            colour: "c".to_string(),
+            tools: BTreeMap::new(),
+            delegate_targets: Vec::new(),
+        };
+        Arc::new(AgentSpec::validated(AgentId::new(), team, 1, input).expect("valid"))
+    }
+
+    /// A slug resolves only to an agent of the task's own team, even in a mixed snapshot.
+    #[test]
+    fn a_teammate_is_always_of_the_tasks_team() {
+        let (own, other) = (TeamId::new(), TeamId::new());
+        let team = vec![agent(other, "reader"), agent(own, "writer")];
+        let task = Task::new(own, Micros(0), Vec::new(), team, false);
+        assert!(task.teammate("reader").is_none());
+        assert_eq!(task.teammate("writer").map(|a| a.team_id()), Some(own));
+    }
+}

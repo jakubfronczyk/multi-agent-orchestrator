@@ -2,7 +2,7 @@
 //! Costs are summed from `llm_responded` events, the one record of what a call cost.
 
 use chrono::{DateTime, Utc};
-use orchestrator_core::ids::{AgentId, EventId, RunId, ToolCallId};
+use orchestrator_core::ids::{AgentId, EventId, RunId, TeamId, ToolCallId};
 use orchestrator_core::money::Micros;
 use orchestrator_core::policy::TaintSource;
 use orchestrator_core::runs::{ApprovalStatus, CallStatus, RunOutcome, RunStatus};
@@ -23,6 +23,8 @@ use super::tool_calls::{ToolCallRow, ToolCallView};
 #[ts(export)]
 pub struct RunSummary {
     pub id: RunId,
+    /// The task's team.
+    pub team_id: TeamId,
     pub agent_id: AgentId,
     pub title: Option<String>,
     pub task: String,
@@ -80,6 +82,8 @@ pub struct RunView {
 #[ts(export)]
 pub struct RunDetail {
     pub root_run_id: RunId,
+    /// The task's team.
+    pub team_id: TeamId,
     pub runs: Vec<RunView>,
     /// The user's messages and the Lead's answers: the root run, then each follow-up.
     pub turns: Vec<Turn>,
@@ -113,15 +117,21 @@ struct PlanData {
 }
 
 /// Tasks by root run, newest first, each with its counts and cost, in one query. A follow-up
-/// has no parent either, so a root is the run whose id is its own root id.
-pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
+/// has no parent either, so a root is the run whose id is its own root id. `team` narrows to
+/// one team's tasks; `last_event_id` stays global.
+pub async fn list(
+    pool: &SqlitePool,
+    limit: u32,
+    team: Option<TeamId>,
+) -> Result<RunList, ReadError> {
+    let team = team.as_ref().map(encode).transpose()?;
     let pending = encode(&ApprovalStatus::Pending)?;
     let refused = encode(&CallStatus::Refused)?;
     let denied = encode(&CallStatus::DeniedHuman)?;
     let mut tx = pool.begin().await?;
     let last_event_id = events::last_id(&mut *tx).await?;
     let rows = sqlx::query!(
-        r#"SELECT r.id, r.agent_id, r.title, r.task, l.status, l.outcome, r.started_at, l.finished_at,
+        r#"SELECT r.id, r.team_id, r.agent_id, r.title, r.task, l.status, l.outcome, r.started_at, l.finished_at,
                   r.scenario,
                   (SELECT COUNT(*) FROM approvals a
                      JOIN tool_calls t ON t.id = a.tool_call_id
@@ -138,14 +148,15 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
            JOIN runs l ON l.id = (SELECT t.id FROM runs t
                                    WHERE t.root_run_id = r.id AND t.parent_run_id IS NULL
                                    ORDER BY t.started_at DESC, t.id DESC LIMIT 1)
-           WHERE r.id = r.root_run_id
+           WHERE r.id = r.root_run_id AND (?6 IS NULL OR r.team_id = ?6)
            ORDER BY r.started_at DESC, r.id DESC
            LIMIT ?5"#,
         pending,
         refused,
         denied,
         LLM_RESPONDED,
-        limit
+        limit,
+        team
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -156,6 +167,7 @@ pub async fn list(pool: &SqlitePool, limit: u32) -> Result<RunList, ReadError> {
         .map(|row| {
             Ok(RunSummary {
                 id: decode(&row.id)?,
+                team_id: decode(&row.team_id)?,
                 agent_id: decode(&row.agent_id)?,
                 title: row.title,
                 task: row.task,
@@ -184,7 +196,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
     let last_event_id = events::last_id(&mut *tx).await?;
 
     let run_rows = sqlx::query!(
-        r#"SELECT r.id, r.parent_run_id, r.parent_call_id, r.agent_id, r.agent_version, r.title, r.task, r.task_sources, r.draft_only, r.status, r.outcome,
+        r#"SELECT r.id, r.team_id, r.parent_run_id, r.parent_call_id, r.agent_id, r.agent_version, r.title, r.task, r.task_sources, r.draft_only, r.status, r.outcome,
                   r.taint_sources, r.started_at, r.finished_at,
                   (SELECT COALESCE(SUM(json_extract(e.data, '$.cost')), 0) FROM run_events e
                     WHERE e.root_run_id = ?1 AND e.run_id = r.id AND e.type = ?2) AS "cost!: i64"
@@ -201,6 +213,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
         return Ok(None);
     };
     let taint_sources = json_opt(root_row.taint_sources.as_deref())?.unwrap_or_default();
+    let team_id = decode(&root_row.team_id)?;
 
     let call_rows = sqlx::query_as!(
         ToolCallRow,
@@ -259,6 +272,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
 
     Ok(Some(RunDetail {
         root_run_id: root,
+        team_id,
         runs,
         turns,
         tool_calls,

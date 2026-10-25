@@ -149,7 +149,7 @@ async fn a_follow_up_keeps_the_taint_and_refuses_the_repeated_send(pool: SqliteP
             .as_deref()
             .is_some_and(|s| s.contains("Anna Weber"))
     );
-    let list = runs::list(&seeded.pool, 10).await.expect("list");
+    let list = runs::list(&seeded.pool, 10, None).await.expect("list");
     assert_eq!(list.runs.len(), 1, "a follow-up is not a new task");
 }
 

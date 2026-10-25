@@ -936,7 +936,7 @@ async fn records_name_their_task_and_the_list_keeps_the_scenario(pool: SqlitePoo
         .await
         .expect("start");
     task_events(&mut rx, typed).await;
-    let list = runs::list(&seeded.pool, 10).await.expect("list").runs;
+    let list = runs::list(&seeded.pool, 10, None).await.expect("list").runs;
     let scenario_of = |id: RunId| {
         list.iter()
             .find(|run| run.id == id)

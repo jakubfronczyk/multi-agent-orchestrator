@@ -6,6 +6,7 @@ import type { PlanStep } from "./PlanStep";
 import type { RunId } from "./RunId";
 import type { RunView } from "./RunView";
 import type { TaintSource } from "./TaintSource";
+import type { TeamId } from "./TeamId";
 import type { ToolCallView } from "./ToolCallView";
 import type { Turn } from "./Turn";
 
@@ -13,7 +14,11 @@ import type { Turn } from "./Turn";
  * One task: its runs in start order (the root first), calls in request order, and the cards
  * still pending. `last_event_id` is read first, as in `RunList`.
  */
-export type RunDetail = { root_run_id: RunId, runs: Array<RunView>, 
+export type RunDetail = { root_run_id: RunId, 
+/**
+ * The task's team.
+ */
+team_id: TeamId, runs: Array<RunView>, 
 /**
  * The user's messages and the Lead's answers: the root run, then each follow-up.
  */

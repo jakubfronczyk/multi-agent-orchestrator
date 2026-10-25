@@ -4,8 +4,9 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use orchestrator_core::agents::Role;
 use orchestrator_core::engine::{FollowUpError, FollowUpRequest, StartError, StartRequest};
-use orchestrator_core::ids::{AgentId, RunId};
+use orchestrator_core::ids::{AgentId, RunId, TeamId};
 use orchestrator_core::money::Micros;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -14,8 +15,10 @@ use super::AppState;
 use super::error::ApiError;
 use super::json::ApiJson;
 use super::query;
-use crate::llm::{LAUNDER, S1_DECISION};
+use crate::llm::{LAUNDER, S1_DECISION, scenario_slugs};
+use crate::sqlite::agents::{self, AgentError};
 use crate::sqlite::runs::{self, RunDetail, RunList};
+use crate::sqlite::teams;
 use crate::tools::workspace::EntryKind;
 
 const DEFAULT_LIMIT: u32 = 50;
@@ -23,11 +26,15 @@ const DEFAULT_LIMIT: u32 = 50;
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     limit: Option<u32>,
+    team_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]
 #[ts(export, optional_fields)]
 pub struct StartRunRequest {
+    /// The task's team; with `agent_id` it must be that agent's. Without either, the first team.
+    pub team_id: Option<TeamId>,
+    /// The root agent; the team's Lead when absent.
     pub agent_id: Option<AgentId>,
     pub task: String,
     pub title: Option<String>,
@@ -48,23 +55,119 @@ pub async fn start(
     State(state): State<AppState>,
     ApiJson(request): ApiJson<StartRunRequest>,
 ) -> Result<(StatusCode, Json<StartRunResponse>), ApiError> {
+    let team = resolve_team(&state, request.team_id, request.agent_id).await?;
+    if let Some(scenario) = request.scenario.as_deref() {
+        let missing = missing_slugs(&state, team, scenario).await?;
+        if !missing.is_empty() {
+            let message = format!(
+                "this team has no {} for the {scenario} demo",
+                missing.join(", ")
+            );
+            return Err(ApiError::conflict(&message));
+        }
+    }
     if request.scenario.as_deref() == Some(LAUNDER) {
         require_s1_decision(&state).await?;
     }
-    let run_id = state
-        .engine
-        .start(StartRequest {
-            team_id: None,
-            agent_id: request.agent_id,
-            task: request.task,
-            title: request.title,
-            budget: request.budget_micros,
-            scenario: request.scenario,
-            draft_only: request.draft_only.unwrap_or(false),
-        })
-        .await
-        .map_err(start_error)?;
+    let start = StartRequest {
+        team_id: Some(team),
+        agent_id: request.agent_id,
+        task: request.task,
+        title: request.title,
+        budget: request.budget_micros,
+        scenario: request.scenario,
+        draft_only: request.draft_only.unwrap_or(false),
+    };
+    let run_id = start_in(&state, team, start).await?;
     Ok((StatusCode::ACCEPTED, Json(StartRunResponse { run_id })))
+}
+
+/// The team a task runs in: the agent's when one is named (and `team_id`, if given, must match),
+/// else `team_id`, else the first live team.
+pub(super) async fn resolve_team(
+    state: &AppState,
+    team: Option<TeamId>,
+    agent: Option<AgentId>,
+) -> Result<TeamId, ApiError> {
+    if let Some(agent) = agent {
+        let record = match agents::get(&state.pool, agent).await {
+            Err(AgentError::NotFound) => {
+                return Err(ApiError::invalid("agent_id", "no live agent has this id"));
+            }
+            other => other?,
+        };
+        let own = record.spec.team_id();
+        if team.is_some_and(|team| team != own) {
+            return Err(ApiError::invalid("agent_id", "not on this team"));
+        }
+        return Ok(own);
+    }
+    let mut conn = state.pool.acquire().await.map_err(storage)?;
+    let found = match team {
+        Some(team) => teams::is_live(&mut conn, team)
+            .await
+            .map_err(storage)?
+            .then_some(team),
+        None => teams::first_live(&mut conn).await.map_err(storage)?,
+    };
+    found.ok_or_else(|| ApiError::invalid("team_id", "no live team has this id"))
+}
+
+/// The slugs a scripted scenario needs that the team's Lead cannot hand work to.
+pub(super) async fn missing_slugs(
+    state: &AppState,
+    team: TeamId,
+    scenario: &str,
+) -> Result<Vec<&'static str>, ApiError> {
+    let needed = scenario_slugs(scenario);
+    if needed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let lead = agents::list(&state.pool, Some(team))
+        .await?
+        .into_iter()
+        .find(|agent| agent.spec.role() == Role::Lead);
+    let targets: Vec<&str> = lead
+        .as_ref()
+        .map(|lead| {
+            lead.spec
+                .delegate_targets()
+                .iter()
+                .map(|t| t.as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(needed
+        .iter()
+        .copied()
+        .filter(|slug| !targets.contains(slug))
+        .collect())
+}
+
+/// Starts the task; a storage failure on a team deleted meanwhile reads as that team being gone.
+pub(super) async fn start_in(
+    state: &AppState,
+    team: TeamId,
+    request: StartRequest,
+) -> Result<RunId, ApiError> {
+    match state.engine.start(request).await {
+        Ok(run) => Ok(run),
+        Err(StartError::Store(error)) => {
+            let mut conn = state.pool.acquire().await.map_err(storage)?;
+            if teams::is_live(&mut conn, team).await.map_err(storage)? {
+                tracing::error!(%error, "could not start the run");
+                Err(ApiError::internal())
+            } else {
+                Err(ApiError::invalid("team_id", "no live team has this id"))
+            }
+        }
+        Err(other) => Err(start_error(other)),
+    }
+}
+
+fn storage(error: sqlx::Error) -> ApiError {
+    tracing::error!(%error, "could not read the team");
+    ApiError::internal()
 }
 
 /// `launder` indexes the file S1 saves; without it the script would describe a file that is not there.
@@ -79,7 +182,7 @@ async fn require_s1_decision(state: &AppState) -> Result<(), ApiError> {
     }
 }
 
-pub(super) fn start_error(error: StartError) -> ApiError {
+fn start_error(error: StartError) -> ApiError {
     match error {
         StartError::UnknownTeam => ApiError::invalid("team_id", "no live team has this id"),
         StartError::NoLead => ApiError::invalid("agent_id", "the team has no Lead"),
@@ -146,7 +249,8 @@ pub async fn list(
     Query(query): Query<ListQuery>,
 ) -> Result<Json<RunList>, ApiError> {
     let limit = query::limit(query.limit, DEFAULT_LIMIT)?;
-    Ok(Json(runs::list(&state.pool, limit).await?))
+    let team = query::id::<TeamId>("team_id", query.team_id)?;
+    Ok(Json(runs::list(&state.pool, limit, team).await?))
 }
 
 pub async fn get(

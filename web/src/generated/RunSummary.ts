@@ -4,11 +4,16 @@ import type { Micros } from "./Micros";
 import type { RunId } from "./RunId";
 import type { RunOutcome } from "./RunOutcome";
 import type { RunStatus } from "./RunStatus";
+import type { TeamId } from "./TeamId";
 
 /**
  * One task, read from its root run; status, outcome and finish are its latest turn's.
  */
-export type RunSummary = { id: RunId, agent_id: AgentId, title: string | null, task: string, status: RunStatus, outcome: RunOutcome | null, started_at: string, finished_at: string | null, 
+export type RunSummary = { id: RunId, 
+/**
+ * The task's team.
+ */
+team_id: TeamId, agent_id: AgentId, title: string | null, task: string, status: RunStatus, outcome: RunOutcome | null, started_at: string, finished_at: string | null, 
 /**
  * The scripted replies the root run played; `None` when it ran on the live model.
  */

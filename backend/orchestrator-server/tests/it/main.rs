@@ -38,13 +38,14 @@ mod recovery;
 mod runs;
 mod seeded;
 mod taint;
+mod team_runs;
 mod teams;
 mod tools;
 mod uploads;
 mod xai;
 
 /// Upper bound for any wait in a test; reaching it is a failure, not a delay.
-const DEADLINE: Duration = Duration::from_secs(5);
+pub const DEADLINE: Duration = Duration::from_secs(5);
 
 pub struct App {
     pub pool: SqlitePool,
@@ -103,6 +104,32 @@ pub async fn app_with_llm(pool: SqlitePool, config: Config, llm: Arc<dyn LlmProv
         team,
         worker,
     }
+}
+
+/// Team "Contracts", a copy of the harness team: the same slugs, its own ids, and a Lead that
+/// also targets `writer`, so every scripted scenario can run on it.
+pub async fn second_team(app: &App) -> TeamId {
+    let team = new_team(&app.pool, "Contracts").await;
+    let on = |input: AgentInput| AgentInput {
+        team_id: Some(team),
+        ..input
+    };
+    for slug in ["helper", "helper2"] {
+        agents::create(&app.pool, on(helper(slug)))
+            .await
+            .expect("second team helper");
+    }
+    for agent in drill_team() {
+        agents::create(&app.pool, on(agent))
+            .await
+            .expect("second team drill agent");
+    }
+    let mut lead = on(lead());
+    lead.delegate_targets.push("writer".to_string());
+    agents::create(&app.pool, lead)
+        .await
+        .expect("second team lead");
+    team
 }
 
 /// An empty team, committed on its own.

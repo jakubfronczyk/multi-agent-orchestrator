@@ -28,6 +28,17 @@ pub const CLEAN: &str = "clean";
 pub const LAUNDER: &str = "launder";
 pub const DRILL: &str = "drill";
 
+/// The slugs a scripted scenario delegates to; the team's Lead must target each of them, or the
+/// script breaks midway. `test:*` and live tasks need none.
+pub fn scenario_slugs(scenario: &str) -> &'static [&'static str] {
+    match scenario {
+        S1 | CLEAN | LAUNDER => &["reader", "writer", "messenger"],
+        S1_FOLLOWUP => &["messenger"],
+        DRILL => &["reader", "messenger"],
+        _ => &[],
+    }
+}
+
 pub enum Reply {
     Items(Vec<Value>),
     Fail(LlmError),
