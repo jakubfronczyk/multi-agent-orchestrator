@@ -34,6 +34,15 @@ pub fn id<T: FromStr>(field: &str, raw: Option<String>) -> Result<Option<T>, Api
     .transpose()
 }
 
+/// `true` or `false`; absent is false.
+pub fn flag(field: &str, raw: Option<String>) -> Result<bool, ApiError> {
+    match raw.as_deref() {
+        None | Some("false") => Ok(false),
+        Some("true") => Ok(true),
+        Some(_) => Err(ApiError::invalid(field, "use true or false")),
+    }
+}
+
 /// An enum value in its stored text form.
 pub fn value<T: DeserializeOwned>(field: &str, raw: Option<String>) -> Result<Option<T>, ApiError> {
     raw.map(|raw| from_text(&raw).map_err(|_| ApiError::invalid(field, "unknown value")))

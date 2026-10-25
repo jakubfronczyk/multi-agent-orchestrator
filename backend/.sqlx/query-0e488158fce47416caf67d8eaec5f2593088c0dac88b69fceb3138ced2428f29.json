@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE teams SET deleted_at = updated_at WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "0e488158fce47416caf67d8eaec5f2593088c0dac88b69fceb3138ced2428f29"
+}

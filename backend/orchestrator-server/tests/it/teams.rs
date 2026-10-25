@@ -1,0 +1,176 @@
+//! `/api/teams`: a team is born with its Lead, names are unique among live teams, and a
+//! Lead-only team still runs.
+
+use orchestrator_core::engine::StartRequest;
+use orchestrator_core::ids::TeamId;
+use orchestrator_core::runs::RunOutcome;
+use serde_json::{Value, json};
+use sqlx::SqlitePool;
+
+use crate::{app, events_until_finished, request, serve};
+
+async fn send(client: &reqwest::RequestBuilder) -> (u16, Value) {
+    let response = client
+        .try_clone()
+        .expect("clone")
+        .send()
+        .await
+        .expect("send");
+    let status = response.status().as_u16();
+    (status, response.json().await.unwrap_or(Value::Null))
+}
+
+#[sqlx::test]
+async fn a_new_team_has_its_lead_and_a_unique_name(pool: SqlitePool) {
+    let app = app(pool).await;
+    let base = serve(&app).await;
+    let client = reqwest::Client::new();
+    let post = |name: Value| {
+        client
+            .post(format!("{base}/api/teams"))
+            .json(&json!({"name": name}))
+    };
+
+    let (status, team) = send(&post(json!("Contracts"))).await;
+    assert_eq!(status, 201);
+    assert_eq!(team["agent_count"], 1);
+    let (status, lead) = send(&client.get(format!(
+        "{base}/api/agents/{}",
+        team["lead_agent_id"].as_str().expect("lead")
+    )))
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(lead["team_id"], team["id"]);
+    assert_eq!(lead["role"], "lead");
+    assert_eq!(lead["slug"], "lead");
+    assert_eq!(lead["delegate_targets"], json!([]));
+    let tools: Vec<&String> = lead["tools"].as_object().expect("tools").keys().collect();
+    assert_eq!(tools, ["delegate", "memory_read", "memory_search", "plan"]);
+
+    for bad in [json!("  "), json!("x".repeat(61)), json!("contracts")] {
+        let (status, body) = send(&post(bad.clone())).await;
+        assert_eq!(
+            (status, body["error"]["field"].clone()),
+            (422, json!("name")),
+            "{bad}"
+        );
+    }
+
+    let (status, list) = send(&client.get(format!("{base}/api/teams"))).await;
+    assert_eq!(status, 200);
+    let names: Vec<&str> = list["teams"]
+        .as_array()
+        .expect("teams")
+        .iter()
+        .map(|t| t["name"].as_str().expect("name"))
+        .collect();
+    assert_eq!(names, ["Test team", "Contracts"], "oldest first");
+    let (status, _) = send(&client.get(format!("{base}/api/teams?include_deleted=maybe"))).await;
+    assert_eq!(status, 422);
+}
+
+#[sqlx::test]
+async fn rename_and_reads_cover_live_and_deleted_teams(pool: SqlitePool) {
+    let app = app(pool).await;
+    let base = serve(&app).await;
+    let client = reqwest::Client::new();
+    let (_, team) = send(
+        &client
+            .post(format!("{base}/api/teams"))
+            .json(&json!({"name": "A"})),
+    )
+    .await;
+    let id = team["id"].as_str().expect("id").to_string();
+
+    let (status, renamed) = send(
+        &client
+            .put(format!("{base}/api/teams/{id}"))
+            .json(&json!({"name": "B"})),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(renamed["name"], "B");
+    assert!(renamed["updated_at"].as_str() > team["updated_at"].as_str());
+
+    for path in [
+        "nope".to_string(),
+        json!(TeamId::new()).as_str().expect("id").to_string(),
+    ] {
+        let (status, _) = send(
+            &client
+                .put(format!("{base}/api/teams/{path}"))
+                .json(&json!({"name": "C"})),
+        )
+        .await;
+        assert_eq!(status, 404, "{path}");
+    }
+
+    sqlx::query!("UPDATE teams SET deleted_at = updated_at WHERE id = ?", id)
+        .execute(&app.pool)
+        .await
+        .expect("delete by SQL");
+    let (status, _) = send(
+        &client
+            .put(format!("{base}/api/teams/{id}"))
+            .json(&json!({"name": "C"})),
+    )
+    .await;
+    assert_eq!(status, 404, "a deleted team cannot be renamed");
+    let (_, live) = send(&client.get(format!("{base}/api/teams"))).await;
+    assert_eq!(live["teams"].as_array().map(Vec::len), Some(1));
+    let (_, all) = send(&client.get(format!("{base}/api/teams?include_deleted=true"))).await;
+    assert_eq!(all["teams"].as_array().map(Vec::len), Some(2));
+}
+
+#[sqlx::test]
+async fn a_second_lead_on_a_team_is_refused(pool: SqlitePool) {
+    let app = app(pool).await;
+    let base = serve(&app).await;
+    let client = reqwest::Client::new();
+    let (_, team) = send(
+        &client
+            .post(format!("{base}/api/teams"))
+            .json(&json!({"name": "Contracts"})),
+    )
+    .await;
+    let (status, body) = send(&client.post(format!("{base}/api/agents")).json(&json!({
+        "team_id": team["id"], "role": "lead", "slug": "boss", "name": "Boss", "description": "d",
+        "system_prompt": "p", "model": "grok-4.3", "icon": "i", "colour": "c", "tools": {},
+        "delegate_targets": []
+    })))
+    .await;
+    assert_eq!(status, 422);
+    assert_eq!(body["error"]["field"], "role");
+    assert_eq!(body["error"]["message"], "the team already has a Lead");
+}
+
+/// A Lead with no teammates is offered `delegate` with an empty choice and still finishes.
+#[sqlx::test]
+async fn a_lead_only_team_runs_a_task(pool: SqlitePool) {
+    let app = app(pool).await;
+    let team = orchestrator_server::sqlite::teams::create(
+        &app.pool,
+        orchestrator_server::sqlite::teams::TeamInput {
+            name: "Solo".to_string(),
+        },
+    )
+    .await
+    .expect("team")
+    .id;
+    let mut rx = app.store.subscribe();
+    let run = app
+        .engine
+        .start(StartRequest {
+            team_id: Some(team),
+            ..request("test:delegate")
+        })
+        .await
+        .expect("start");
+    let events = events_until_finished(&mut rx, run).await;
+    assert!(matches!(
+        events.last(),
+        Some(orchestrator_core::runs::RunEvent::RunFinished {
+            outcome: RunOutcome::Completed { .. }
+        })
+    ));
+}

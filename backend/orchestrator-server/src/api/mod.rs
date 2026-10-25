@@ -26,6 +26,7 @@ mod origin;
 mod outbox;
 mod query;
 mod runs;
+mod teams;
 mod tool_calls;
 
 pub use error::{ApiError, ErrorCode};
@@ -61,6 +62,8 @@ pub fn router(state: AppState) -> Router {
         .route("/approvals", get(approvals::list))
         .route("/approvals/{id}", post(approvals::answer))
         .route("/events", get(events::stream))
+        .route("/teams", get(teams::list).post(teams::create))
+        .route("/teams/{id}", get(teams::get).put(teams::rename))
         .route(
             "/agents/{id}",
             get(agents::get).put(agents::replace).delete(agents::delete),

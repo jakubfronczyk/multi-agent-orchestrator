@@ -19,7 +19,7 @@ use orchestrator_core::tools::{Target, ToolName};
 use orchestrator_server::api::{ActiveProvider, AppState, router};
 use orchestrator_server::events::EventEnvelope;
 use orchestrator_server::llm::ScriptedProvider;
-use orchestrator_server::sqlite::{SqliteStore, agents, teams};
+use orchestrator_server::sqlite::{SqliteStore, agents};
 use orchestrator_server::tools::workspace::Workspace;
 use orchestrator_server::{seed, tools as real_tools};
 use sqlx::SqlitePool;
@@ -38,6 +38,7 @@ mod recovery;
 mod runs;
 mod seeded;
 mod taint;
+mod teams;
 mod tools;
 mod uploads;
 mod xai;
@@ -107,7 +108,9 @@ pub async fn app_with_llm(pool: SqlitePool, config: Config, llm: Arc<dyn LlmProv
 /// An empty team, committed on its own.
 pub async fn new_team(pool: &SqlitePool, name: &str) -> TeamId {
     let mut conn = pool.acquire().await.expect("connection");
-    teams::insert(&mut conn, name).await.expect("team")
+    orchestrator_server::sqlite::teams::insert(&mut conn, name)
+        .await
+        .expect("team")
 }
 
 fn lead() -> AgentInput {

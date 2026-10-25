@@ -1,0 +1,93 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t.id, t.name, t.created_at, t.updated_at, t.deleted_at,\n                  (SELECT a.id FROM agents a WHERE a.team_id = t.id AND a.role = ?\n                   ORDER BY a.deleted_at IS NOT NULL, a.created_at DESC LIMIT 1) AS \"lead_agent_id?: String\",\n                  (SELECT COUNT(*) FROM agents a WHERE a.team_id = t.id AND a.deleted_at IS NULL) AS \"agent_count!: i64\"\n           FROM teams t WHERE t.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teams",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teams",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teams",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teams",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teams",
+            "name": "deleted_at"
+          }
+        }
+      },
+      {
+        "name": "lead_agent_id?: String",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agents",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "agent_count!: i64",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "36b74d96df86cea964b1c778418058eec22be707c246f50330b0ffdb324a17ed"
+}

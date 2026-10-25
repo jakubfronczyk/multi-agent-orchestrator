@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) FROM teams\n         WHERE name = ?1 COLLATE NOCASE AND deleted_at IS NULL AND (?2 IS NULL OR id != ?2)",
+  "describe": {
+    "columns": [
+      {
+        "name": "COUNT(*)",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a37798c0ee13b6c41ce87e81fdf7efc48ad09a05eb245426dc1aa32fcaa4a365"
+}

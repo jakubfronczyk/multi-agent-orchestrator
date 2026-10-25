@@ -117,33 +117,22 @@ async fn seed_workspace(pool: &SqlitePool, root: &Path) -> Result<(), SeedError>
     Ok(())
 }
 
+/// The prompt of a new team's Lead: the seeded Lead's, without its access-desk rules.
+pub const DEFAULT_LEAD_PROMPT: &str = "You coordinate a small team. Before planning, check the team's notes for facts that help. Break the task into steps and give each step to the teammate whose description fits. Give each teammate everything it needs in one handoff, including facts other teammates already reported, so no source is read twice. When you hand off a message, include the recipient's address and the full text. End with two or three sentences for the person: what was decided, where it was saved and who it was sent to. If a step failed or a person declined it, say which.";
+
+/// A new team's Lead: the seeded Lead's tools, model and look, the default prompt, no targets.
+pub fn default_lead() -> AgentInput {
+    AgentInput {
+        system_prompt: DEFAULT_LEAD_PROMPT.to_string(),
+        delegate_targets: Vec::new(),
+        ..seeded_lead()
+    }
+}
+
 /// No agent reads outside content and sends unchecked: Reader reads but cannot send, Messenger
 /// sends but only with approval, and the Lead reads trusted notes only and no other outside content.
 fn team_agents() -> Vec<AgentInput> {
     use Decision::{Allow, Ask, Deny};
-    let lead = AgentInput {
-        team_id: None,
-        role: Role::Lead,
-        slug: "lead".to_string(),
-        name: "Lead".to_string(),
-        description: "Plans the task and hands each step to the right teammate. Does not read files, mail or the web.".to_string(),
-        system_prompt: "You coordinate a small team. Before planning, check the team's notes for facts that help. Break the task into steps and give each step to the teammate whose description fits. Give each teammate everything it needs in one handoff, including facts other teammates already reported, so no source is read twice. Base every decision on the workspace's own rules: before deciding, have a teammate find and read any policy or guideline that applies, and follow what it says about where results go. When you hand off a message, include the recipient's address and the full text. End with two or three sentences for the person: what was decided, where it was saved and who it was sent to. If a step failed or a person declined it, say which.".to_string(),
-        model: Model::Grok43,
-        reasoning_effort: Some(ReasoningEffort::Medium),
-        icon: "compass".to_string(),
-        colour: "indigo".to_string(),
-        tools: BTreeMap::from([
-            (ToolName::Delegate, Allow),
-            (ToolName::Plan, Allow),
-            (ToolName::MemoryRead, Allow),
-            (ToolName::MemorySearch, Allow),
-        ]),
-        delegate_targets: vec![
-            "reader".to_string(),
-            "writer".to_string(),
-            "messenger".to_string(),
-        ],
-    };
     let reader = AgentInput {
         team_id: None,
         role: Role::Specialist,
@@ -211,5 +200,33 @@ fn team_agents() -> Vec<AgentInput> {
     };
 
     // Targets must exist before the Lead names them.
-    vec![reader, writer, messenger, lead]
+    // The Lead last: its targets must exist when it is created.
+    vec![reader, writer, messenger, seeded_lead()]
+}
+
+fn seeded_lead() -> AgentInput {
+    use Decision::Allow;
+    AgentInput {
+        team_id: None,
+        role: Role::Lead,
+        slug: "lead".to_string(),
+        name: "Lead".to_string(),
+        description: "Plans the task and hands each step to the right teammate. Does not read files, mail or the web.".to_string(),
+        system_prompt: "You coordinate a small team. Before planning, check the team's notes for facts that help. Break the task into steps and give each step to the teammate whose description fits. Give each teammate everything it needs in one handoff, including facts other teammates already reported, so no source is read twice. Base every decision on the workspace's own rules: before deciding, have a teammate find and read any policy or guideline that applies, and follow what it says about where results go. When you hand off a message, include the recipient's address and the full text. End with two or three sentences for the person: what was decided, where it was saved and who it was sent to. If a step failed or a person declined it, say which.".to_string(),
+        model: Model::Grok43,
+        reasoning_effort: Some(ReasoningEffort::Medium),
+        icon: "compass".to_string(),
+        colour: "indigo".to_string(),
+        tools: BTreeMap::from([
+            (ToolName::Delegate, Allow),
+            (ToolName::Plan, Allow),
+            (ToolName::MemoryRead, Allow),
+            (ToolName::MemorySearch, Allow),
+        ]),
+        delegate_targets: vec![
+            "reader".to_string(),
+            "writer".to_string(),
+            "messenger".to_string(),
+        ],
+    }
 }
