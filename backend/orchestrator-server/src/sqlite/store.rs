@@ -44,6 +44,8 @@ impl SqliteStore {
 #[async_trait]
 impl Store for SqliteStore {
     async fn emit(&self, at: RunRef, event: RunEvent) -> Result<EventId, StoreError> {
+        // Held through the send, so broadcast order is id order and a client that reconnects
+        // with the last id it saw never skips an earlier one.
         let _guard = self.emit_lock.lock().await;
         let now = Utc::now().trunc_subsecs(6);
         let ts = timestamp(now);
