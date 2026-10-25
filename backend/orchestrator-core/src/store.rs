@@ -14,11 +14,11 @@ pub struct RunRef {
     pub run_id: RunId,
 }
 
-/// The cause is kept as the error's source, so a log or a caller can still reach it.
+/// The cause's message and source pass through unchanged, so a log shows it once.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    #[error("storage failed: {0}")]
-    Failed(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error(transparent)]
+    Failed(Box<dyn std::error::Error + Send + Sync>),
 }
 
 #[async_trait]
