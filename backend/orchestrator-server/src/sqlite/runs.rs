@@ -219,7 +219,7 @@ pub async fn detail(pool: &SqlitePool, root: RunId) -> Result<Option<RunDetail>,
         ToolCallRow,
         r#"SELECT t.id, t.run_id, r.root_run_id, t.agent_id, t.team_id, t.tool, t.args, t.action, t.decision,
                   t.rules, t.phase, t.status, t.result_preview, t.child_run_id, t.duration_ms,
-                  t.requested_at, t.finished_at
+                  t.tainted, t.requested_at, t.finished_at
            FROM tool_calls t JOIN runs r ON r.id = t.run_id
            WHERE r.root_run_id = ?1
            ORDER BY t.requested_at, t.id"#,

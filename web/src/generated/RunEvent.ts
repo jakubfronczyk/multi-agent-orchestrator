@@ -65,4 +65,8 @@ action: Action | null, decision: Decision | null, reasons: Array<Rule>, } } | { 
 /**
  * Set only when the call was refused or denied, for the repeat check.
  */
-tool: ToolName | null, args: JsonValue | null, } } | { "type": "task_tainted", "data": { source: TaintSource, } } | { "type": "run_finished", "data": { outcome: RunOutcome, } };
+tool: ToolName | null, args: JsonValue | null, 
+/**
+ * The call's result carried outside content into the task, new to it or not.
+ */
+tainted: boolean, } } | { "type": "task_tainted", "data": { source: TaintSource, } } | { "type": "run_finished", "data": { outcome: RunOutcome, } };

@@ -22,4 +22,8 @@ team_id: TeamId,
 /**
  * The name as the model sent it; it may not be a real tool.
  */
-tool: string, args: JsonValue, action: Action | null, decision: Decision | null, rules: Array<Rule>, phase: CallPhase, status: CallStatus | null, result_preview: string | null, child_run_id: RunId | null, duration_ms: number | null, requested_at: string, finished_at: string | null, };
+tool: string, args: JsonValue, action: Action | null, decision: Decision | null, rules: Array<Rule>, phase: CallPhase, status: CallStatus | null, result_preview: string | null, child_run_id: RunId | null, duration_ms: number | null, 
+/**
+ * The result brought outside content into its task; false until finished.
+ */
+tainted: boolean, requested_at: string, finished_at: string | null, };

@@ -283,6 +283,7 @@ async fn project(
             child_run_id,
             tool: _,
             args: _,
+            tainted,
         } => {
             let id = text(call_id)?;
             let phase = text(&CallPhase::Finished)?;
@@ -292,12 +293,13 @@ async fn project(
             exactly_one(
                 sqlx::query!(
                     "UPDATE tool_calls SET phase = ?, status = ?, result_preview = ?, duration_ms = ?, child_run_id = ?,
-                     finished_at = ? WHERE id = ?",
+                     tainted = ?, finished_at = ? WHERE id = ?",
                     phase,
                     status,
                     result_preview,
                     duration_ms,
                     child,
+                    tainted,
                     ts,
                     id
                 )

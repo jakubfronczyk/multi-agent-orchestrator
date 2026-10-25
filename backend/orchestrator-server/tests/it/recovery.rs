@@ -122,6 +122,7 @@ async fn a_crashed_task_is_interrupted_child_first_and_recovery_runs_once(pool: 
         closed.push((envelope.run_id, envelope.event));
     }
     let interrupted_call = |call_id| RunEvent::ToolCallFinished {
+        tainted: false,
         call_id,
         status: CallStatus::Interrupted,
         result_preview: None,

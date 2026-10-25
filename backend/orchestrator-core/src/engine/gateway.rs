@@ -255,6 +255,7 @@ pub(super) async fn execute(
         started,
         &ended,
         refused_or_denied.then_some((name, args)),
+        !sources.is_empty(),
     )
     .await?;
     let untrusted = envelope::source_label(&sources);
@@ -382,7 +383,7 @@ async fn refuse_early(
     };
     inner.emit(ctx.at, requested).await?;
     let ended = Ended::failed(status, &message, None);
-    finish(inner, ctx, call_id, Instant::now(), &ended, None).await?;
+    finish(inner, ctx, call_id, Instant::now(), &ended, None, false).await?;
     Ok(envelope::render(&ended, None))
 }
 
@@ -537,7 +538,8 @@ async fn sleep_or_forever(timeout: Option<Duration>) {
     }
 }
 
-/// The only terminal emit for a call. `refused` carries tool and args for the repeat check.
+/// The only terminal emit for a call. `refused` carries tool and args for the repeat check;
+/// `tainted` is whether its result brought outside content into the task.
 async fn finish(
     inner: &Inner,
     ctx: &RunCtx,
@@ -545,6 +547,7 @@ async fn finish(
     started: Instant,
     ended: &Ended,
     refused: Option<(ToolName, Value)>,
+    tainted: bool,
 ) -> Result<(), StoreError> {
     let (status, result_preview, child_run_id) = match ended {
         Ended::Ok(output) => (
@@ -571,6 +574,7 @@ async fn finish(
         child_run_id,
         tool,
         args,
+        tainted,
     };
     inner.emit(ctx.at, finished.clone()).await?;
     ctx.task.apply(&finished);

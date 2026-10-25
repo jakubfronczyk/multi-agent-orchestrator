@@ -36,6 +36,8 @@ pub struct ToolCallView {
     pub result_preview: Option<String>,
     pub child_run_id: Option<RunId>,
     pub duration_ms: Option<i64>,
+    /// The result brought outside content into its task; false until finished.
+    pub tainted: bool,
     pub requested_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
 }
@@ -76,6 +78,7 @@ pub(super) struct ToolCallRow {
     pub(super) result_preview: Option<String>,
     pub(super) child_run_id: Option<String>,
     pub(super) duration_ms: Option<i64>,
+    pub(super) tainted: i64,
     pub(super) requested_at: String,
     pub(super) finished_at: Option<String>,
 }
@@ -98,6 +101,7 @@ impl ToolCallRow {
             result_preview: self.result_preview,
             child_run_id: text_opt(self.child_run_id.as_deref())?,
             duration_ms: self.duration_ms,
+            tainted: self.tainted != 0,
             requested_at: decode_time(&self.requested_at)?,
             finished_at: time_opt(self.finished_at.as_deref())?,
         })
@@ -119,7 +123,7 @@ pub async fn tool_calls(
         ToolCallRow,
         r#"SELECT t.id, t.run_id, r.root_run_id, t.agent_id, t.team_id, t.tool, t.args, t.action, t.decision,
                   t.rules, t.phase, t.status, t.result_preview, t.child_run_id, t.duration_ms,
-                  t.requested_at, t.finished_at
+                  t.tainted, t.requested_at, t.finished_at
            FROM tool_calls t JOIN runs r ON r.id = t.run_id
            WHERE (?1 IS NULL OR t.run_id = ?1) AND (?2 IS NULL OR t.agent_id = ?2)
              AND (?3 IS NULL OR t.tool = ?3) AND (?4 IS NULL OR t.status = ?4)

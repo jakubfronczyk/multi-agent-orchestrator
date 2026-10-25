@@ -97,6 +97,9 @@ pub enum RunEvent {
         /// Set only when the call was refused or denied, for the repeat check.
         tool: Option<ToolName>,
         args: Option<Value>,
+        /// The call's result carried outside content into the task, new to it or not.
+        #[serde(default)]
+        tainted: bool,
     },
     TaskTainted {
         source: TaintSource,

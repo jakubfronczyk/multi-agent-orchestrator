@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT t.id, t.run_id, r.root_run_id, t.agent_id, t.tool, t.args, t.action, t.decision,\n                  t.rules, t.phase, t.status, t.result_preview, t.child_run_id, t.duration_ms,\n                  t.requested_at, t.finished_at\n           FROM tool_calls t JOIN runs r ON r.id = t.run_id\n           WHERE (?1 IS NULL OR t.run_id = ?1) AND (?2 IS NULL OR t.agent_id = ?2)\n             AND (?3 IS NULL OR t.tool = ?3) AND (?4 IS NULL OR t.status = ?4)\n           ORDER BY t.requested_at DESC, t.id DESC\n           LIMIT ?5",
+  "query": "SELECT t.id, t.run_id, r.root_run_id, t.agent_id, t.team_id, t.tool, t.args, t.action, t.decision,\n                  t.rules, t.phase, t.status, t.result_preview, t.child_run_id, t.duration_ms,\n                  t.tainted, t.requested_at, t.finished_at\n           FROM tool_calls t JOIN runs r ON r.id = t.run_id\n           WHERE r.root_run_id = ?1\n           ORDER BY t.requested_at, t.id",
   "describe": {
     "columns": [
       {
@@ -48,8 +48,19 @@
         }
       },
       {
-        "name": "tool",
+        "name": "team_id",
         "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "team_id"
+          }
+        }
+      },
+      {
+        "name": "tool",
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "args",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,7 +82,7 @@
       },
       {
         "name": "action",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "decision",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "rules",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "phase",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       },
       {
         "name": "status",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +137,7 @@
       },
       {
         "name": "result_preview",
-        "ordinal": 11,
+        "ordinal": 12,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -137,7 +148,7 @@
       },
       {
         "name": "child_run_id",
-        "ordinal": 12,
+        "ordinal": 13,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -148,7 +159,7 @@
       },
       {
         "name": "duration_ms",
-        "ordinal": 13,
+        "ordinal": 14,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -158,8 +169,19 @@
         }
       },
       {
+        "name": "tainted",
+        "ordinal": 15,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "tainted"
+          }
+        }
+      },
+      {
         "name": "requested_at",
-        "ordinal": 14,
+        "ordinal": 16,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -170,7 +192,7 @@
       },
       {
         "name": "finished_at",
-        "ordinal": 15,
+        "ordinal": 17,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -181,7 +203,7 @@
       }
     ],
     "parameters": {
-      "Right": 5
+      "Right": 1
     },
     "nullable": [
       false,
@@ -190,6 +212,7 @@
       false,
       false,
       false,
+      false,
       true,
       true,
       false,
@@ -198,9 +221,10 @@
       true,
       true,
       true,
+      false,
       false,
       true
     ]
   },
-  "hash": "a7a0c5c54389dd15245b1d15bc34c4e7ce23e7f14e360497a3a44974dfed52b5"
+  "hash": "425a7fc4a9f7cd9a94e827206a936daa2adacd2e88e21212b5a513da3640ba78"
 }

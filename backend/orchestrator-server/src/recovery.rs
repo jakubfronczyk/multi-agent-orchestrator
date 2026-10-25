@@ -66,6 +66,7 @@ pub async fn interrupt_unfinished(
             }
             let call_id: ToolCallId = from_text(&call.id).map_err(corrupt)?;
             let interrupted = RunEvent::ToolCallFinished {
+                tainted: false,
                 call_id,
                 status: CallStatus::Interrupted,
                 result_preview: None,

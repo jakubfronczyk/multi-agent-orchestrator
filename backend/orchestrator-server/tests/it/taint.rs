@@ -236,3 +236,51 @@ fn tool_output_seen_at_step(recording: &Recording, agent: &str, step: u32) -> St
         })
         .expect("a tool output in the transcript")
 }
+
+/// Each call says whether its own result brought outside content in, a repeat read included;
+/// a call that did not read outside content, or failed to, is not marked.
+#[sqlx::test]
+async fn each_call_records_whether_it_brought_outside_content(pool: SqlitePool) {
+    let app = app(pool).await;
+    let scenario =
+        r#"test:seq:inbox_read:{"id":"m1"}|file_read:{"path":"a.md"}|inbox_read:{"id":"m1"}"#;
+    let events = run_as(&app, "worker", scenario).await;
+    let flags: Vec<bool> = events
+        .iter()
+        .filter_map(|e| match &e.event {
+            RunEvent::ToolCallFinished { tainted, .. } => Some(*tainted),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(flags, [true, false, true]);
+    let stored = sqlx::query_scalar!("SELECT tainted FROM tool_calls ORDER BY requested_at, id")
+        .fetch_all(&app.pool)
+        .await
+        .expect("calls");
+    assert_eq!(stored, [1, 0, 1]);
+}
+
+/// A run that sends twice to one person leaves two outbox rows, each naming its own call.
+#[sqlx::test]
+async fn each_sent_message_names_its_call(pool: SqlitePool) {
+    use orchestrator_core::tools::Tool;
+    use orchestrator_server::tools::messages::SendMessage;
+
+    let app = app(pool.clone()).await;
+    let send = SendMessage::new(pool);
+    let args = serde_json::json!({"channel": "email", "recipient": "a@example.com", "subject": "s", "body": "b"});
+    let mut calls = Vec::new();
+    for _ in 0..2 {
+        let ctx = crate::tool_ctx(&app, "messenger").await;
+        send.run(&ctx, args.clone()).await.expect("sent");
+        calls.push(ctx.call_id);
+    }
+    let sent = orchestrator_server::sqlite::outbox::list(&app.pool, Default::default())
+        .await
+        .expect("outbox")
+        .messages;
+    let mut named: Vec<_> = sent.iter().map(|m| m.tool_call_id).collect();
+    named.sort_by_key(|id| serde_json::to_string(id).expect("id"));
+    calls.sort_by_key(|id| serde_json::to_string(id).expect("id"));
+    assert_eq!(named, calls);
+}

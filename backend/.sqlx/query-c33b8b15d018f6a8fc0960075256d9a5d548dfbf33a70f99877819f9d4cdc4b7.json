@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT tainted FROM tool_calls ORDER BY requested_at, id",
+  "describe": {
+    "columns": [
+      {
+        "name": "tainted",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "tainted"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c33b8b15d018f6a8fc0960075256d9a5d548dfbf33a70f99877819f9d4cdc4b7"
+}
