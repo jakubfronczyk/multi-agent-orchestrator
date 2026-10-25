@@ -60,6 +60,15 @@ enum Callable {
 }
 
 impl Callable {
+    async fn preview(&self, args: &Value) -> String {
+        match self {
+            Callable::Tool(tool) => tool.preview(args).await,
+            Callable::Delegate | Callable::Plan => {
+                serde_json::to_string_pretty(args).unwrap_or_default()
+            }
+        }
+    }
+
     fn check(&self, args: &Value, agent: &AgentSpec) -> Result<Action, ToolError> {
         match self {
             Callable::Tool(tool) => tool.check(args),
@@ -186,7 +195,16 @@ pub(super) async fn execute(
                 None,
             )
         }
-        Decision::Ask => match ask(inner, ctx, call_id, &action, &args, &reasons).await? {
+        Decision::Ask => match ask(
+            inner,
+            ctx,
+            call_id,
+            &action,
+            callable.preview(&args).await,
+            &reasons,
+        )
+        .await?
+        {
             Waited::Answered(Answer::Approve { .. }) => {
                 run(inner, ctx, call_id, callable, args.clone()).await?
             }
@@ -302,7 +320,7 @@ async fn ask(
     ctx: &RunCtx,
     call_id: ToolCallId,
     action: &Action,
-    args: &Value,
+    preview: String,
     reasons: &[Rule],
 ) -> Result<Waited, StoreError> {
     let approval_id = ApprovalId::new();
@@ -315,7 +333,6 @@ async fn ask(
         rules: reasons.to_vec(),
         taint_sources: ctx.task.taint_sources(),
     };
-    let preview = serde_json::to_string_pretty(args).unwrap_or_default();
 
     let rx = inner.approvals.register(approval_id);
     let requested = RunEvent::ApprovalRequested {

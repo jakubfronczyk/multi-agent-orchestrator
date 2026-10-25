@@ -132,6 +132,11 @@ pub trait Tool: Send + Sync {
     /// Parses and validates the arguments without I/O, describing what the call would do.
     fn check(&self, args: &Value) -> Result<Action, ToolError>;
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError>;
+
+    /// What the approval card shows: the arguments, unless the tool renders something clearer.
+    async fn preview(&self, args: &Value) -> String {
+        serde_json::to_string_pretty(args).unwrap_or_default()
+    }
 }
 
 pub struct ToolSet {

@@ -11,7 +11,9 @@ use serde_json::Value;
 
 use crate::sqlite::text::from_text;
 
+pub mod files;
 pub mod memory;
+mod sandbox;
 
 /// The one argument parser every tool uses in both `check` and `run`.
 pub(crate) fn parse<T: DeserializeOwned>(args: &Value) -> Result<T, ToolError> {

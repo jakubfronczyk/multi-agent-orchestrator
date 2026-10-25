@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO workspace_files (path, trust, written_by_run, updated_at) VALUES (?, ?, ?, ?)\n             ON CONFLICT (path) DO UPDATE SET trust = excluded.trust, written_by_run = excluded.written_by_run,\n                                              updated_at = excluded.updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "feab884d90c5fc79c83f9b0a3ac37879a94add042fad2762d739de0e47cc2534"
+}

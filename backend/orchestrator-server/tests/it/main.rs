@@ -22,6 +22,7 @@ use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
 mod delegate;
+mod files;
 mod gateway;
 mod memory;
 mod recording;
@@ -223,5 +224,36 @@ pub async fn task_events(
         if root_finished {
             return events;
         }
+    }
+}
+
+/// A tool context for a seeded agent, with a real run row behind it.
+pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCtx {
+    use orchestrator_core::store::{RunRef, Store};
+    let agent = agents::list(&app.pool)
+        .await
+        .expect("agents")
+        .into_iter()
+        .find(|record| record.spec.slug().as_str() == slug)
+        .map(|record| record.spec.id())
+        .expect("seeded agent");
+    let run = RunId::new();
+    let at = RunRef {
+        root_run_id: run,
+        run_id: run,
+    };
+    let started = RunEvent::RunStarted {
+        agent_id: agent,
+        parent_run_id: None,
+        task: "t".to_string(),
+        title: None,
+        budget: None,
+    };
+    app.store.emit(at, started).await.expect("run row");
+    orchestrator_core::tools::ToolCtx {
+        run_id: run,
+        root_run_id: run,
+        agent_id: agent,
+        trust: orchestrator_core::policy::Trust::Trusted,
     }
 }

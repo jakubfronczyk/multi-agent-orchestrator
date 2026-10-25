@@ -10,6 +10,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 chrono.workspace = true
+csv.workspace = true
 schemars.workspace = true
 orchestrator-core = { path = "../orchestrator-core" }
 serde.workspace = true

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT trust FROM workspace_files WHERE path = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "trust",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "trust"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0c96bdc5322ba4120cfec0a1d45cec2bf39585f9e25342adb33b638a7ba2e732"
+}

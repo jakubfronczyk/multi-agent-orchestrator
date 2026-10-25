@@ -7,6 +7,8 @@ use orchestrator_core::money::Micros;
 
 pub const DATA_DIR: &str = "var";
 pub const DATABASE_FILE: &str = "var/orchestrator.db";
+/// The only directory file tools can reach.
+pub const WORKSPACE_DIR: &str = "var/workspace";
 pub const ADDRESS: &str = "127.0.0.1:8787";
 
 pub fn engine_config() -> orchestrator_core::engine::Config {

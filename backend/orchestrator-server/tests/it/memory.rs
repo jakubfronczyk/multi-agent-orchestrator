@@ -1,46 +1,13 @@
 //! §13 test 8 against the real memory tools: private notes stay private, shared notes show
 //! their author, and search matches `%` and `_` literally.
 
-use orchestrator_core::ids::{AgentId, RunId};
 use orchestrator_core::policy::Trust;
-use orchestrator_core::runs::RunEvent;
-use orchestrator_core::store::{RunRef, Store};
 use orchestrator_core::tools::{Tool, ToolCtx};
-use orchestrator_server::sqlite::agents;
 use orchestrator_server::tools::memory::{MemoryRead, MemorySearch, MemoryWrite};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
-use crate::{App, app};
-
-async fn ctx_for(app: &App, slug: &str) -> ToolCtx {
-    let agent: AgentId = agents::list(&app.pool)
-        .await
-        .expect("agents")
-        .into_iter()
-        .find(|record| record.spec.slug().as_str() == slug)
-        .map(|record| record.spec.id())
-        .expect("seeded agent");
-    let run = RunId::new();
-    let at = RunRef {
-        root_run_id: run,
-        run_id: run,
-    };
-    let started = RunEvent::RunStarted {
-        agent_id: agent,
-        parent_run_id: None,
-        task: "t".to_string(),
-        title: None,
-        budget: None,
-    };
-    app.store.emit(at, started).await.expect("run row");
-    ToolCtx {
-        run_id: run,
-        root_run_id: run,
-        agent_id: agent,
-        trust: Trust::Trusted,
-    }
-}
+use crate::{app, tool_ctx as ctx_for};
 
 async fn call(tool: &dyn Tool, ctx: &ToolCtx, args: Value) -> Value {
     tool.check(&args).expect("valid args");
