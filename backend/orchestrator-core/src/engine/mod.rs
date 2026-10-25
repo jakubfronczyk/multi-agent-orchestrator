@@ -9,7 +9,7 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 
 use crate::agents::{AgentSpec, Role};
-use crate::ids::{AgentId, ApprovalId, RunId};
+use crate::ids::{AgentId, ApprovalId, RunId, TeamId};
 use crate::llm::{Item, LlmProvider};
 use crate::money::Micros;
 use crate::runs::{Answer, RunEvent};
@@ -50,7 +50,9 @@ pub struct Config {
 
 #[derive(Debug, Clone)]
 pub struct StartRequest {
-    /// The root agent; the Lead when absent.
+    /// The task's team; the first live team when absent.
+    pub team_id: Option<TeamId>,
+    /// The root agent, of that team; its Lead when absent.
     pub agent_id: Option<AgentId>,
     pub task: String,
     pub title: Option<String>,
@@ -79,12 +81,16 @@ pub enum FollowUpError {
     Running,
     #[error("the task's root agent is not the team's Lead")]
     NotLead,
+    #[error("the task's team was deleted")]
+    TeamDeleted,
     #[error(transparent)]
     Store(#[from] StoreError),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum StartError {
+    #[error("no live team has this id")]
+    UnknownTeam,
     #[error("the team has no Lead")]
     NoLead,
     #[error("no live agent has this id")]
@@ -143,7 +149,11 @@ impl Engine {
         if task_text.is_empty() {
             return Err(StartError::EmptyTask);
         }
-        let team = self.inner.team().await?;
+        let (team_id, team) = self
+            .inner
+            .team(request.team_id)
+            .await?
+            .ok_or(StartError::UnknownTeam)?;
         let agent = match request.agent_id {
             Some(id) => team
                 .iter()
@@ -163,6 +173,7 @@ impl Engine {
         };
         let budget = request.budget.unwrap_or(self.inner.config.default_budget);
         let task = Arc::new(Task::new(
+            team_id,
             budget,
             self.inner.config.allowlist.clone(),
             team,
@@ -174,6 +185,7 @@ impl Engine {
                 &task,
                 RunEvent::RunStarted {
                     agent_id: agent.id(),
+                    team_id,
                     parent_run_id: None,
                     parent_call_id: None,
                     task: task_text.clone(),
@@ -207,7 +219,11 @@ impl Engine {
         if history.open {
             return Err(FollowUpError::Running);
         }
-        let team = self.inner.team().await?;
+        let (team_id, team) = self
+            .inner
+            .team(Some(history.team_id))
+            .await?
+            .ok_or(FollowUpError::TeamDeleted)?;
         let agent = team
             .iter()
             .find(|agent| agent.id() == history.root_agent && agent.role() == Role::Lead)
@@ -215,6 +231,7 @@ impl Engine {
             .ok_or(FollowUpError::NotLead)?;
 
         let task = Arc::new(Task::new(
+            team_id,
             history.budget,
             self.inner.config.allowlist.clone(),
             team,
@@ -232,6 +249,7 @@ impl Engine {
                 &task,
                 RunEvent::RunStarted {
                     agent_id: agent.id(),
+                    team_id,
                     parent_run_id: None,
                     parent_call_id: None,
                     task: text.clone(),
@@ -305,6 +323,14 @@ impl Engine {
         &self.inner.config.allowlist
     }
 
+    /// Whether a task of this team is live: running, or waiting on a card.
+    pub fn has_live_task(&self, team: TeamId) -> bool {
+        self.inner
+            .tasks()
+            .values()
+            .any(|task| task.team_id() == team)
+    }
+
     /// Cancels every run in the task; false when no live task has this root.
     pub fn cancel(&self, root: RunId) -> bool {
         match self.inner.tasks().get(&root) {
@@ -318,8 +344,15 @@ impl Engine {
 }
 
 impl Inner {
-    async fn team(&self) -> Result<Vec<Arc<AgentSpec>>, StoreError> {
-        Ok(self.store.team().await?.into_iter().map(Arc::new).collect())
+    async fn team(
+        &self,
+        team: Option<TeamId>,
+    ) -> Result<Option<(TeamId, Vec<Arc<AgentSpec>>)>, StoreError> {
+        Ok(self
+            .store
+            .team(team)
+            .await?
+            .map(|(id, agents)| (id, agents.into_iter().map(Arc::new).collect())))
     }
 
     /// Registers the task as live before its `run_started` commits, so a cancel can never find

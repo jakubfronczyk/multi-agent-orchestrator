@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 
 use crate::agents::AgentSpec;
-use crate::ids::{EventId, RunId};
+use crate::ids::{EventId, RunId, TeamId};
 use crate::runs::RunEvent;
 
 /// The run an event belongs to and the root of its task.
@@ -24,8 +24,12 @@ pub enum StoreError {
 #[async_trait]
 pub trait Store: Send + Sync {
     async fn emit(&self, at: RunRef, event: RunEvent) -> Result<EventId, StoreError>;
-    /// Every live agent, rebuilt through `AgentSpec::validated`.
-    async fn team(&self) -> Result<Vec<AgentSpec>, StoreError>;
+    /// A live team's id and live agents, rebuilt through `AgentSpec::validated`; `None` names
+    /// the first live team. `Ok(None)` when the team is unknown or deleted.
+    async fn team(
+        &self,
+        team: Option<TeamId>,
+    ) -> Result<Option<(TeamId, Vec<AgentSpec>)>, StoreError>;
     /// Every event of the task in commit order, each with its run; empty for an unknown root.
     async fn task_events(&self, root: RunId) -> Result<Vec<(RunId, RunEvent)>, StoreError>;
 }

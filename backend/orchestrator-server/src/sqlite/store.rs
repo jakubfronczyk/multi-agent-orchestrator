@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use chrono::{SubsecRound, Utc};
 use orchestrator_core::agents::AgentSpec;
-use orchestrator_core::ids::{EventId, RunId};
+use orchestrator_core::ids::{EventId, RunId, TeamId};
 use orchestrator_core::runs::{ApprovalStatus, CallPhase, RunEvent, RunStatus};
 use orchestrator_core::store::{RunRef, Store, StoreError};
 use serde::Serialize;
@@ -67,8 +67,11 @@ impl Store for SqliteStore {
         Ok(id)
     }
 
-    async fn team(&self) -> Result<Vec<AgentSpec>, StoreError> {
-        agents::live_team(&self.pool).await.map_err(failed)
+    async fn team(
+        &self,
+        team: Option<TeamId>,
+    ) -> Result<Option<(TeamId, Vec<AgentSpec>)>, StoreError> {
+        agents::live_team(&self.pool, team).await.map_err(failed)
     }
 
     async fn task_events(&self, root: RunId) -> Result<Vec<(RunId, RunEvent)>, StoreError> {
@@ -114,6 +117,7 @@ async fn project(
     match event {
         RunEvent::RunStarted {
             agent_id,
+            team_id,
             parent_run_id,
             parent_call_id,
             task,
@@ -130,12 +134,16 @@ async fn project(
             let parent = parent_run_id.as_ref().map(text).transpose()?;
             let parent_call = parent_call_id.as_ref().map(text).transpose()?;
             let status = text(&RunStatus::Running)?;
+            let team = text(team_id)?;
+            // No run is recorded on a deleted team: the insert touches no row and the emit fails.
             exactly_one(
                 sqlx::query!(
-                    "INSERT INTO runs (id, root_run_id, parent_run_id, parent_call_id, agent_id, agent_version, title, task, task_sources, scenario, draft_only, status, started_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO runs (id, root_run_id, team_id, parent_run_id, parent_call_id, agent_id, agent_version, title, task, task_sources, scenario, draft_only, status, started_at)
+                     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                     WHERE EXISTS (SELECT 1 FROM teams WHERE id = ? AND deleted_at IS NULL)",
                     run_id,
                     root,
+                    team,
                     parent,
                     parent_call,
                     agent,
@@ -146,7 +154,8 @@ async fn project(
                     scenario,
                     draft_only,
                     status,
-                    ts
+                    ts,
+                    team
                 )
                 .execute(&mut **tx)
                 .await,
@@ -172,8 +181,8 @@ async fn project(
             let phase = text(&CallPhase::Requested)?;
             exactly_one(
                 sqlx::query!(
-                    "INSERT INTO tool_calls (id, run_id, agent_id, tool, args, action, decision, rules, phase, requested_at)
-                     SELECT ?, id, agent_id, ?, ?, ?, ?, ?, ?, ? FROM runs WHERE id = ?",
+                    "INSERT INTO tool_calls (id, run_id, agent_id, team_id, tool, args, action, decision, rules, phase, requested_at)
+                     SELECT ?, id, agent_id, team_id, ?, ?, ?, ?, ?, ?, ? FROM runs WHERE id = ?",
                     id,
                     tool,
                     args,
@@ -348,18 +357,25 @@ mod tests {
 
     use super::*;
 
-    async fn seed_agent(pool: &SqlitePool) -> AgentId {
+    /// A team with one Lead, written directly.
+    async fn seed_agent(pool: &SqlitePool) -> (TeamId, AgentId) {
+        let mut conn = pool.acquire().await.expect("connection");
+        let team = crate::sqlite::teams::insert(&mut conn, "t")
+            .await
+            .expect("team");
+        let team_text = to_text(&team).expect("team id");
         let id = AgentId::new();
         let text_id = to_text(&id).expect("id");
         sqlx::query!(
-            "INSERT INTO agents (id, role, slug, name, description, system_prompt, model, max_steps, icon, colour, created_at, updated_at)
-             VALUES (?, 'lead', 'lead', 'Lead', 'd', 'p', 'grok-4.3', 12, 'i', 'c', 't', 't')",
-            text_id
+            "INSERT INTO agents (id, team_id, role, slug, name, description, system_prompt, model, max_steps, icon, colour, created_at, updated_at)
+             VALUES (?, ?, 'lead', 'lead', 'Lead', 'd', 'p', 'grok-4.3', 12, 'i', 'c', 't', 't')",
+            text_id,
+            team_text
         )
         .execute(pool)
         .await
         .expect("seed agent");
-        id
+        (team, id)
     }
 
     async fn start_root_run(store: &SqliteStore, pool: &SqlitePool) -> RunRef {
@@ -368,8 +384,10 @@ mod tests {
             root_run_id: run,
             run_id: run,
         };
+        let (team_id, agent_id) = seed_agent(pool).await;
         let event = RunEvent::RunStarted {
-            agent_id: seed_agent(pool).await,
+            agent_id,
+            team_id,
             parent_run_id: None,
             parent_call_id: None,
             task: "t".to_string(),

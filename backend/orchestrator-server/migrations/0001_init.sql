@@ -1,8 +1,20 @@
--- Initial schema: the team, the event log with its projections, memory and the mock world.
+-- Initial schema: teams and their agents, the event log with its projections, memory and the mock world.
 -- Ids are uuid v7 text except run_events.id; times are RFC 3339 UTC; money is USD micros.
+
+-- A team organises agents and tasks; no rule reads it (ADR 0007).
+CREATE TABLE teams (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,                   -- 1..60 chars after trim
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT
+) STRICT;
+
+CREATE UNIQUE INDEX teams_live_name ON teams (name COLLATE NOCASE) WHERE deleted_at IS NULL;
 
 CREATE TABLE agents (
     id               TEXT PRIMARY KEY,
+    team_id          TEXT NOT NULL REFERENCES teams (id), -- fixed at create
     role             TEXT NOT NULL,             -- lead | specialist
     slug             TEXT NOT NULL,             -- immutable after create
     name             TEXT NOT NULL,
@@ -20,9 +32,9 @@ CREATE TABLE agents (
     deleted_at       TEXT
 ) STRICT;
 
-CREATE UNIQUE INDEX agents_live_slug ON agents (slug) WHERE deleted_at IS NULL;
--- Backstop for the one-Lead check; 'lead' is to_text(Role::Lead).
-CREATE UNIQUE INDEX agents_one_live_lead ON agents (role) WHERE role = 'lead' AND deleted_at IS NULL;
+CREATE UNIQUE INDEX agents_live_slug ON agents (team_id, slug) WHERE deleted_at IS NULL;
+-- Backstop for the one-Lead-per-team check; 'lead' is to_text(Role::Lead).
+CREATE UNIQUE INDEX agents_one_live_lead ON agents (team_id) WHERE role = 'lead' AND deleted_at IS NULL;
 
 -- No row means the tool is off: not offered to the agent.
 CREATE TABLE agent_tools (
@@ -36,6 +48,7 @@ CREATE TABLE agent_tools (
 CREATE TABLE runs (
     id            TEXT PRIMARY KEY,
     root_run_id   TEXT NOT NULL REFERENCES runs (id), -- own id on a root run
+    team_id       TEXT NOT NULL REFERENCES teams (id), -- the task's team; equal on every run of a task
     parent_run_id TEXT REFERENCES runs (id),
     parent_call_id TEXT REFERENCES tool_calls (id), -- the delegate call that started it
     agent_id      TEXT NOT NULL REFERENCES agents (id),
@@ -53,6 +66,7 @@ CREATE TABLE runs (
 ) STRICT;
 
 CREATE INDEX runs_root ON runs (root_run_id);
+CREATE INDEX runs_team_roots ON runs (team_id, started_at) WHERE id = root_run_id;
 
 -- Append-only; the id is the SSE event id and the replay key.
 CREATE TABLE run_events (
@@ -80,6 +94,7 @@ CREATE TABLE tool_calls (
     id             TEXT PRIMARY KEY,
     run_id         TEXT NOT NULL REFERENCES runs (id),
     agent_id       TEXT NOT NULL REFERENCES agents (id), -- copied from the run for the audit filter
+    team_id        TEXT NOT NULL REFERENCES teams (id),  -- copied from the run
     tool           TEXT NOT NULL,
     args           TEXT NOT NULL,               -- JSON
     action         TEXT,                        -- JSON Action; null when check() failed
@@ -90,11 +105,13 @@ CREATE TABLE tool_calls (
     result_preview TEXT,
     child_run_id   TEXT REFERENCES runs (id),
     duration_ms    INTEGER,
+    tainted        INTEGER NOT NULL DEFAULT 0,  -- 1 when its result carried outside content
     requested_at   TEXT NOT NULL,
     finished_at    TEXT
 ) STRICT;
 
 CREATE INDEX tool_calls_run ON tool_calls (run_id);
+CREATE INDEX tool_calls_team ON tool_calls (team_id, requested_at);
 
 -- At most one card per call: a repeat is refused without one, a retry is a new call.
 CREATE TABLE approvals (
@@ -114,6 +131,7 @@ CREATE INDEX approvals_status ON approvals (status);
 CREATE TABLE memory_entries (
     id              TEXT PRIMARY KEY,
     scope           TEXT NOT NULL,              -- private | shared
+    team_id         TEXT NOT NULL REFERENCES teams (id), -- a private note: its owner's team
     owner_agent_id  TEXT REFERENCES agents (id),
     key             TEXT NOT NULL,
     content         TEXT NOT NULL,
@@ -126,7 +144,8 @@ CREATE TABLE memory_entries (
 ) STRICT;
 
 CREATE UNIQUE INDEX memory_private_key ON memory_entries (owner_agent_id, key) WHERE scope = 'private';
-CREATE UNIQUE INDEX memory_shared_key ON memory_entries (key) WHERE scope = 'shared';
+CREATE UNIQUE INDEX memory_shared_key ON memory_entries (team_id, key) WHERE scope = 'shared';
+CREATE INDEX memory_team ON memory_entries (team_id, updated_at);
 
 CREATE TABLE memory_versions (
     entry_id        TEXT NOT NULL REFERENCES memory_entries (id),
@@ -158,6 +177,7 @@ CREATE TABLE inbox_messages (
 CREATE TABLE outbox_messages (
     id        TEXT PRIMARY KEY,
     run_id    TEXT NOT NULL REFERENCES runs (id),
+    tool_call_id TEXT NOT NULL UNIQUE REFERENCES tool_calls (id), -- one call sends at most one message
     channel   TEXT NOT NULL,
     recipient TEXT NOT NULL,
     subject   TEXT,

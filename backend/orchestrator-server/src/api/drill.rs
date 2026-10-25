@@ -21,6 +21,7 @@ pub async fn start(
     let run_id = state
         .engine
         .start(StartRequest {
+            team_id: None,
             agent_id: None,
             task: config::DRILL_TASK.to_string(),
             title: Some(config::DRILL_TITLE.to_string()),

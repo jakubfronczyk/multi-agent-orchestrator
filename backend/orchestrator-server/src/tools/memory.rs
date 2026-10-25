@@ -298,53 +298,63 @@ impl Tool for MemoryWrite {
         let author = to_text(&ctx.agent_id).map_err(storage_failed)?;
         let run = to_text(&ctx.run_id).map_err(storage_failed)?;
         let trust = to_text(&ctx.trust).map_err(storage_failed)?;
+        let team = to_text(&ctx.team_id).map_err(storage_failed)?;
+        let trusted = to_text(&Trust::Trusted).map_err(storage_failed)?;
+        let untrusted = to_text(&Trust::Untrusted).map_err(storage_failed)?;
         let id = Uuid::now_v7().to_string();
         let key = args.key.as_str();
         let now = timestamp(Utc::now());
 
         let mut tx = begin_write(&self.pool).await.map_err(storage_failed)?;
-        // The conflict targets repeat the partial indexes' predicates exactly, as SQLite requires.
+        // The conflict targets repeat the partial indexes' predicates exactly, as SQLite requires,
+        // so their scope values stay literals.
         let stored = match args.scope {
             MemoryScope::Private => sqlx::query!(
                 r#"INSERT INTO memory_entries
-                     (id, scope, owner_agent_id, key, content, author_agent_id, trust, version, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                     (id, scope, team_id, owner_agent_id, key, content, author_agent_id, trust, version, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                    ON CONFLICT (owner_agent_id, key) WHERE scope = 'private' DO UPDATE SET
                      content = excluded.content, author_agent_id = excluded.author_agent_id,
                      trust = excluded.trust, version = memory_entries.version + 1, updated_at = excluded.updated_at
-                   WHERE NOT (memory_entries.trust = 'trusted' AND excluded.trust = 'untrusted')
+                   WHERE NOT (memory_entries.trust = ? AND excluded.trust = ?)
                    RETURNING id, version"#,
                 id,
                 scope,
+                team,
                 owner,
                 key,
                 args.content,
                 author,
                 trust,
                 now,
-                now
+                now,
+                trusted,
+                untrusted
             )
             .fetch_optional(&mut *tx)
             .await
             .map(|row| row.map(|row| (row.id, row.version))),
             MemoryScope::Shared => sqlx::query!(
                 r#"INSERT INTO memory_entries
-                     (id, scope, owner_agent_id, key, content, author_agent_id, trust, version, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                   ON CONFLICT (key) WHERE scope = 'shared' DO UPDATE SET
+                     (id, scope, team_id, owner_agent_id, key, content, author_agent_id, trust, version, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                   ON CONFLICT (team_id, key) WHERE scope = 'shared' DO UPDATE SET
                      content = excluded.content, author_agent_id = excluded.author_agent_id,
                      trust = excluded.trust, version = memory_entries.version + 1, updated_at = excluded.updated_at
-                   WHERE NOT (memory_entries.trust = 'trusted' AND excluded.trust = 'untrusted')
+                   WHERE NOT (memory_entries.trust = ? AND excluded.trust = ?)
                    RETURNING id, version"#,
                 id,
                 scope,
+                team,
                 owner,
                 key,
                 args.content,
                 author,
                 trust,
                 now,
-                now
+                now,
+                trusted,
+                untrusted
             )
             .fetch_optional(&mut *tx)
             .await

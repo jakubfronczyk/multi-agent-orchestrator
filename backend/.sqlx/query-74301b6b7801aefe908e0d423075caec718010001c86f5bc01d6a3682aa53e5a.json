@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id FROM agents WHERE deleted_at IS NULL ORDER BY created_at, id",
+  "query": "SELECT id FROM teams WHERE deleted_at IS NULL ORDER BY created_at, id LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "agents",
+            "table": "teams",
             "name": "id"
           }
         }
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "2a3227341bcb6ffa054c5a7007d3ff7b4914d3f33cf40c14f70a55c52be3539e"
+  "hash": "74301b6b7801aefe908e0d423075caec718010001c86f5bc01d6a3682aa53e5a"
 }

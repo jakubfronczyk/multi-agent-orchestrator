@@ -255,14 +255,16 @@ impl Tool for SendMessage {
         args.validate()?;
         let id = Uuid::now_v7().to_string();
         let run = to_text(&ctx.run_id).map_err(storage_failed)?;
+        let call = to_text(&ctx.call_id).map_err(storage_failed)?;
         let channel = args.channel.name();
         let recipient = args.recipient.as_str();
         let now = timestamp(Utc::now());
         sqlx::query!(
-            "INSERT INTO outbox_messages (id, run_id, channel, recipient, subject, body, sent_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO outbox_messages (id, run_id, tool_call_id, channel, recipient, subject, body, sent_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             id,
             run,
+            call,
             channel,
             recipient,
             args.subject,

@@ -7,12 +7,15 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::{AgentSpec, Slug};
+use crate::ids::TeamId;
 use crate::money::Micros;
 use crate::policy::{Decision, Effect, Facts, TaintSource};
 use crate::runs::RunEvent;
 use crate::tools::{Action, ToolName};
 
 pub(super) struct Task {
+    /// The team the task runs in, fixed at its start.
+    team_id: TeamId,
     budget: Micros,
     /// Copied from the config at start; fixed for the task's life.
     allowlist: Vec<String>,
@@ -38,12 +41,14 @@ struct TaskState {
 
 impl Task {
     pub(super) fn new(
+        team_id: TeamId,
         budget: Micros,
         allowlist: Vec<String>,
         team: Vec<Arc<AgentSpec>>,
         draft_only: bool,
     ) -> Self {
         Self {
+            team_id,
             budget,
             allowlist,
             team,
@@ -58,10 +63,16 @@ impl Task {
         }
     }
 
+    pub(super) fn team_id(&self) -> TeamId {
+        self.team_id
+    }
+
+    /// A slug names an agent of the task's own team only; the team check holds even if the
+    /// snapshot were ever built from more than one team.
     pub(super) fn teammate(&self, slug: &str) -> Option<Arc<AgentSpec>> {
         self.team
             .iter()
-            .find(|agent| agent.slug().as_str() == slug)
+            .find(|agent| agent.team_id() == self.team_id && agent.slug().as_str() == slug)
             .cloned()
     }
 

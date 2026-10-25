@@ -255,12 +255,23 @@ async fn in_a_clean_task_the_writer_saves_without_a_card(pool: SqlitePool) {
 #[sqlx::test]
 async fn the_seed_runs_once_and_never_overwrites(pool: SqlitePool) {
     let seeded = Seeded::new(pool).await;
+    let teams = sqlx::query!("SELECT id, name FROM teams")
+        .fetch_all(&seeded.pool)
+        .await
+        .expect("teams");
+    assert_eq!(teams.len(), 1);
+    assert_eq!(teams[0].name, seed::SEEDED_TEAM);
+    // A renamed team still counts: the seed looks for any team, not its own name.
+    sqlx::query!("UPDATE teams SET name = 'Renamed'")
+        .execute(&seeded.pool)
+        .await
+        .expect("rename");
     assert!(
         !seed::run(&seeded.pool, &seeded.temp.workspace())
             .await
             .expect("second run")
     );
-    let agents = sqlx::query_scalar!("SELECT COUNT(*) FROM agents")
+    let agents = sqlx::query_scalar!("SELECT COUNT(*) FROM agents WHERE team_id = ?", teams[0].id)
         .fetch_one(&seeded.pool)
         .await
         .expect("count");
@@ -854,6 +865,7 @@ async fn scenario_tasks_stay_scripted_when_a_live_provider_is_set(pool: SqlitePo
 
     let mut rx = seeded.store.subscribe();
     let request = StartRequest {
+        team_id: None,
         agent_id: None,
         task: "Say hello".to_string(),
         title: None,
@@ -913,6 +925,7 @@ async fn records_name_their_task_and_the_list_keeps_the_scenario(pool: SqlitePoo
     let typed = seeded
         .engine
         .start(StartRequest {
+            team_id: None,
             agent_id: None,
             task: "say hi".to_string(),
             title: None,
@@ -939,7 +952,7 @@ async fn edit_agent(pool: &SqlitePool, slug: &str) -> i64 {
     use orchestrator_core::agents::AgentInput;
     use orchestrator_server::sqlite::agents;
 
-    let record = agents::list(pool)
+    let record = agents::list(pool, None)
         .await
         .expect("agents")
         .into_iter()

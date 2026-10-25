@@ -246,3 +246,41 @@ async fn only_this_app_on_loopback_can_answer_a_card(pool: SqlitePool) {
         .expect("post");
     assert_eq!(own.status(), 204);
 }
+
+/// `GET /agents` lists every team's agents, each with its `team_id`; `?team_id=` narrows it.
+#[sqlx::test]
+async fn agents_are_listed_per_team(pool: SqlitePool) {
+    let app = app(pool).await;
+    let other = crate::new_team(&app.pool, "Other").await;
+    let input: orchestrator_core::agents::AgentInput = serde_json::from_value(json!({
+        "team_id": other, "role": "specialist", "slug": "worker", "name": "w", "description": "d",
+        "system_prompt": "p", "model": "grok-4.3", "icon": "i", "colour": "c", "tools": {},
+        "delegate_targets": []
+    }))
+    .expect("input");
+    orchestrator_server::sqlite::agents::create(&app.pool, input)
+        .await
+        .expect("same slug on another team");
+    let base = serve(&app).await;
+    let client = reqwest::Client::new();
+
+    let (status, all) = get(&client, &format!("{base}/api/agents")).await;
+    assert_eq!(status, 200);
+    let all = all.as_array().expect("list").clone();
+    assert!(all.iter().all(|agent| agent["team_id"].is_string()));
+    let (_, only) = get(
+        &client,
+        &format!(
+            "{base}/api/agents?team_id={}",
+            json!(other).as_str().expect("id")
+        ),
+    )
+    .await;
+    let only = only.as_array().expect("list");
+    assert_eq!(only.len(), 1);
+    assert_eq!(only[0]["slug"], "worker");
+    assert!(all.len() > only.len());
+    let (status, body) = get(&client, &format!("{base}/api/agents?team_id=nope")).await;
+    assert_eq!(status, 422);
+    assert_eq!(body["error"]["field"], "team_id");
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT COUNT(*) FROM agents",
+  "query": "SELECT COUNT(*) FROM agents WHERE team_id = ? AND role = ? AND deleted_at IS NULL AND id != ?",
   "describe": {
     "columns": [
       {
@@ -11,11 +11,11 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 3
     },
     "nullable": [
       false
     ]
   },
-  "hash": "976b52de19f415be5fbbf5b025df2668dbc489dcf6f20442d4f8ef635977c6d6"
+  "hash": "0c681eb4d4150542c61c2d756026c27ddf1c234c393fdc1ab3bab5ba12c71244"
 }

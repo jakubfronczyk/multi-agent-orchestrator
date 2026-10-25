@@ -5,9 +5,10 @@ import type { Model } from "./Model";
 import type { ReasoningEffort } from "./ReasoningEffort";
 import type { Role } from "./Role";
 import type { Slug } from "./Slug";
+import type { TeamId } from "./TeamId";
 import type { ToolName } from "./ToolName";
 
 /**
  * An agent as the API returns it: the spec plus its timestamps.
  */
-export type AgentRecord = { created_at: string, updated_at: string, id: AgentId, role: Role, slug: Slug, name: string, description: string, system_prompt: string, model: Model, reasoning_effort: ReasoningEffort | null, max_steps: number, icon: string, colour: string, tools: { [key in ToolName]?: Decision }, delegate_targets: Array<Slug>, version: number, };
+export type AgentRecord = { created_at: string, updated_at: string, id: AgentId, team_id: TeamId, role: Role, slug: Slug, name: string, description: string, system_prompt: string, model: Model, reasoning_effort: ReasoningEffort | null, max_steps: number, icon: string, colour: string, tools: { [key in ToolName]?: Decision }, delegate_targets: Array<Slug>, version: number, };

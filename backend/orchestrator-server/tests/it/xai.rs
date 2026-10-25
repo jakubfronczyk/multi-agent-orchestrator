@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use orchestrator_core::agents::{AgentInput, AgentSpec, Role};
 use orchestrator_core::engine::{delegate_spec, plan_spec};
-use orchestrator_core::ids::{AgentId, RunId};
+use orchestrator_core::ids::{AgentId, RunId, TeamId};
 use orchestrator_core::llm::{
     CompletionRequest, Item, LlmProvider, Model, ReasoningEffort, ScriptKey, ToolChoice,
 };
@@ -49,6 +49,7 @@ fn request(
 
 fn reader() -> Arc<AgentSpec> {
     let input = AgentInput {
+        team_id: None,
         role: Role::Specialist,
         slug: "reader".to_string(),
         name: "Reader".to_string(),
@@ -61,7 +62,7 @@ fn reader() -> Arc<AgentSpec> {
         tools: BTreeMap::new(),
         delegate_targets: Vec::new(),
     };
-    Arc::new(AgentSpec::validated(AgentId::new(), 1, input).expect("valid"))
+    Arc::new(AgentSpec::validated(AgentId::new(), TeamId::new(), 1, input).expect("valid"))
 }
 
 #[sqlx::test]

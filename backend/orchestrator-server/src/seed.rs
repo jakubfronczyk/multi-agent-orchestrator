@@ -1,5 +1,6 @@
-//! First-boot data: the four-agent team, the mock inbox and the workspace files.
-//! Runs only when no agent exists, so a restart or a user's edits are never overwritten.
+//! First-boot data: the team "Access desk" with its four agents, the mock inbox and the
+//! workspace files. Runs only when no team exists, deleted ones included, so a restart or a
+//! user's edits are never overwritten.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -14,6 +15,7 @@ use sqlx::SqlitePool;
 
 use crate::sqlite::agents::{self, AgentError};
 use crate::sqlite::text::{timestamp, to_text};
+use crate::sqlite::{begin_write, teams};
 
 const INBOX: &str = include_str!("../fixtures/inbox.json");
 const WORKSPACE: [(&str, &str); 3] = [
@@ -52,18 +54,24 @@ struct InboxMessage {
     received_at: String,
 }
 
-/// True when it seeded; false when agents already existed and nothing was touched.
+/// The seeded team's name; the scripted demos are written for its agents.
+pub const SEEDED_TEAM: &str = "Access desk";
+
+/// True when it seeded; false when a team already existed and nothing was touched.
 pub async fn run(pool: &SqlitePool, workspace_root: &Path) -> Result<bool, SeedError> {
-    let agents_exist = sqlx::query_scalar!("SELECT COUNT(*) FROM agents")
+    let teams_exist = sqlx::query_scalar!("SELECT COUNT(*) FROM teams")
         .fetch_one(pool)
         .await?
         > 0;
-    if agents_exist {
+    if teams_exist {
         return Ok(false);
     }
-    for agent in team() {
-        agents::create(pool, agent).await?;
+    let mut tx = begin_write(pool).await?;
+    let team = teams::insert(&mut tx, SEEDED_TEAM).await?;
+    for agent in team_agents() {
+        agents::insert(&mut tx, team, agent).await?;
     }
+    tx.commit().await?;
     seed_inbox(pool).await?;
     seed_workspace(pool, workspace_root).await?;
     Ok(true)
@@ -111,9 +119,10 @@ async fn seed_workspace(pool: &SqlitePool, root: &Path) -> Result<(), SeedError>
 
 /// No agent reads outside content and sends unchecked: Reader reads but cannot send, Messenger
 /// sends but only with approval, and the Lead reads trusted notes only and no other outside content.
-fn team() -> Vec<AgentInput> {
+fn team_agents() -> Vec<AgentInput> {
     use Decision::{Allow, Ask, Deny};
     let lead = AgentInput {
+        team_id: None,
         role: Role::Lead,
         slug: "lead".to_string(),
         name: "Lead".to_string(),
@@ -136,6 +145,7 @@ fn team() -> Vec<AgentInput> {
         ],
     };
     let reader = AgentInput {
+        team_id: None,
         role: Role::Specialist,
         slug: "reader".to_string(),
         name: "Reader".to_string(),
@@ -160,6 +170,7 @@ fn team() -> Vec<AgentInput> {
         delegate_targets: Vec::new(),
     };
     let writer = AgentInput {
+        team_id: None,
         role: Role::Specialist,
         slug: "writer".to_string(),
         name: "Writer".to_string(),
@@ -181,6 +192,7 @@ fn team() -> Vec<AgentInput> {
         delegate_targets: Vec::new(),
     };
     let messenger = AgentInput {
+        team_id: None,
         role: Role::Specialist,
         slug: "messenger".to_string(),
         name: "Messenger".to_string(),

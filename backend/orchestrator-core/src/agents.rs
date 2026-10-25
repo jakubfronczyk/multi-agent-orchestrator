@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::ids::AgentId;
+use crate::ids::{AgentId, TeamId};
 use crate::llm::{Model, ReasoningEffort};
 use crate::policy::{Decision, Effect, LeadAccess};
 use crate::tools::ToolName;
@@ -81,6 +81,8 @@ impl Role {
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 #[ts(export, optional_fields)]
 pub struct AgentInput {
+    /// Create: the agent's team, the first live team when absent. Replace: absent or unchanged.
+    pub team_id: Option<TeamId>,
     pub role: Role,
     pub slug: String,
     pub name: String,
@@ -99,6 +101,7 @@ pub struct AgentInput {
 #[ts(export)]
 pub struct AgentSpec {
     id: AgentId,
+    team_id: TeamId,
     role: Role,
     slug: Slug,
     name: String,
@@ -115,8 +118,10 @@ pub struct AgentSpec {
 }
 
 impl AgentSpec {
+    /// `team_id` comes from storage, which resolves and checks `input.team_id`.
     pub fn validated(
         id: AgentId,
+        team_id: TeamId,
         version: i64,
         input: AgentInput,
     ) -> Result<AgentSpec, ValidationError> {
@@ -197,6 +202,7 @@ impl AgentSpec {
 
         Ok(AgentSpec {
             id,
+            team_id,
             role: input.role,
             slug,
             name: input.name,
@@ -215,6 +221,10 @@ impl AgentSpec {
 
     pub fn id(&self) -> AgentId {
         self.id
+    }
+
+    pub fn team_id(&self) -> TeamId {
+        self.team_id
     }
 
     pub fn role(&self) -> Role {
@@ -276,6 +286,7 @@ mod tests {
 
     fn input(role: Role, slug: &str) -> AgentInput {
         AgentInput {
+            team_id: None,
             role,
             slug: slug.to_string(),
             name: "N".to_string(),
@@ -291,7 +302,7 @@ mod tests {
     }
 
     fn check(input: AgentInput) -> Result<AgentSpec, ValidationError> {
-        AgentSpec::validated(AgentId::new(), 1, input)
+        AgentSpec::validated(AgentId::new(), TeamId::new(), 1, input)
     }
 
     #[test]

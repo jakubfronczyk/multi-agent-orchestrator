@@ -13,7 +13,7 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::agents::{Role, Slug, ValidationError};
-use crate::ids::{AgentId, RunId};
+use crate::ids::{AgentId, RunId, TeamId, ToolCallId};
 use crate::policy::{Effect, LeadAccess, TaintSource, Trust};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
@@ -119,7 +119,11 @@ pub enum ToolError {
 pub struct ToolCtx {
     pub run_id: RunId,
     pub root_run_id: RunId,
+    /// The call being run; a sent message records it.
+    pub call_id: ToolCallId,
     pub agent_id: AgentId,
+    /// The task's team; shared notes are read and written in it.
+    pub team_id: TeamId,
     /// The caller's role; a Lead's memory reads return trusted notes only.
     pub role: Role,
     pub trust: Trust,

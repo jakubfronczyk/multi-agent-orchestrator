@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use crate::ids::{AgentId, RunId};
+use crate::ids::{AgentId, RunId, TeamId};
 use crate::llm::Item;
 use crate::money::Micros;
 use crate::policy::TaintSource;
@@ -20,6 +20,8 @@ struct Turn {
 pub(super) struct History {
     /// The root run's agent; a follow-up runs it again.
     pub root_agent: AgentId,
+    /// The task's team; every turn runs in it.
+    pub team_id: TeamId,
     pub budget: Micros,
     /// Some run started and has not finished.
     pub open: bool,
@@ -36,6 +38,7 @@ impl History {
             match event {
                 RunEvent::RunStarted {
                     agent_id,
+                    team_id,
                     parent_run_id,
                     task,
                     budget,
@@ -43,7 +46,7 @@ impl History {
                 } => {
                     unfinished.insert(*run);
                     if *run == root {
-                        root_start = Some((*agent_id, *budget));
+                        root_start = Some((*agent_id, *team_id, *budget));
                     }
                     if parent_run_id.is_none() {
                         let text = task.clone();
@@ -65,9 +68,10 @@ impl History {
                 _ => {}
             }
         }
-        let (root_agent, budget) = root_start?;
+        let (root_agent, team_id, budget) = root_start?;
         Some(History {
             root_agent,
+            team_id,
             // The root always records its budget; a missing one reads as nothing left.
             budget: budget.unwrap_or(Micros(0)),
             open: !unfinished.is_empty(),
@@ -125,6 +129,7 @@ mod tests {
     fn started(task: &str, parent: Option<RunId>) -> RunEvent {
         RunEvent::RunStarted {
             agent_id: AgentId::new(),
+            team_id: TeamId::new(),
             parent_run_id: parent,
             parent_call_id: None,
             task: task.to_string(),

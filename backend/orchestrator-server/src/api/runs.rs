@@ -54,6 +54,7 @@ pub async fn start(
     let run_id = state
         .engine
         .start(StartRequest {
+            team_id: None,
             agent_id: request.agent_id,
             task: request.task,
             title: request.title,
@@ -80,6 +81,7 @@ async fn require_s1_decision(state: &AppState) -> Result<(), ApiError> {
 
 pub(super) fn start_error(error: StartError) -> ApiError {
     match error {
+        StartError::UnknownTeam => ApiError::invalid("team_id", "no live team has this id"),
         StartError::NoLead => ApiError::invalid("agent_id", "the team has no Lead"),
         StartError::UnknownAgent => ApiError::invalid("agent_id", "no live agent has this id"),
         StartError::EmptyTask => ApiError::invalid("task", "must not be empty"),
@@ -131,6 +133,7 @@ fn follow_up_error(error: FollowUpError) -> ApiError {
         FollowUpError::NotLead => {
             ApiError::conflict("only a task the Lead started takes follow-ups")
         }
+        FollowUpError::TeamDeleted => ApiError::conflict("this task's team was deleted"),
         FollowUpError::Store(error) => {
             tracing::error!(%error, "could not start the follow-up");
             ApiError::internal()

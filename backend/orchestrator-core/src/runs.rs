@@ -7,7 +7,7 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::agents::Slug;
-use crate::ids::{AgentId, ApprovalId, RunId, ToolCallId};
+use crate::ids::{AgentId, ApprovalId, RunId, TeamId, ToolCallId};
 use crate::money::Micros;
 use crate::policy::{Decision, Rule, TaintSource};
 use crate::tools::{Action, PlanStep, ToolName};
@@ -18,6 +18,8 @@ use crate::tools::{Action, PlanStep, ToolName};
 pub enum RunEvent {
     RunStarted {
         agent_id: AgentId,
+        /// The task's team; equal on every run of a task.
+        team_id: TeamId,
         parent_run_id: Option<RunId>,
         /// The `delegate` call that started this run; set on delegated runs only.
         #[serde(default)]

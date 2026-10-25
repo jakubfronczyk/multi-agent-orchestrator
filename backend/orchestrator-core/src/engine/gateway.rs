@@ -457,7 +457,7 @@ async fn run(
         .emit(ctx.at, RunEvent::ToolCallStarted { call_id })
         .await?;
     let ended = match checked {
-        Checked::Tool(tool, args) => run_tool(ctx, tool, args).await,
+        Checked::Tool(tool, args) => run_tool(ctx, call_id, tool, args).await,
         Checked::Delegate(args) => native::delegate(inner, ctx, call_id, args).await?,
         Checked::Plan(steps) => native::plan(inner, ctx, steps).await?,
     };
@@ -468,11 +468,13 @@ fn cancelled() -> Ended {
     Ended::failed(CallStatus::Cancelled, "the task was cancelled", None)
 }
 
-async fn run_tool(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
+async fn run_tool(ctx: &RunCtx, call_id: ToolCallId, tool: Arc<dyn Tool>, args: Value) -> Ended {
     let tool_ctx = ToolCtx {
         run_id: ctx.at.run_id,
         root_run_id: ctx.at.root_run_id,
+        call_id,
         agent_id: ctx.agent.id(),
+        team_id: ctx.task.team_id(),
         role: ctx.agent.role(),
         trust: if ctx.task.is_tainted() {
             Trust::Untrusted

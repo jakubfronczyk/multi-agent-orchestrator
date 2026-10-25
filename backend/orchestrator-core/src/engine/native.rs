@@ -188,6 +188,7 @@ pub(super) async fn delegate(
     };
     let started = RunEvent::RunStarted {
         agent_id: target.id(),
+        team_id: ctx.task.team_id(),
         parent_run_id: Some(ctx.at.run_id),
         parent_call_id: Some(call_id),
         task: text.clone(),

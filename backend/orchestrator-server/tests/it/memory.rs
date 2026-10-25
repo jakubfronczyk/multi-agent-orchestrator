@@ -261,6 +261,7 @@ async fn a_delegated_runs_note_version_names_the_task(pool: SqlitePool) {
     let child = RunId::new();
     let started = RunEvent::RunStarted {
         agent_id: root_ctx.agent_id,
+        team_id: root_ctx.team_id,
         parent_run_id: Some(root_ctx.run_id),
         parent_call_id: None,
         task: "t".to_string(),

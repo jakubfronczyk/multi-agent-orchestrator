@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO outbox_messages (id, run_id, tool_call_id, channel, recipient, subject, body, sent_at)\n             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "04294bb2d115c4d391c18520759a9a3cafb45ca0a1cd6074131bdcc456d4df22"
+}

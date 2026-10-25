@@ -8,8 +8,8 @@ use std::time::Duration;
 use orchestrator_core::agents::{AgentInput, Role};
 pub use orchestrator_core::engine::Config;
 use orchestrator_core::engine::{Engine, StartRequest};
-use orchestrator_core::ids::AgentId;
 use orchestrator_core::ids::RunId;
+use orchestrator_core::ids::{AgentId, TeamId, ToolCallId};
 use orchestrator_core::llm::{LlmProvider, Model};
 use orchestrator_core::money::Micros;
 use orchestrator_core::policy::Decision;
@@ -19,7 +19,7 @@ use orchestrator_core::tools::{Target, ToolName};
 use orchestrator_server::api::{ActiveProvider, AppState, router};
 use orchestrator_server::events::EventEnvelope;
 use orchestrator_server::llm::ScriptedProvider;
-use orchestrator_server::sqlite::{SqliteStore, agents};
+use orchestrator_server::sqlite::{SqliteStore, agents, teams};
 use orchestrator_server::tools::workspace::Workspace;
 use orchestrator_server::{seed, tools as real_tools};
 use sqlx::SqlitePool;
@@ -49,6 +49,8 @@ pub struct App {
     pub pool: SqlitePool,
     pub store: Arc<SqliteStore>,
     pub engine: Arc<Engine>,
+    /// The one team the harness seeds; requests that name no team run in it.
+    pub team: TeamId,
     /// A specialist holding every test tool.
     pub worker: AgentId,
 }
@@ -76,6 +78,7 @@ pub async fn app_with(pool: SqlitePool, config: Config) -> App {
 
 /// Seeds a Lead that plans and delegates to `helper` and `helper2`, and the `worker`.
 pub async fn app_with_llm(pool: SqlitePool, config: Config, llm: Arc<dyn LlmProvider>) -> App {
+    let team = new_team(&pool, "Test team").await;
     for slug in ["helper", "helper2"] {
         agents::create(&pool, helper(slug))
             .await
@@ -96,12 +99,20 @@ pub async fn app_with_llm(pool: SqlitePool, config: Config, llm: Arc<dyn LlmProv
         pool,
         store,
         engine,
+        team,
         worker,
     }
 }
 
+/// An empty team, committed on its own.
+pub async fn new_team(pool: &SqlitePool, name: &str) -> TeamId {
+    let mut conn = pool.acquire().await.expect("connection");
+    teams::insert(&mut conn, name).await.expect("team")
+}
+
 fn lead() -> AgentInput {
     AgentInput {
+        team_id: None,
         role: Role::Lead,
         slug: "lead".to_string(),
         name: "Lead".to_string(),
@@ -214,6 +225,7 @@ pub async fn serve_state(state: AppState) -> String {
 
 pub fn request(scenario: &str) -> StartRequest {
     StartRequest {
+        team_id: None,
         agent_id: None,
         task: "say hello".to_string(),
         title: None,
@@ -376,7 +388,7 @@ pub fn root_outcome(events: &[EventEnvelope]) -> &RunOutcome {
 }
 
 pub async fn agent_id(pool: &SqlitePool, slug: &str) -> AgentId {
-    agents::list(pool)
+    agents::list(pool, None)
         .await
         .expect("agents")
         .into_iter()
@@ -449,7 +461,7 @@ fn engine_on(
 /// A tool context for a seeded agent, with a real run row behind it.
 pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCtx {
     use orchestrator_core::store::{RunRef, Store};
-    let (agent, role) = agents::list(&app.pool)
+    let (agent, role) = agents::list(&app.pool, None)
         .await
         .expect("agents")
         .into_iter()
@@ -463,6 +475,7 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
     };
     let started = RunEvent::RunStarted {
         agent_id: agent,
+        team_id: app.team,
         parent_run_id: None,
         parent_call_id: None,
         task: "t".to_string(),
@@ -474,10 +487,23 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
         draft_only: false,
     };
     app.store.emit(at, started).await.expect("run row");
+    // A call row, so what the tool writes can name its call.
+    let call_id = ToolCallId::new();
+    let requested = RunEvent::ToolCallRequested {
+        call_id,
+        tool: "memory_read".to_string(),
+        args: serde_json::json!({}),
+        action: None,
+        decision: None,
+        reasons: Vec::new(),
+    };
+    app.store.emit(at, requested).await.expect("call row");
     orchestrator_core::tools::ToolCtx {
         run_id: run,
         root_run_id: run,
+        call_id,
         agent_id: agent,
+        team_id: app.team,
         role,
         trust: orchestrator_core::policy::Trust::Trusted,
     }

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, delegate_targets FROM agents WHERE role = ? AND deleted_at IS NULL",
+  "query": "SELECT id, name FROM teams",
   "describe": {
     "columns": [
       {
@@ -9,30 +9,30 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "agents",
+            "table": "teams",
             "name": "id"
           }
         }
       },
       {
-        "name": "delegate_targets",
+        "name": "name",
         "ordinal": 1,
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "agents",
-            "name": "delegate_targets"
+            "table": "teams",
+            "name": "name"
           }
         }
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       false,
       false
     ]
   },
-  "hash": "006d72c6ede0fe0c13ac15e726ee2d67925fc2554a31a2ae391debe9a790ea87"
+  "hash": "efb0e2d8308cc1d6779ce6f75071280acddbff1a21252461f1aacc4102c2fff9"
 }

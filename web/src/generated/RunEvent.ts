@@ -12,12 +12,17 @@ import type { Rule } from "./Rule";
 import type { RunId } from "./RunId";
 import type { RunOutcome } from "./RunOutcome";
 import type { TaintSource } from "./TaintSource";
+import type { TeamId } from "./TeamId";
 import type { ToolCallId } from "./ToolCallId";
 import type { ToolName } from "./ToolName";
 import type { Usage } from "./Usage";
 import type { JsonValue } from "./serde_json/JsonValue";
 
-export type RunEvent = { "type": "run_started", "data": { agent_id: AgentId, parent_run_id: RunId | null, 
+export type RunEvent = { "type": "run_started", "data": { agent_id: AgentId, 
+/**
+ * The task's team; equal on every run of a task.
+ */
+team_id: TeamId, parent_run_id: RunId | null, 
 /**
  * The `delegate` call that started this run; set on delegated runs only.
  */

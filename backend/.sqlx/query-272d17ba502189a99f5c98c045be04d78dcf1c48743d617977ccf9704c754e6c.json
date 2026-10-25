@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO tool_calls (id, run_id, agent_id, team_id, tool, args, action, decision, rules, phase, requested_at)\n                     SELECT ?, id, agent_id, team_id, ?, ?, ?, ?, ?, ?, ? FROM runs WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "272d17ba502189a99f5c98c045be04d78dcf1c48743d617977ccf9704c754e6c"
+}

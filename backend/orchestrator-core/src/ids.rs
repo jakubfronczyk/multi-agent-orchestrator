@@ -36,6 +36,31 @@ impl FromStr for AgentId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(transparent)]
 #[ts(export)]
+pub struct TeamId(Uuid);
+
+impl TeamId {
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+}
+
+impl Default for TeamId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FromStr for TeamId {
+    type Err = uuid::Error;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(text).map(Self)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(transparent)]
+#[ts(export)]
 pub struct RunId(Uuid);
 
 impl RunId {

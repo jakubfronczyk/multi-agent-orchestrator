@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO agents (id, team_id, role, slug, name, description, system_prompt, model, max_steps, icon,\n                                 colour, created_at, updated_at)\n             VALUES (?, ?, ?, 'other', 'n', 'd', 'p', 'grok-4.3', 12, 'i', 'c', 't', 't')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "88dee8d141f640eff964227ded08ccdff456a7975f603c6e537eb314c77298a4"
+}

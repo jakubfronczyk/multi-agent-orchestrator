@@ -57,6 +57,7 @@ async fn a_crashed_task_is_interrupted_child_first_and_recovery_runs_once(pool: 
             at_root,
             RunEvent::RunStarted {
                 agent_id: app.worker,
+                team_id: app.team,
                 parent_run_id: None,
                 parent_call_id: None,
                 task: "t".to_string(),
@@ -74,6 +75,7 @@ async fn a_crashed_task_is_interrupted_child_first_and_recovery_runs_once(pool: 
             at_child,
             RunEvent::RunStarted {
                 agent_id: app.worker,
+                team_id: app.team,
                 parent_run_id: Some(root),
                 parent_call_id: Some(delegate),
                 task: "step".to_string(),

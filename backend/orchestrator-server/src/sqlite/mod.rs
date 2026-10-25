@@ -15,6 +15,7 @@ pub mod outbox;
 pub mod read;
 pub mod runs;
 mod store;
+pub mod teams;
 pub(crate) mod text;
 pub mod tool_calls;
 

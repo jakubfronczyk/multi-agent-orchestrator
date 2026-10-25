@@ -5,15 +5,15 @@ use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use orchestrator_core::agents::{AgentInput, AgentSpec, Role, Slug, ValidationError};
-use orchestrator_core::ids::AgentId;
+use orchestrator_core::ids::{AgentId, TeamId};
 use orchestrator_core::policy::Decision;
 use orchestrator_core::tools::ToolName;
 use serde::Serialize;
 use sqlx::{SqliteConnection, SqlitePool};
 use ts_rs::TS;
 
-use super::begin_write;
 use super::text::{from_text, parse_timestamp, timestamp, to_text};
+use super::{begin_write, teams};
 
 /// An agent as the API returns it: the spec plus its timestamps.
 #[derive(Debug, Clone, Serialize, TS)]
@@ -38,10 +38,14 @@ pub enum AgentError {
 }
 
 /// Reads the ids and every agent in one transaction, so a delete in between cannot drop a row.
-pub async fn list(pool: &SqlitePool) -> Result<Vec<AgentRecord>, AgentError> {
+/// `team` narrows to one team's live agents.
+pub async fn list(pool: &SqlitePool, team: Option<TeamId>) -> Result<Vec<AgentRecord>, AgentError> {
     let mut tx = pool.begin().await?;
+    let team = team.as_ref().map(text).transpose()?;
     let ids = sqlx::query_scalar!(
-        "SELECT id FROM agents WHERE deleted_at IS NULL ORDER BY created_at, id"
+        "SELECT id FROM agents WHERE deleted_at IS NULL AND (?1 IS NULL OR team_id = ?1)
+         ORDER BY created_at, id",
+        team
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -61,11 +65,32 @@ pub async fn get(pool: &SqlitePool, id: AgentId) -> Result<AgentRecord, AgentErr
 
 pub async fn create(pool: &SqlitePool, input: AgentInput) -> Result<AgentRecord, AgentError> {
     let mut tx = begin_write(pool).await?;
-    let spec = AgentSpec::validated(AgentId::new(), 1, input)?;
-    check_team(&mut tx, &spec).await?;
+    let team = match input.team_id {
+        Some(team) => team,
+        None => teams::first_live(&mut tx)
+            .await?
+            .ok_or_else(|| ValidationError::new("team_id", "no live team exists"))?,
+    };
+    if !teams::is_live(&mut tx, team).await? {
+        return Err(ValidationError::new("team_id", "no live team has this id").into());
+    }
+    let record = insert(&mut tx, team, input).await?;
+    tx.commit().await?;
+    Ok(record)
+}
+
+/// Inserts a validated agent into a live team inside the caller's write transaction.
+pub(crate) async fn insert(
+    conn: &mut SqliteConnection,
+    team: TeamId,
+    input: AgentInput,
+) -> Result<AgentRecord, AgentError> {
+    let spec = AgentSpec::validated(AgentId::new(), team, 1, input)?;
+    check_team(&mut *conn, &spec).await?;
 
     let now = timestamp(Utc::now());
     let id = text(&spec.id())?;
+    let team = text(&spec.team_id())?;
     let role = text(&spec.role())?;
     let slug = spec.slug().as_str();
     let model = text(&spec.model())?;
@@ -75,10 +100,11 @@ pub async fn create(pool: &SqlitePool, input: AgentInput) -> Result<AgentRecord,
     let (name, description, prompt) = (spec.name(), spec.description(), spec.system_prompt());
     let (icon, colour) = (spec.icon(), spec.colour());
     sqlx::query!(
-        "INSERT INTO agents (id, role, slug, name, description, system_prompt, model, reasoning_effort, max_steps,
-                             icon, colour, delegate_targets, version, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        "INSERT INTO agents (id, team_id, role, slug, name, description, system_prompt, model, reasoning_effort,
+                             max_steps, icon, colour, delegate_targets, version, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
         id,
+        team,
         role,
         slug,
         name,
@@ -93,13 +119,10 @@ pub async fn create(pool: &SqlitePool, input: AgentInput) -> Result<AgentRecord,
         now,
         now
     )
-    .execute(&mut *tx)
+    .execute(&mut *conn)
     .await?;
-    write_tools(&mut tx, &id, spec.tools()).await?;
-
-    let record = load(&mut tx, &id).await?.ok_or(AgentError::NotFound)?;
-    tx.commit().await?;
-    Ok(record)
+    write_tools(&mut *conn, &id, spec.tools()).await?;
+    load(&mut *conn, &id).await?.ok_or(AgentError::NotFound)
 }
 
 /// A full replace: bumps the version; the slug and role cannot change.
@@ -117,7 +140,18 @@ pub async fn replace(
     if input.role != current.spec.role() {
         return Err(ValidationError::new("role", "cannot change after create").into());
     }
-    let spec = AgentSpec::validated(id, current.spec.version() + 1, input)?;
+    if input
+        .team_id
+        .is_some_and(|team| team != current.spec.team_id())
+    {
+        return Err(ValidationError::new("team_id", "cannot change after create").into());
+    }
+    let spec = AgentSpec::validated(
+        id,
+        current.spec.team_id(),
+        current.spec.version() + 1,
+        input,
+    )?;
     check_team(&mut tx, &spec).await?;
 
     let now = timestamp(Utc::now());
@@ -155,8 +189,8 @@ pub async fn replace(
     Ok(record)
 }
 
-/// A soft delete. The Lead cannot be deleted; the slug leaves the Lead's targets in the same
-/// transaction, so a later agent reusing the slug never inherits the target.
+/// A soft delete. The Lead cannot be deleted; the slug leaves its own team's Lead's targets in
+/// the same transaction, so a later agent reusing the slug never inherits the target.
 pub async fn delete(pool: &SqlitePool, id: AgentId) -> Result<(), AgentError> {
     let mut tx = begin_write(pool).await?;
     let id_text = text(&id)?;
@@ -175,8 +209,10 @@ pub async fn delete(pool: &SqlitePool, id: AgentId) -> Result<(), AgentError> {
     .await?;
 
     let lead_role = text(&Role::Lead)?;
+    let team = text(&current.spec.team_id())?;
     let lead = sqlx::query!(
-        "SELECT id, delegate_targets FROM agents WHERE role = ? AND deleted_at IS NULL",
+        "SELECT id, delegate_targets FROM agents WHERE team_id = ? AND role = ? AND deleted_at IS NULL",
+        team,
         lead_role
     )
     .fetch_optional(&mut *tx)
@@ -203,21 +239,43 @@ pub async fn delete(pool: &SqlitePool, id: AgentId) -> Result<(), AgentError> {
     Ok(())
 }
 
-pub async fn live_team(pool: &SqlitePool) -> Result<Vec<AgentSpec>, AgentError> {
-    Ok(list(pool)
-        .await?
-        .into_iter()
-        .map(|record| record.spec)
-        .collect())
+/// A live team's id and live agents; `None` names the first live team. `None` back when the
+/// team is unknown or deleted. One transaction, so a delete in between cannot split the read.
+pub async fn live_team(
+    pool: &SqlitePool,
+    team: Option<TeamId>,
+) -> Result<Option<(TeamId, Vec<AgentSpec>)>, AgentError> {
+    let mut tx = pool.begin().await?;
+    let team = match team {
+        Some(team) => teams::is_live(&mut tx, team).await?.then_some(team),
+        None => teams::first_live(&mut tx).await?,
+    };
+    let Some(team) = team else {
+        return Ok(None);
+    };
+    let team_text = text(&team)?;
+    let ids = sqlx::query_scalar!(
+        "SELECT id FROM agents WHERE deleted_at IS NULL AND team_id = ? ORDER BY created_at, id",
+        team_text
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut specs = Vec::with_capacity(ids.len());
+    for id in ids {
+        specs.push(load(&mut tx, &id).await?.ok_or(AgentError::NotFound)?.spec);
+    }
+    Ok(Some((team, specs)))
 }
 
-/// The slug is free among live agents, there is at most one live Lead, and every delegate
-/// target is a live specialist. The unique indexes are backstops for these checks.
+/// Within the agent's team: the slug is free among live agents, there is at most one live
+/// Lead, and every delegate target is a live specialist. The unique indexes are backstops.
 async fn check_team(conn: &mut SqliteConnection, spec: &AgentSpec) -> Result<(), AgentError> {
     let id = text(&spec.id())?;
+    let team = text(&spec.team_id())?;
     let slug = spec.slug().as_str();
     let slug_users = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM agents WHERE slug = ? AND deleted_at IS NULL AND id != ?",
+        "SELECT COUNT(*) FROM agents WHERE team_id = ? AND slug = ? AND deleted_at IS NULL AND id != ?",
+        team,
         slug,
         id
     )
@@ -230,7 +288,8 @@ async fn check_team(conn: &mut SqliteConnection, spec: &AgentSpec) -> Result<(),
     let lead_role = text(&Role::Lead)?;
     if spec.role() == Role::Lead {
         let other_leads = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM agents WHERE role = ? AND deleted_at IS NULL AND id != ?",
+            "SELECT COUNT(*) FROM agents WHERE team_id = ? AND role = ? AND deleted_at IS NULL AND id != ?",
+            team,
             lead_role,
             id
         )
@@ -245,14 +304,15 @@ async fn check_team(conn: &mut SqliteConnection, spec: &AgentSpec) -> Result<(),
     for target in spec.delegate_targets() {
         let slug = target.as_str();
         let found = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM agents WHERE slug = ? AND role = ? AND deleted_at IS NULL",
+            "SELECT COUNT(*) FROM agents WHERE team_id = ? AND slug = ? AND role = ? AND deleted_at IS NULL",
+            team,
             slug,
             specialist_role
         )
         .fetch_one(&mut *conn)
         .await?;
         if found == 0 {
-            let message = format!("{slug} is not a live specialist");
+            let message = format!("{slug} is not a live specialist of this team");
             return Err(ValidationError::new("delegate_targets", &message).into());
         }
     }
@@ -283,7 +343,7 @@ async fn write_tools(
 /// Rows pass `AgentSpec::validated` again, so a stricter rule needs a data migration in the same change.
 async fn load(conn: &mut SqliteConnection, id: &str) -> Result<Option<AgentRecord>, AgentError> {
     let Some(row) = sqlx::query!(
-        "SELECT id, role, slug, name, description, system_prompt, model, reasoning_effort, icon, colour,
+        "SELECT id, team_id, role, slug, name, description, system_prompt, model, reasoning_effort, icon, colour,
                 delegate_targets, version, created_at, updated_at
          FROM agents WHERE id = ? AND deleted_at IS NULL",
         id
@@ -306,7 +366,9 @@ async fn load(conn: &mut SqliteConnection, id: &str) -> Result<Option<AgentRecor
         tools.insert(name, from_text(&tool.decision).map_err(corrupt)?);
     }
 
+    let team_id: TeamId = from_text(&row.team_id).map_err(corrupt)?;
     let input = AgentInput {
+        team_id: Some(team_id),
         role: from_text(&row.role).map_err(corrupt)?,
         slug: row.slug,
         name: row.name,
@@ -324,8 +386,13 @@ async fn load(conn: &mut SqliteConnection, id: &str) -> Result<Option<AgentRecor
         tools,
         delegate_targets: serde_json::from_str(&row.delegate_targets).map_err(corrupt)?,
     };
-    let spec = AgentSpec::validated(from_text(&row.id).map_err(corrupt)?, row.version, input)
-        .map_err(corrupt)?;
+    let spec = AgentSpec::validated(
+        from_text(&row.id).map_err(corrupt)?,
+        team_id,
+        row.version,
+        input,
+    )
+    .map_err(corrupt)?;
     Ok(Some(AgentRecord {
         spec,
         created_at: parse_timestamp(&row.created_at).map_err(corrupt)?,
@@ -351,6 +418,7 @@ mod tests {
 
     fn input(role: Role, slug: &str, targets: &[&str]) -> AgentInput {
         AgentInput {
+            team_id: None,
             role,
             slug: slug.to_string(),
             name: slug.to_string(),
@@ -365,6 +433,19 @@ mod tests {
         }
     }
 
+    /// A live team; agents created without a `team_id` land in the first one.
+    async fn team(pool: &SqlitePool, name: &str) -> TeamId {
+        let mut conn = pool.acquire().await.expect("connection");
+        teams::insert(&mut conn, name).await.expect("team")
+    }
+
+    fn in_team(team: TeamId, input: AgentInput) -> AgentInput {
+        AgentInput {
+            team_id: Some(team),
+            ..input
+        }
+    }
+
     fn rejected_on(result: Result<impl std::fmt::Debug, AgentError>, field: &str) {
         match result {
             Err(AgentError::Invalid(error)) => assert_eq!(error.field, field),
@@ -374,6 +455,7 @@ mod tests {
 
     #[sqlx::test]
     async fn second_lead_is_rejected(pool: SqlitePool) {
+        team(&pool, "a").await;
         create(&pool, input(Role::Lead, "lead", &[]))
             .await
             .expect("first lead");
@@ -382,6 +464,7 @@ mod tests {
 
     #[sqlx::test]
     async fn lead_cannot_be_deleted(pool: SqlitePool) {
+        team(&pool, "a").await;
         let lead = create(&pool, input(Role::Lead, "lead", &[]))
             .await
             .expect("lead");
@@ -390,6 +473,7 @@ mod tests {
 
     #[sqlx::test]
     async fn slug_and_role_cannot_change(pool: SqlitePool) {
+        team(&pool, "a").await;
         let agent = create(&pool, input(Role::Specialist, "reader", &[]))
             .await
             .expect("agent");
@@ -410,6 +494,7 @@ mod tests {
 
     #[sqlx::test]
     async fn targets_must_be_live_specialists(pool: SqlitePool) {
+        team(&pool, "a").await;
         rejected_on(
             create(&pool, input(Role::Lead, "lead", &["ghost"])).await,
             "delegate_targets",
@@ -427,6 +512,7 @@ mod tests {
 
     #[sqlx::test]
     async fn delete_removes_slug_from_lead_targets_and_frees_it(pool: SqlitePool) {
+        team(&pool, "a").await;
         let reader = create(&pool, input(Role::Specialist, "reader", &[]))
             .await
             .expect("reader");
@@ -450,6 +536,7 @@ mod tests {
 
     #[sqlx::test]
     async fn concurrent_lead_creates_yield_one_lead_and_one_role_error(pool: SqlitePool) {
+        team(&pool, "a").await;
         let first = tokio::spawn(create_owned(pool.clone(), input(Role::Lead, "lead_a", &[])));
         let second = tokio::spawn(create_owned(pool.clone(), input(Role::Lead, "lead_b", &[])));
         let results = [first.await.expect("join"), second.await.expect("join")];
@@ -468,6 +555,7 @@ mod tests {
 
     #[sqlx::test]
     async fn malformed_slug_is_one_message_on_slug(pool: SqlitePool) {
+        team(&pool, "a").await;
         match create(&pool, input(Role::Specialist, "Bad Slug", &[])).await {
             Err(AgentError::Invalid(error)) => {
                 assert_eq!(error.field, "slug");
@@ -479,16 +567,24 @@ mod tests {
 
     #[sqlx::test]
     async fn index_rejects_a_second_live_lead_written_around_the_checks(pool: SqlitePool) {
+        team(&pool, "a").await;
         create(&pool, input(Role::Lead, "lead", &[]))
             .await
             .expect("lead");
         let id = to_text(&AgentId::new()).expect("id");
         let role = to_text(&Role::Lead).expect("role");
+        let mut conn = pool.acquire().await.expect("connection");
+        let team = teams::first_live(&mut conn)
+            .await
+            .expect("read")
+            .expect("team");
+        let team = to_text(&team).expect("team id");
         let result = sqlx::query!(
-            "INSERT INTO agents (id, role, slug, name, description, system_prompt, model, max_steps, icon, colour,
-                                 created_at, updated_at)
-             VALUES (?, ?, 'other', 'n', 'd', 'p', 'grok-4.3', 12, 'i', 'c', 't', 't')",
+            "INSERT INTO agents (id, team_id, role, slug, name, description, system_prompt, model, max_steps, icon,
+                                 colour, created_at, updated_at)
+             VALUES (?, ?, ?, 'other', 'n', 'd', 'p', 'grok-4.3', 12, 'i', 'c', 't', 't')",
             id,
+            team,
             role
         )
         .execute(&pool)
@@ -498,6 +594,7 @@ mod tests {
 
     #[sqlx::test]
     async fn duplicate_live_slug_is_rejected(pool: SqlitePool) {
+        team(&pool, "a").await;
         create(&pool, input(Role::Specialist, "reader", &[]))
             .await
             .expect("first");
@@ -505,5 +602,91 @@ mod tests {
             create(&pool, input(Role::Specialist, "reader", &[])).await,
             "slug",
         );
+    }
+
+    #[sqlx::test]
+    async fn slugs_and_leads_are_unique_per_team(pool: SqlitePool) {
+        let a = team(&pool, "a").await;
+        let b = team(&pool, "b").await;
+        for team in [a, b] {
+            create(&pool, in_team(team, input(Role::Specialist, "reader", &[])))
+                .await
+                .expect("a reader per team");
+            create(&pool, in_team(team, input(Role::Lead, "lead", &["reader"])))
+                .await
+                .expect("a Lead per team");
+        }
+        rejected_on(
+            create(&pool, in_team(a, input(Role::Specialist, "reader", &[]))).await,
+            "slug",
+        );
+        rejected_on(
+            create(&pool, in_team(a, input(Role::Lead, "lead2", &[]))).await,
+            "role",
+        );
+    }
+
+    #[sqlx::test]
+    async fn targets_and_team_stay_inside_the_team(pool: SqlitePool) {
+        let a = team(&pool, "a").await;
+        let b = team(&pool, "b").await;
+        create(&pool, in_team(b, input(Role::Specialist, "writer", &[])))
+            .await
+            .expect("b's writer");
+        rejected_on(
+            create(&pool, in_team(a, input(Role::Lead, "lead", &["writer"]))).await,
+            "delegate_targets",
+        );
+
+        let reader = create(&pool, input(Role::Specialist, "reader", &[]))
+            .await
+            .expect("lands on the first team");
+        assert_eq!(reader.spec.team_id(), a);
+        let id = reader.spec.id();
+        rejected_on(
+            replace(
+                &pool,
+                id,
+                in_team(b, input(Role::Specialist, "reader", &[])),
+            )
+            .await,
+            "team_id",
+        );
+        let kept = replace(&pool, id, input(Role::Specialist, "reader", &[]))
+            .await
+            .expect("no team_id keeps the team");
+        assert_eq!(kept.spec.team_id(), a);
+        rejected_on(
+            create(
+                &pool,
+                in_team(TeamId::new(), input(Role::Specialist, "x", &[])),
+            )
+            .await,
+            "team_id",
+        );
+    }
+
+    #[sqlx::test]
+    async fn deleting_a_specialist_edits_only_its_own_teams_lead(pool: SqlitePool) {
+        let a = team(&pool, "a").await;
+        let b = team(&pool, "b").await;
+        let mut leads = Vec::new();
+        let mut readers = Vec::new();
+        for team in [a, b] {
+            let reader = create(&pool, in_team(team, input(Role::Specialist, "reader", &[])))
+                .await
+                .expect("reader");
+            readers.push(reader.spec.id());
+            let lead = create(&pool, in_team(team, input(Role::Lead, "lead", &["reader"])))
+                .await
+                .expect("lead");
+            leads.push(lead.spec.id());
+        }
+        delete(&pool, readers[0]).await.expect("delete a's reader");
+        let a_lead = get(&pool, leads[0]).await.expect("a's lead");
+        let b_lead = get(&pool, leads[1]).await.expect("b's lead");
+        assert!(a_lead.spec.delegate_targets().is_empty());
+        assert_eq!(b_lead.spec.delegate_targets().len(), 1);
+        assert_eq!(b_lead.spec.version(), 1, "b's Lead is untouched");
     }
 }

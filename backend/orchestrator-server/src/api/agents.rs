@@ -2,10 +2,11 @@
 //! Every rule lives in `AgentSpec::validated` and the storage transaction, not here.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use orchestrator_core::agents::AgentInput;
-use orchestrator_core::ids::AgentId;
+use orchestrator_core::ids::{AgentId, TeamId};
+use serde::Deserialize;
 
 use super::AppState;
 use super::error::ApiError;
@@ -13,8 +14,18 @@ use super::json::ApiJson;
 use super::query;
 use crate::sqlite::agents::{self, AgentRecord};
 
-pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<AgentRecord>>, ApiError> {
-    Ok(Json(agents::list(&state.pool).await?))
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    team_id: Option<String>,
+}
+
+/// Live agents, oldest first; `team_id` narrows to one team.
+pub async fn list(
+    State(state): State<AppState>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Vec<AgentRecord>>, ApiError> {
+    let team = query::id::<TeamId>("team_id", query.team_id)?;
+    Ok(Json(agents::list(&state.pool, team).await?))
 }
 
 pub async fn create(

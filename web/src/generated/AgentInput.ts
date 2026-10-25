@@ -3,9 +3,14 @@ import type { Decision } from "./Decision";
 import type { Model } from "./Model";
 import type { ReasoningEffort } from "./ReasoningEffort";
 import type { Role } from "./Role";
+import type { TeamId } from "./TeamId";
 import type { ToolName } from "./ToolName";
 
 /**
  * What a user submits to create or replace an agent. A tool missing from `tools` is off.
  */
-export type AgentInput = { role: Role, slug: string, name: string, description: string, system_prompt: string, model: Model, reasoning_effort?: ReasoningEffort, icon: string, colour: string, tools: { [key in ToolName]?: Decision }, delegate_targets: Array<string>, };
+export type AgentInput = { 
+/**
+ * Create: the agent's team, the first live team when absent. Replace: absent or unchanged.
+ */
+team_id?: TeamId, role: Role, slug: string, name: string, description: string, system_prompt: string, model: Model, reasoning_effort?: ReasoningEffort, icon: string, colour: string, tools: { [key in ToolName]?: Decision }, delegate_targets: Array<string>, };
