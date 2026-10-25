@@ -234,12 +234,26 @@ async fn only_this_app_on_loopback_can_answer_a_card(pool: SqlitePool) {
         .await
         .expect("post");
     assert_eq!(cross_site.status(), 403);
+    // Another local app's page is another origin too.
+    let other_port = client
+        .post(&answer)
+        .header("origin", "http://localhost:3000")
+        .json(&approve)
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(other_port.status(), 403);
     let (_, pending) = get(&client, &format!("{base}/api/approvals?status=pending")).await;
     assert_eq!(pending["approvals"][0]["status"], "pending");
 
+    let own_origin = base.replace("127.0.0.1", "LOCALHOST");
     let own = client
         .post(&answer)
-        .header("origin", "http://localhost:5173")
+        .header(
+            "host",
+            own_origin.trim_start_matches("http://").to_lowercase(),
+        )
+        .header("origin", own_origin)
         .json(&approve)
         .send()
         .await
