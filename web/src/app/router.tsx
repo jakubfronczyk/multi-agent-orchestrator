@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router"
 import { AppShell } from "./app-shell"
 import { HomePage } from "@/pages/home"
 import { NeedsPage } from "@/pages/needs"
+import { NotesPage } from "@/pages/notes"
 import { TaskThreadPage } from "@/pages/task-thread"
 import { TasksPage } from "@/pages/tasks"
 import { TeamPage } from "@/pages/team/team-page"
@@ -16,7 +17,7 @@ export const router = createBrowserRouter([
       { path: "/tasks", element: <TasksPage /> },
       { path: "/tasks/:rootId", element: <TaskThreadPage /> },
       { path: "/team", element: <TeamPage /> },
-      { path: "/notes", element: <Placeholder title="Team notes" issue="08" /> },
+      { path: "/notes", element: <NotesPage /> },
       { path: "/files", element: <Placeholder title="Files" issue="09" /> },
       { path: "/sent", element: <Placeholder title="Sent messages" issue="10" /> },
       { path: "/activity", element: <Placeholder title="Activity" issue="11" /> },

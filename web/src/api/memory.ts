@@ -11,10 +11,14 @@ export const memoryQuery = (
   queryOptions({
     queryKey: ["memory", filter],
     queryFn: () => getJson<MemoryList>(`/memory${query(filter)}`),
+    // No `last_event_id` on this list, so writes made while no screen showed it can't be
+    // found in the event buffer; every mount refetches instead.
+    refetchOnMount: "always",
   })
 
 export const memoryVersionsQuery = (entryId: string) =>
   queryOptions({
     queryKey: ["memory-versions", entryId],
     queryFn: () => getJson<MemoryVersionList>(`/memory/${entryId}/versions`),
+    refetchOnMount: "always",
   })
