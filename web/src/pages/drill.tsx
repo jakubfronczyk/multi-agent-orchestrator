@@ -153,13 +153,12 @@ function Report({ run }: { run: RunSummary }) {
       ) : (
         exits.map((exit) => {
           const agentName = look.nameOfSlug(exit.agent)
-          // A card exists because the call asked; taint or an off-list host can force that whatever
-          // the setting, so the setting is named only when neither applies.
-          const escalated = exit.rules.some((rule) => rule.kind === "taint" || rule.kind === "off_allowlist")
-          const reasons = reasonsText(exit.rules, {
+          // Only the verdict's rule, which the backend puts first; the sheet lists the rest. An
+          // agent_policy rule in first place set the verdict, so the decision is its setting.
+          const reasons = reasonsText(exit.rules.slice(0, 1), {
             agent: agentName,
             tool: exit.tool,
-            decision: exit.decision === "ask" && escalated ? null : exit.decision,
+            decision: exit.decision,
           })
           const who = decider(exit)
           return (
