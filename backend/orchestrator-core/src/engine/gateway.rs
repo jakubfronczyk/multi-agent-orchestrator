@@ -7,22 +7,30 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use serde_json::{Value, json};
 
-use crate::ids::{ApprovalId, ToolCallId};
+use crate::agents::{AgentSpec, Slug};
+use crate::ids::{ApprovalId, RunId, ToolCallId};
 use crate::llm::FnCall;
 use crate::policy::{Decision, Rule, Trust, decide};
 use crate::runs::{Answer, ApprovalOutcome, CallStatus, Custody, RunEvent};
 use crate::store::StoreError;
-use crate::tools::{Action, Tool, ToolCtx, ToolName, ToolOutput};
+use crate::tools::{Action, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec};
 
-use super::Inner;
 use super::approvals::Waited;
 use super::run::RunCtx;
+use super::{Inner, native};
 
 const PREVIEW_CHARS: usize = 200;
 
 /// How a call ended, before it is rendered for the model.
-enum Ended {
+pub(super) enum Ended {
     Ok(ToolOutput),
+    /// A delegated run that completed; its output goes back verbatim.
+    Child {
+        agent: Slug,
+        run_id: RunId,
+        truncated: bool,
+        output: String,
+    },
     Failed {
         status: CallStatus,
         message: String,
@@ -30,9 +38,73 @@ enum Ended {
     },
 }
 
+impl Ended {
+    pub(super) fn failed(status: CallStatus, message: &str, note: Option<String>) -> Ended {
+        Ended::Failed {
+            status,
+            message: message.to_string(),
+            note,
+        }
+    }
+}
+
+/// What runs when a call is allowed: a server tool, or one the engine runs itself.
+enum Callable {
+    Tool(Arc<dyn Tool>),
+    Delegate,
+    Plan,
+}
+
+impl Callable {
+    fn check(&self, args: &Value, agent: &AgentSpec) -> Result<Action, ToolError> {
+        match self {
+            Callable::Tool(tool) => tool.check(args),
+            Callable::Delegate => native::check_delegate(args, agent.delegate_targets()),
+            Callable::Plan => native::check_plan(args, agent.delegate_targets()),
+        }
+    }
+}
+
+/// A tool is offered when it is in the agent's map and something can run it.
+fn resolve(inner: &Inner, agent: &AgentSpec, name: ToolName) -> Option<Callable> {
+    if !agent.tools().contains_key(&name) {
+        return None;
+    }
+    match name {
+        ToolName::Delegate => Some(Callable::Delegate),
+        ToolName::Plan => Some(Callable::Plan),
+        ToolName::MemoryRead
+        | ToolName::MemorySearch
+        | ToolName::MemoryWrite
+        | ToolName::FileList
+        | ToolName::FileRead
+        | ToolName::FileWrite
+        | ToolName::InboxList
+        | ToolName::InboxRead
+        | ToolName::HttpFetch
+        | ToolName::CsvQuery
+        | ToolName::SendMessage => inner.tools.get(name).map(Callable::Tool),
+    }
+}
+
+/// The specs the model is shown: every tool in the agent's map that can run.
+pub(super) fn offered_specs(inner: &Inner, ctx: &RunCtx) -> Vec<ToolSpec> {
+    ctx.agent
+        .tools()
+        .keys()
+        .filter_map(|name| match resolve(inner, &ctx.agent, *name)? {
+            Callable::Tool(tool) => Some(tool.spec().clone()),
+            Callable::Delegate => Some(native::delegate_spec(
+                &ctx.task.teammates(ctx.agent.delegate_targets()),
+            )),
+            Callable::Plan => Some(native::plan_spec()),
+        })
+        .collect()
+}
+
 /// The output the model sees for this call. The only error is storage, which ends the run.
 pub(super) async fn execute(
-    inner: &Inner,
+    inner: &Arc<Inner>,
     ctx: &RunCtx,
     call: &FnCall,
 ) -> Result<String, StoreError> {
@@ -41,9 +113,8 @@ pub(super) async fn execute(
 
     let offered = serde_json::from_value::<ToolName>(Value::String(call.name.clone()))
         .ok()
-        .filter(|name| ctx.agent.tools().contains_key(name))
-        .and_then(|name| inner.tools.get(name).map(|tool| (name, tool)));
-    let Some((name, tool)) = offered else {
+        .and_then(|name| resolve(inner, &ctx.agent, name).map(|callable| (name, callable)));
+    let Some((name, callable)) = offered else {
         let message = format!("{} is not one of your tools", call.name);
         return refuse_early(
             inner,
@@ -58,7 +129,8 @@ pub(super) async fn execute(
     };
 
     let checked = parse_args(&call.arguments).and_then(|args| {
-        tool.check(&args)
+        callable
+            .check(&args, &ctx.agent)
             .map(|action| (args, action))
             .map_err(|e| e.to_string())
     });
@@ -98,7 +170,7 @@ pub(super) async fn execute(
     let ended = match decision {
         Decision::Deny => {
             let rule = reasons.first().map_or("agent_policy", Rule::kind);
-            failed(
+            Ended::failed(
                 CallStatus::Refused,
                 &format!("refused by rule {rule}; do not retry it"),
                 None,
@@ -106,19 +178,21 @@ pub(super) async fn execute(
         }
         Decision::Ask => match ask(inner, ctx, call_id, &action, &args, &reasons).await? {
             Waited::Answered(Answer::Approve { .. }) => {
-                run(inner, ctx, call_id, tool, args.clone()).await?
+                run(inner, ctx, call_id, callable, args.clone()).await?
             }
             Waited::Answered(Answer::Deny { note }) => {
-                failed(CallStatus::DeniedHuman, "a person denied this call", note)
+                Ended::failed(CallStatus::DeniedHuman, "a person denied this call", note)
             }
-            Waited::Expired => failed(
+            Waited::Expired => Ended::failed(
                 CallStatus::Expired,
                 "nobody answered the approval in time",
                 None,
             ),
-            Waited::Cancelled => failed(CallStatus::Cancelled, "the task was cancelled", None),
+            Waited::Cancelled => {
+                Ended::failed(CallStatus::Cancelled, "the task was cancelled", None)
+            }
         },
-        Decision::Allow => run(inner, ctx, call_id, tool, args.clone()).await?,
+        Decision::Allow => run(inner, ctx, call_id, callable, args.clone()).await?,
     };
 
     let refused_or_denied = matches!(
@@ -162,7 +236,7 @@ async fn refuse_early(
         reasons: vec![rule],
     };
     inner.emit(ctx.at, requested).await?;
-    let ended = failed(status, &message, None);
+    let ended = Ended::failed(status, &message, None);
     finish(inner, ctx, call_id, Instant::now(), &ended, None).await?;
     Ok(render(&ended))
 }
@@ -180,7 +254,7 @@ async fn ask(
     let expires_at =
         Utc::now() + chrono::Duration::from_std(timeout).unwrap_or(chrono::Duration::MAX);
     let custody = Custody {
-        agent_path: vec![ctx.agent.slug().clone()],
+        agent_path: ctx.agent_path.clone(),
         parent_task: ctx.task_text.clone(),
         rules: reasons.to_vec(),
         taint_sources: ctx.task.taint_sources(),
@@ -203,7 +277,7 @@ async fn ask(
 
     let waited = inner
         .approvals
-        .wait(approval_id, rx, timeout, &ctx.task.cancel_token())
+        .wait(approval_id, rx, timeout, &ctx.cancel)
         .await;
     let (outcome, note) = match &waited {
         Waited::Answered(Answer::Approve { note }) => (ApprovalOutcome::Approved, note.clone()),
@@ -211,35 +285,34 @@ async fn ask(
         Waited::Expired => (ApprovalOutcome::Expired, None),
         Waited::Cancelled => (ApprovalOutcome::Cancelled, None),
     };
-    inner
-        .emit(
-            ctx.at,
-            RunEvent::ApprovalResolved {
-                approval_id,
-                outcome,
-                note,
-            },
-        )
-        .await?;
+    let resolved = RunEvent::ApprovalResolved {
+        approval_id,
+        outcome,
+        note,
+    };
+    inner.emit(ctx.at, resolved).await?;
     Ok(waited)
 }
 
 /// Runs an approved or allowed call.
 async fn run(
-    inner: &Inner,
+    inner: &Arc<Inner>,
     ctx: &RunCtx,
     call_id: ToolCallId,
-    tool: Arc<dyn Tool>,
+    callable: Callable,
     args: Value,
 ) -> Result<Ended, StoreError> {
     inner
         .emit(ctx.at, RunEvent::ToolCallStarted { call_id })
         .await?;
-    Ok(invoke(ctx, tool, args).await)
+    match callable {
+        Callable::Tool(tool) => Ok(run_tool(ctx, tool, args).await),
+        Callable::Delegate => native::delegate(inner, ctx, args).await,
+        Callable::Plan => native::plan(inner, ctx, args).await,
+    }
 }
 
-/// The one place a call's work starts; a tool that is not a plain `Tool::run` branches here.
-async fn invoke(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
+async fn run_tool(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
     let tool_ctx = ToolCtx {
         run_id: ctx.at.run_id,
         root_run_id: ctx.at.root_run_id,
@@ -249,24 +322,23 @@ async fn invoke(ctx: &RunCtx, tool: Arc<dyn Tool>, args: Value) -> Ended {
     let timeout = tool.spec().timeout;
     let handle = tokio::spawn(async move { tool.run(&tool_ctx, args).await });
     let abort = handle.abort_handle();
-    let cancel = ctx.task.cancel_token();
 
     let joined = tokio::select! {
         joined = handle => joined,
         () = sleep_or_forever(timeout) => {
             // Dropping a JoinHandle only detaches the task; abort stops it.
             abort.abort();
-            return failed(CallStatus::Timeout, "the tool timed out", None);
+            return Ended::failed(CallStatus::Timeout, "the tool timed out", None);
         }
-        () = cancel.cancelled() => {
+        () = ctx.cancel.cancelled() => {
             abort.abort();
-            return failed(CallStatus::Cancelled, "the task was cancelled", None);
+            return Ended::failed(CallStatus::Cancelled, "the task was cancelled", None);
         }
     };
     match joined {
         Ok(Ok(output)) => Ended::Ok(output),
-        Ok(Err(error)) => failed(CallStatus::Failed, &error.to_string(), None),
-        Err(_) => failed(CallStatus::Internal, "the tool stopped unexpectedly", None),
+        Ok(Err(error)) => Ended::failed(CallStatus::Failed, &error.to_string(), None),
+        Err(_) => Ended::failed(CallStatus::Internal, "the tool stopped unexpectedly", None),
     }
 }
 
@@ -286,11 +358,12 @@ async fn finish(
     ended: &Ended,
     refused: Option<(ToolName, Value)>,
 ) -> Result<(), StoreError> {
-    let (status, result_preview) = match ended {
-        Ended::Ok(output) => (CallStatus::Ok, Some(preview(&output.content))),
+    let (status, result_preview, child_run_id) = match ended {
+        Ended::Ok(output) => (CallStatus::Ok, preview(&output.content.to_string()), None),
+        Ended::Child { run_id, output, .. } => (CallStatus::Ok, preview(output), Some(*run_id)),
         Ended::Failed {
             status, message, ..
-        } => (*status, Some(message.clone())),
+        } => (*status, message.clone(), None),
     };
     let (tool, args) = match refused {
         Some((tool, args)) => (Some(tool), Some(args)),
@@ -299,9 +372,9 @@ async fn finish(
     let finished = RunEvent::ToolCallFinished {
         call_id,
         status,
-        result_preview,
+        result_preview: Some(result_preview),
         duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        child_run_id: None,
+        child_run_id,
         tool,
         args,
     };
@@ -313,6 +386,15 @@ async fn finish(
 fn render(ended: &Ended) -> String {
     match ended {
         Ended::Ok(output) => json!({"ok": true, "result": output.content}).to_string(),
+        Ended::Child {
+            agent,
+            truncated,
+            output,
+            ..
+        } => {
+            let status = if *truncated { "truncated" } else { "completed" };
+            json!({"ok": true, "agent": agent, "status": status, "output": output}).to_string()
+        }
         Ended::Failed {
             status,
             message,
@@ -333,14 +415,6 @@ fn parse_args(raw: &str) -> Result<Value, String> {
     serde_json::from_str(raw).map_err(|error| format!("arguments are not valid JSON: {error}"))
 }
 
-fn preview(content: &Value) -> String {
-    content.to_string().chars().take(PREVIEW_CHARS).collect()
-}
-
-fn failed(status: CallStatus, message: &str, note: Option<String>) -> Ended {
-    Ended::Failed {
-        status,
-        message: message.to_string(),
-        note,
-    }
+fn preview(text: &str) -> String {
+    text.chars().take(PREVIEW_CHARS).collect()
 }

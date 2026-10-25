@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use tokio::sync::Semaphore;
 
-use crate::agents::Role;
+use crate::agents::{AgentSpec, Role};
 use crate::ids::{AgentId, ApprovalId, RunId};
 use crate::llm::LlmProvider;
 use crate::money::Micros;
@@ -17,6 +17,8 @@ use crate::tools::ToolSet;
 
 mod approvals;
 mod gateway;
+mod native;
+mod prompts;
 mod run;
 mod task;
 
@@ -35,6 +37,10 @@ pub struct Config {
     pub approval_timeout: Duration,
     /// Hosts fetchable without asking; each entry also covers its subdomains.
     pub allowlist: Vec<String>,
+    /// How many delegations deep a run may be; a root run is at depth 0.
+    pub max_depth: u32,
+    /// Runs one task may start, the root included.
+    pub max_runs: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -102,17 +108,25 @@ impl Engine {
         if task_text.is_empty() {
             return Err(StartError::EmptyTask);
         }
-        let team = self.inner.store.team().await?;
+        let team: Vec<Arc<AgentSpec>> = self
+            .inner
+            .store
+            .team()
+            .await?
+            .into_iter()
+            .map(Arc::new)
+            .collect();
         let agent = match request.agent_id {
             Some(id) => team
-                .into_iter()
+                .iter()
                 .find(|agent| agent.id() == id)
                 .ok_or(StartError::UnknownAgent)?,
             None => team
-                .into_iter()
+                .iter()
                 .find(|agent| agent.role() == Role::Lead)
                 .ok_or(StartError::NoLead)?,
         };
+        let agent = Arc::clone(agent);
 
         let root = RunId::new();
         let at = RunRef {
@@ -120,7 +134,7 @@ impl Engine {
             run_id: root,
         };
         let budget = request.budget.unwrap_or(self.inner.config.default_budget);
-        let task = Arc::new(Task::new(budget, self.inner.config.allowlist.clone()));
+        let task = Arc::new(Task::new(budget, self.inner.config.allowlist.clone(), team));
         self.inner
             .emit(
                 at,
@@ -137,12 +151,16 @@ impl Engine {
 
         let ctx = run::RunCtx {
             at,
-            agent: Arc::new(agent),
+            agent_path: vec![agent.slug().clone()],
+            agent,
             task_text,
             scenario: request.scenario,
             task: Arc::clone(&task),
+            depth: 0,
+            cancel: task.cancel_token(),
+            caller: None,
         };
-        let handle = tokio::spawn(run::run_agent(Arc::clone(&self.inner), ctx));
+        let handle = run::spawn_run(Arc::clone(&self.inner), ctx);
         let inner = Arc::clone(&self.inner);
         tokio::spawn(async move {
             if let Err(join_error) = handle.await {

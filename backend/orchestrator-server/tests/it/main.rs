@@ -10,7 +10,7 @@ pub use orchestrator_core::engine::Config;
 use orchestrator_core::engine::{Engine, StartRequest};
 use orchestrator_core::ids::AgentId;
 use orchestrator_core::ids::RunId;
-use orchestrator_core::llm::Model;
+use orchestrator_core::llm::{LlmProvider, Model};
 use orchestrator_core::money::Micros;
 use orchestrator_core::policy::Decision;
 use orchestrator_core::runs::RunEvent;
@@ -21,7 +21,9 @@ use orchestrator_server::sqlite::{SqliteStore, agents};
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
+mod delegate;
 mod gateway;
+mod recording;
 mod runs;
 mod tools;
 
@@ -44,6 +46,8 @@ pub fn test_config() -> Config {
         default_budget: Micros(500_000),
         approval_timeout: DEADLINE,
         allowlist: Vec::new(),
+        max_depth: 2,
+        max_runs: 12,
     }
 }
 
@@ -52,6 +56,16 @@ pub async fn app(pool: SqlitePool) -> App {
 }
 
 pub async fn app_with(pool: SqlitePool, config: Config) -> App {
+    app_with_llm(pool, config, Arc::new(ScriptedProvider::new())).await
+}
+
+/// Seeds a Lead that plans and delegates to `helper` and `helper2`, and the `worker`.
+pub async fn app_with_llm(pool: SqlitePool, config: Config, llm: Arc<dyn LlmProvider>) -> App {
+    for slug in ["helper", "helper2"] {
+        agents::create(&pool, helper(slug))
+            .await
+            .expect("seed helper");
+    }
     agents::create(&pool, lead()).await.expect("seed lead");
     let worker = agents::create(&pool, worker())
         .await
@@ -59,12 +73,7 @@ pub async fn app_with(pool: SqlitePool, config: Config) -> App {
         .spec
         .id();
     let store = Arc::new(SqliteStore::new(pool.clone()));
-    let engine = Arc::new(Engine::new(
-        store.clone(),
-        Arc::new(ScriptedProvider::new()),
-        tools::all(),
-        config,
-    ));
+    let engine = Arc::new(Engine::new(store.clone(), llm, tools::all(), config));
     App {
         pool,
         store,
@@ -84,8 +93,23 @@ fn lead() -> AgentInput {
         reasoning_effort: None,
         icon: "i".to_string(),
         colour: "c".to_string(),
-        tools: BTreeMap::new(),
+        tools: BTreeMap::from([
+            (ToolName::Delegate, Decision::Allow),
+            (ToolName::Plan, Decision::Allow),
+        ]),
+        delegate_targets: vec!["helper".to_string(), "helper2".to_string()],
+    }
+}
+
+fn helper(slug: &str) -> AgentInput {
+    AgentInput {
+        role: Role::Specialist,
+        slug: slug.to_string(),
+        name: slug.to_string(),
+        description: format!("{slug} answers questions"),
+        tools: BTreeMap::from([(ToolName::MemoryRead, Decision::Allow)]),
         delegate_targets: vec![],
+        ..lead()
     }
 }
 
@@ -103,6 +127,7 @@ fn worker() -> AgentInput {
         slug: "worker".to_string(),
         description: "uses every test tool".to_string(),
         tools,
+        delegate_targets: vec![],
         ..lead()
     }
 }
@@ -134,6 +159,29 @@ pub async fn events_until_finished(
         let finished = matches!(envelope.event, RunEvent::RunFinished { .. });
         events.push(envelope.event);
         if finished {
+            return events;
+        }
+    }
+}
+
+/// Every event of one task (all its runs), up to and including the root's `run_finished`.
+pub async fn task_events(
+    rx: &mut broadcast::Receiver<EventEnvelope>,
+    root: RunId,
+) -> Vec<EventEnvelope> {
+    let mut events = Vec::new();
+    loop {
+        let envelope = tokio::time::timeout(DEADLINE, rx.recv())
+            .await
+            .expect("task finished before the deadline")
+            .expect("broadcast open");
+        if envelope.root_run_id != root {
+            continue;
+        }
+        let root_finished =
+            envelope.run_id == root && matches!(envelope.event, RunEvent::RunFinished { .. });
+        events.push(envelope);
+        if root_finished {
             return events;
         }
     }

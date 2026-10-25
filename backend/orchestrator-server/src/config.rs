@@ -21,5 +21,7 @@ pub fn engine_config() -> orchestrator_core::engine::Config {
         default_budget: Micros(500_000),
         approval_timeout: Duration::from_secs(300),
         allowlist: Vec::new(),
+        max_depth: 2,
+        max_runs: 12,
     }
 }

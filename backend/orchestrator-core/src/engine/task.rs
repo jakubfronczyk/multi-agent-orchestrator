@@ -1,10 +1,11 @@
 //! Live state of one task, shared by every run in it. Only `apply` changes it, and only
 //! after the event that justifies the change has been committed.
 
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use tokio_util::sync::CancellationToken;
 
+use crate::agents::{AgentSpec, Slug};
 use crate::money::Micros;
 use crate::policy::{Decision, Effect, Facts, TaintSource};
 use crate::runs::RunEvent;
@@ -14,6 +15,8 @@ pub struct Task {
     budget: Micros,
     /// Copied from the config at start; fixed for the task's life.
     allowlist: Vec<String>,
+    /// The team as it was when the task started; edits during the task do not reach it.
+    team: Vec<Arc<AgentSpec>>,
     cancel: CancellationToken,
     /// A std mutex: it is never held across an await.
     state: Mutex<TaskState>,
@@ -23,19 +26,48 @@ struct TaskState {
     spent: Micros,
     /// Every source in read order; nothing removes one.
     taint: Vec<TaintSource>,
+    /// Runs started in this task, the root included.
+    runs_started: u32,
 }
 
 impl Task {
-    pub fn new(budget: Micros, allowlist: Vec<String>) -> Self {
+    pub fn new(budget: Micros, allowlist: Vec<String>, team: Vec<Arc<AgentSpec>>) -> Self {
         Self {
             budget,
             allowlist,
+            team,
             cancel: CancellationToken::new(),
             state: Mutex::new(TaskState {
                 spent: Micros(0),
                 taint: Vec::new(),
+                runs_started: 1,
             }),
         }
+    }
+
+    pub fn teammate(&self, slug: &str) -> Option<Arc<AgentSpec>> {
+        self.team
+            .iter()
+            .find(|agent| agent.slug().as_str() == slug)
+            .cloned()
+    }
+
+    pub fn teammates(&self, slugs: &[Slug]) -> Vec<Arc<AgentSpec>> {
+        slugs
+            .iter()
+            .filter_map(|slug| self.teammate(slug.as_str()))
+            .collect()
+    }
+
+    /// Checks and counts a new run in one locked step, so parallel delegations cannot both
+    /// take the last slot. The one state change that does not go through `apply`.
+    pub fn try_start_run(&self, limit: u32) -> bool {
+        let mut state = self.lock();
+        if state.runs_started >= limit {
+            return false;
+        }
+        state.runs_started += 1;
+        true
     }
 
     /// The taint is cloned under the lock, so no lock is held while deciding.

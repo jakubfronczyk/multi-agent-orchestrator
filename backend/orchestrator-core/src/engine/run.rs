@@ -4,26 +4,45 @@
 use std::sync::Arc;
 
 use futures_util::{StreamExt, stream};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
-use crate::agents::AgentSpec;
+use crate::agents::{AgentSpec, Slug};
 use crate::llm::{CompletionRequest, CompletionResponse, Item, LlmError, ScriptKey, ToolChoice};
 use crate::runs::{FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, StoreError};
-use crate::tools::ToolSpec;
 
-use super::{Inner, Task, gateway};
+use super::{Inner, Task, gateway, prompts};
 
 const MAX_PARALLEL_CALLS: usize = 4;
 
 pub(super) struct RunCtx {
     pub at: RunRef,
     pub agent: Arc<AgentSpec>,
+    /// The task text this run was given: the user's for a root, the caller's for a child.
     pub task_text: String,
     pub scenario: Option<String>,
     pub task: Arc<Task>,
+    /// 0 for a root run, one more for each delegation.
+    pub depth: u32,
+    /// The task's token for a root, a child of the caller's for a delegated run.
+    pub cancel: CancellationToken,
+    /// The calling agent's name; `None` for a root run.
+    pub caller: Option<String>,
+    /// Slugs from the root agent to this one, for custody.
+    pub agent_path: Vec<Slug>,
 }
 
-pub(super) async fn run_agent(inner: Arc<Inner>, ctx: RunCtx) {
+/// Every run is its own spawned task. The future is boxed because a run can start a child
+/// run, and a future type cannot contain itself.
+pub(super) fn spawn_run(inner: Arc<Inner>, ctx: RunCtx) -> JoinHandle<RunOutcome> {
+    let run: std::pin::Pin<Box<dyn Future<Output = RunOutcome> + Send>> =
+        Box::pin(run_agent(inner, ctx));
+    tokio::spawn(run)
+}
+
+/// Emits the run's one `run_finished` and returns the outcome it recorded.
+async fn run_agent(inner: Arc<Inner>, ctx: RunCtx) -> RunOutcome {
     let outcome = match run_loop(&inner, &ctx).await {
         Ok(outcome) => outcome,
         Err(error) => {
@@ -31,32 +50,31 @@ pub(super) async fn run_agent(inner: Arc<Inner>, ctx: RunCtx) {
             failed(FailReason::Internal, "storage failed during the run")
         }
     };
-    if let Err(error) = inner.emit(ctx.at, RunEvent::RunFinished { outcome }).await {
+    let finished = RunEvent::RunFinished {
+        outcome: outcome.clone(),
+    };
+    if let Err(error) = inner.emit(ctx.at, finished).await {
         tracing::error!(%error, run_id = ?ctx.at.run_id, "could not record the run's end");
     }
+    outcome
 }
 
-async fn run_loop(inner: &Inner, ctx: &RunCtx) -> Result<RunOutcome, StoreError> {
-    let cancel = ctx.task.cancel_token();
+async fn run_loop(inner: &Arc<Inner>, ctx: &RunCtx) -> Result<RunOutcome, StoreError> {
     let mut transcript = vec![Item::User {
         text: ctx.task_text.clone(),
     }];
-    let offered: Vec<ToolSpec> = ctx
-        .agent
-        .tools()
-        .keys()
-        .filter_map(|name| inner.tools.get(*name).map(|tool| tool.spec().clone()))
-        .collect();
+    let offered = gateway::offered_specs(inner, ctx);
+    let instructions = prompts::instructions(&ctx.agent, ctx.caller.as_deref());
     let mut step = 0;
     loop {
         if ctx.task.spent() >= ctx.task.budget() {
-            cancel.cancel();
+            ctx.task.cancel_token().cancel();
             return Ok(failed(
                 FailReason::BudgetExceeded,
                 "the task's budget is spent",
             ));
         }
-        if cancel.is_cancelled() {
+        if ctx.cancel.is_cancelled() {
             return Ok(RunOutcome::Cancelled);
         }
         let last = step >= ctx.agent.max_steps();
@@ -65,7 +83,7 @@ async fn run_loop(inner: &Inner, ctx: &RunCtx) -> Result<RunOutcome, StoreError>
         let request = CompletionRequest {
             model: ctx.agent.model(),
             reasoning_effort: ctx.agent.reasoning_effort(),
-            instructions: ctx.agent.system_prompt().to_string(),
+            instructions: instructions.clone(),
             transcript: transcript.clone(),
             tools: offered.clone(),
             tool_choice: if last {
@@ -140,7 +158,7 @@ async fn complete_with_retries(
     step: u32,
     request: CompletionRequest,
 ) -> Result<Attempt, StoreError> {
-    let cancel = ctx.task.cancel_token();
+    let cancel = &ctx.cancel;
     let mut delays = inner.config.retry_backoff.iter();
     let mut attempt = 0;
     loop {

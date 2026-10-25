@@ -46,6 +46,7 @@ impl LlmProvider for ScriptedProvider {
         let script = &request.script;
         match reply(
             script.scenario.as_deref(),
+            script.agent.as_str(),
             script.step,
             attempt,
             request.tool_choice,
