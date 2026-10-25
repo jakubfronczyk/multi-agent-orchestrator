@@ -17,7 +17,8 @@ parent_call_id: ToolCallId | null, agent_id: AgentId,
  */
 agent_version: number | null, title: string | null, 
 /**
- * Plain text, never the model's wrapped form.
+ * Plain text, never the model's wrapped form. A delegated run's is the exact message the
+ * child received: `Task: …`, then `Context: …` and `Expected output: …` when given.
  */
 task: string, 
 /**

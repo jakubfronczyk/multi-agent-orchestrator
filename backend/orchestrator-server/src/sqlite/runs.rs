@@ -60,7 +60,8 @@ pub struct RunView {
     /// The agent's config version this run used; `None` for runs recorded before it existed.
     pub agent_version: Option<i64>,
     pub title: Option<String>,
-    /// Plain text, never the model's wrapped form.
+    /// Plain text, never the model's wrapped form. A delegated run's is the exact message the
+    /// child received: `Task: …`, then `Context: …` and `Expected output: …` when given.
     pub task: String,
     /// The taint the task carried when this run was delegated; empty when clean.
     pub task_sources: Vec<TaintSource>,

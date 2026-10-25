@@ -8,7 +8,7 @@ import type { TaintSource } from "./TaintSource";
  */
 export type Custody = { agent_path: Array<Slug>, 
 /**
- * The calling run's task as plain text.
+ * The calling run's task as plain text, in the form `RunStarted.task` describes.
  */
 parent_task: string, 
 /**

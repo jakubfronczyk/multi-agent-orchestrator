@@ -31,6 +31,7 @@ pub fn instructions(agent: &AgentSpec, caller: Option<&str>, draft_only: bool) -
 }
 
 /// The one user message a child receives; it sees nothing else of the caller's conversation.
+/// The format is part of the API: `RunView.task` documents it for clients.
 pub fn child_message(task: &str, context: Option<&str>, expected_output: Option<&str>) -> String {
     let mut message = format!("Task: {task}");
     if let Some(context) = context {

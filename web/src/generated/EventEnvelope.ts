@@ -25,6 +25,8 @@ export type EventEnvelope = { id: EventId, root_run_id: RunId, run_id: RunId, ts
 parent_call_id: ToolCallId | null, 
 /**
  * Plain text; when `task_sources` is set the model receives it wrapped as data.
+ * A delegated run's is the exact message the child received: `Task: …`, then
+ * `Context: …` and `Expected output: …` when given.
  */
 task: string, 
 /**
