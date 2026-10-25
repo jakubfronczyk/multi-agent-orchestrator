@@ -174,6 +174,19 @@ async fn a_symlinked_uploads_directory_is_refused(pool: SqlitePool) {
     assert!(!outside.workspace().join("notes.md").exists());
 }
 
+#[sqlx::test]
+async fn an_upload_the_disk_refuses_is_a_server_error(pool: SqlitePool) {
+    use std::os::unix::fs::PermissionsExt;
+    let served = served(pool).await;
+    let uploads = served.temp.workspace().join("uploads");
+    std::fs::create_dir_all(&uploads).expect("dir");
+    std::fs::set_permissions(&uploads, std::fs::Permissions::from_mode(0o555)).expect("chmod");
+    let (status, json) = upload(&served.base, body("file", "notes.md", b"x")).await;
+    std::fs::set_permissions(&uploads, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    assert_eq!(status, 500, "{json}");
+    assert_eq!(json["error"]["code"], "internal");
+}
+
 /// An upload at the cap is stored and read back whole through the file tools' reader.
 #[sqlx::test]
 async fn an_upload_at_the_cap_is_readable(pool: SqlitePool) {

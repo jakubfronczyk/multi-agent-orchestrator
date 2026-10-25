@@ -62,10 +62,10 @@ pub async fn view(
 ) -> Result<Json<FileView>, ApiError> {
     let path = query.path.unwrap_or_else(|| ".".to_string());
     let workspace = &state.workspace;
-    let view = match workspace.kind_of(&path).await.map_err(tool_error)? {
+    let view = match workspace.kind_of(&path).await.map_err(path_error)? {
         None => return Err(ApiError::not_found()),
         Some(EntryKind::Dir) => {
-            let entries = workspace.list(&path).await.map_err(tool_error)?;
+            let entries = workspace.list(&path).await.map_err(path_error)?;
             FileView::Dir {
                 path,
                 entries: entries
@@ -87,7 +87,7 @@ pub async fn view(
         }
         Some(EntryKind::File | EntryKind::Symlink) => {
             let (content, trust, written_by_root_run_id) =
-                workspace.read(&path).await.map_err(tool_error)?;
+                workspace.read(&path).await.map_err(path_error)?;
             FileView::File {
                 path,
                 content,
@@ -110,7 +110,7 @@ pub struct UploadResponse {
 }
 
 /// 201 with the stored path. 422 for a missing field or a bad name, 409 when the name is taken,
-/// 413 over 256 KB, 415 for anything but UTF-8 .csv, .md, .txt or .json.
+/// 413 over 256 KB, 415 for anything but UTF-8 .csv, .md, .txt or .json, 500 when the disk fails.
 pub async fn upload(
     State(state): State<AppState>,
     mut multipart: Multipart,
@@ -122,7 +122,8 @@ pub async fn upload(
         .filter(|field| field.name() == Some(UPLOAD_FIELD))
         .ok_or_else(|| ApiError::invalid(UPLOAD_FIELD, "send one field named file"))?;
     let name = field.file_name().unwrap_or_default().to_string();
-    crate::tools::files::check_upload_name(&name).map_err(tool_error_on_file)?;
+    crate::tools::files::check_upload_name(&name)
+        .map_err(|error| tool_error(UPLOAD_FIELD, error))?;
     let extension = name
         .rsplit_once('.')
         .map(|(_, extension)| extension.to_ascii_lowercase());
@@ -154,7 +155,11 @@ pub async fn upload(
         .await
         .map_err(|error| match error {
             UploadError::Exists => ApiError::conflict("a file with this name was already uploaded"),
-            UploadError::Tool(error) => tool_error_on_file(error),
+            UploadError::Tool(ToolError::Failed(message)) => {
+                tracing::error!(%message, "upload could not be written");
+                ApiError::internal()
+            }
+            UploadError::Tool(error) => tool_error(UPLOAD_FIELD, error),
         })?;
     let response = UploadResponse {
         path,
@@ -191,26 +196,20 @@ fn multipart_error(error: MultipartError) -> ApiError {
     }
 }
 
-/// Upload path errors name the `file` field; infrastructure failures stay 500.
-fn tool_error_on_file(error: ToolError) -> ApiError {
-    match error {
-        ToolError::InvalidArgs(message) | ToolError::Failed(message) => {
-            let message = message
-                .strip_prefix("file: ")
-                .or_else(|| message.strip_prefix("path: "))
-                .unwrap_or(&message);
-            ApiError::invalid(UPLOAD_FIELD, message)
-        }
-        ToolError::Internal(_) => ApiError::internal(),
-    }
+fn path_error(error: ToolError) -> ApiError {
+    tool_error("path", error)
 }
 
 /// Tool messages name the path or the limit, never file contents, so they are safe to return.
-/// An infrastructure failure is the server's fault, so it is a 500, never a path error.
-fn tool_error(error: ToolError) -> ApiError {
+/// An infrastructure failure is the server's fault, so it is a 500, never a field error.
+fn tool_error(field: &str, error: ToolError) -> ApiError {
     match error {
         ToolError::InvalidArgs(message) | ToolError::Failed(message) => {
-            ApiError::invalid("path", message.strip_prefix("path: ").unwrap_or(&message))
+            let message = message
+                .strip_prefix(&format!("{field}: "))
+                .or_else(|| message.strip_prefix("path: "))
+                .unwrap_or(&message);
+            ApiError::invalid(field, message)
         }
         ToolError::Internal(_) => ApiError::internal(),
     }
@@ -224,15 +223,15 @@ mod tests {
 
     #[test]
     fn only_request_errors_are_path_errors() {
-        let invalid = tool_error(ToolError::InvalidArgs(
+        let invalid = path_error(ToolError::InvalidArgs(
             "path: .. is not allowed".to_string(),
         ));
         assert_eq!(invalid.status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(invalid.detail.message, ".. is not allowed");
         assert_eq!(invalid.detail.field.as_deref(), Some("path"));
-        let failed = tool_error(ToolError::Failed("a.md is larger than 256 KB".to_string()));
+        let failed = path_error(ToolError::Failed("a.md is larger than 256 KB".to_string()));
         assert_eq!(failed.status, StatusCode::UNPROCESSABLE_ENTITY);
-        let internal = tool_error(ToolError::Internal("storage failed".to_string()));
+        let internal = path_error(ToolError::Internal("storage failed".to_string()));
         assert_eq!(internal.status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(internal.detail.field, None);
     }
