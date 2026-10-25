@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE runs SET taint_sources = json_insert(COALESCE(taint_sources, '[]'), '$[#]', json(?))\n                     WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "74d6b91419a1602fb21bd0d54f1322b5fe2d11232adbe2dff82e2382f4afc63f"
+}

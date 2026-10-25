@@ -38,9 +38,8 @@ CREATE TABLE runs (
     agent_id      TEXT NOT NULL REFERENCES agents (id),
     title         TEXT,
     task          TEXT NOT NULL,                -- the task text
-    status        TEXT NOT NULL,                -- running | completed | failed | cancelled | interrupted
+    status        TEXT NOT NULL,                -- RunStatus
     outcome       TEXT,                         -- JSON RunOutcome once finished
-    budget_micros INTEGER,                      -- root run only
     taint_sources TEXT,                         -- JSON, root run only
     started_at    TEXT NOT NULL,
     finished_at   TEXT
@@ -79,7 +78,8 @@ CREATE TABLE tool_calls (
     action         TEXT,                        -- JSON Action; null when check() failed
     decision       TEXT,                        -- null when not offered or invalid
     rules          TEXT NOT NULL DEFAULT '[]',  -- JSON Vec<Rule>
-    status         TEXT NOT NULL,
+    phase          TEXT NOT NULL,               -- CallPhase
+    status         TEXT,                        -- CallStatus once finished
     result_preview TEXT,
     child_run_id   TEXT REFERENCES runs (id),
     duration_ms    INTEGER,
@@ -95,7 +95,7 @@ CREATE TABLE warrants (
     tool_call_id TEXT NOT NULL UNIQUE REFERENCES tool_calls (id),
     custody      TEXT NOT NULL,                 -- JSON Custody
     preview      TEXT NOT NULL,
-    status       TEXT NOT NULL,                 -- pending | approved | denied | expired | cancelled
+    status       TEXT NOT NULL,                 -- WarrantStatus
     note         TEXT,
     expires_at   TEXT NOT NULL,
     created_at   TEXT NOT NULL,

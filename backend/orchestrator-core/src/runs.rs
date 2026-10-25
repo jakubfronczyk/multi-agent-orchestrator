@@ -21,6 +21,8 @@ pub enum RunEvent {
         parent_run_id: Option<RunId>,
         task: String,
         title: Option<String>,
+        /// Set on the root run only.
+        budget: Option<Micros>,
     },
     PlanRecorded {
         steps: Vec<PlanStep>,
@@ -99,6 +101,63 @@ pub struct Custody {
     pub parent_task: String,
     pub rules: Vec<Rule>,
     pub taint_sources: Vec<TaintSource>,
+}
+
+/// A run's lifecycle state; every terminal state comes from its `RunOutcome`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RunStatus {
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+    Interrupted,
+}
+
+impl From<&RunOutcome> for RunStatus {
+    fn from(outcome: &RunOutcome) -> Self {
+        match outcome {
+            RunOutcome::Completed { .. } => RunStatus::Completed,
+            RunOutcome::Failed { .. } => RunStatus::Failed,
+            RunOutcome::Cancelled => RunStatus::Cancelled,
+            RunOutcome::Interrupted => RunStatus::Interrupted,
+        }
+    }
+}
+
+/// Where a call is in its lifecycle; once `Finished`, its `CallStatus` says how it ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum CallPhase {
+    Requested,
+    Waiting,
+    Running,
+    Finished,
+}
+
+/// A warrant's state: pending until a `WarrantOutcome` resolves it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum WarrantStatus {
+    Pending,
+    Approved,
+    Denied,
+    Expired,
+    Cancelled,
+}
+
+impl From<WarrantOutcome> for WarrantStatus {
+    fn from(outcome: WarrantOutcome) -> Self {
+        match outcome {
+            WarrantOutcome::Approved => WarrantStatus::Approved,
+            WarrantOutcome::Denied => WarrantStatus::Denied,
+            WarrantOutcome::Expired => WarrantStatus::Expired,
+            WarrantOutcome::Cancelled => WarrantStatus::Cancelled,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

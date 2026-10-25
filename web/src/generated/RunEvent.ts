@@ -17,7 +17,11 @@ import type { WarrantId } from "./WarrantId";
 import type { WarrantOutcome } from "./WarrantOutcome";
 import type { JsonValue } from "./serde_json/JsonValue";
 
-export type RunEvent = { "type": "run_started", "data": { agent_id: AgentId, parent_run_id: RunId | null, task: string, title: string | null, } } | { "type": "plan_recorded", "data": { steps: Array<PlanStep>, } } | { "type": "llm_requested", "data": { step: number, } } | { "type": "llm_responded", "data": { step: number, text: string | null, usage: Usage, cost: Micros, } } | { "type": "llm_retrying", "data": { step: number, attempt: number, message: string, } } | { "type": "tool_call_requested", "data": { call_id: ToolCallId, 
+export type RunEvent = { "type": "run_started", "data": { agent_id: AgentId, parent_run_id: RunId | null, task: string, title: string | null, 
+/**
+ * Set on the root run only.
+ */
+budget: Micros | null, } } | { "type": "plan_recorded", "data": { steps: Array<PlanStep>, } } | { "type": "llm_requested", "data": { step: number, } } | { "type": "llm_responded", "data": { step: number, text: string | null, usage: Usage, cost: Micros, } } | { "type": "llm_retrying", "data": { step: number, attempt: number, message: string, } } | { "type": "tool_call_requested", "data": { call_id: ToolCallId, 
 /**
  * The name as the model sent it; it may not be a real tool.
  */

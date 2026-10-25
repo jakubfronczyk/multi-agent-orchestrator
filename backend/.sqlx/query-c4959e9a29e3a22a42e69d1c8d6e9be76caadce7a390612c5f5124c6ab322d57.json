@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE tool_calls SET phase = ?, status = ?, result_preview = ?, duration_ms = ?, child_run_id = ?,\n                     finished_at = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "c4959e9a29e3a22a42e69d1c8d6e9be76caadce7a390612c5f5124c6ab322d57"
+}

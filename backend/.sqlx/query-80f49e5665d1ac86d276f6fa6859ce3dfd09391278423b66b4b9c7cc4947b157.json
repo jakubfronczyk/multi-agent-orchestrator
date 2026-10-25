@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO run_events (root_run_id, run_id, ts, type, data) VALUES (?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "80f49e5665d1ac86d276f6fa6859ce3dfd09391278423b66b4b9c7cc4947b157"
+}

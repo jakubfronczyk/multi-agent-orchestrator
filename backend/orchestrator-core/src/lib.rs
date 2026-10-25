@@ -7,4 +7,5 @@ pub mod llm;
 pub mod money;
 pub mod policy;
 pub mod runs;
+pub mod store;
 pub mod tools;

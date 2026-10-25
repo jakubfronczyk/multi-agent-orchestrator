@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO warrants (id, tool_call_id, custody, preview, status, expires_at, created_at)\n                     VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "dce39a9f778e35a30883f9a43c573e8af27928bfe83f2dd198ecd1c5556598f4"
+}

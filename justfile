@@ -33,6 +33,13 @@ ci:
     DATABASE_URL={{db}} cargo sqlx database reset -y --source {{migrations}}
     DATABASE_URL={{db}} cargo sqlx prepare --check --workspace -- --all-targets
 
+# regenerate the offline query cache after any SQL change
+[working-directory('backend')]
+prepare:
+    mkdir -p var
+    DATABASE_URL={{db}} cargo sqlx database reset -y --source {{migrations}}
+    DATABASE_URL={{db}} cargo sqlx prepare --workspace -- --all-targets
+
 # licenses and advisories; needs network, run at checkpoints
 [working-directory('backend')]
 deny:
