@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { ArrowUp, ChevronDown, Eye, Paperclip, Shield, Square, X } from "lucide-react"
 import { cn } from "cn"
 import { uploadFile } from "@/api/files"
@@ -79,6 +80,7 @@ export function Composer({
   const [attachError, setAttachError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const client = useQueryClient()
   const canSend = !disabled && !sending && !uploading && value.trim().length > 0
 
   const submit = async () => {
@@ -98,6 +100,8 @@ export function Composer({
     try {
       const uploaded = await uploadFile(file)
       setAttachments((current) => [...current, uploaded])
+      // The upload is now in the workspace under uploads/.
+      void client.invalidateQueries({ queryKey: ["files"] })
     } catch (error) {
       setAttachError(uploadError(error))
     } finally {

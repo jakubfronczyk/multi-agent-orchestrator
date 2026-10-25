@@ -1,5 +1,6 @@
 import { createBrowserRouter } from "react-router"
 import { AppShell } from "./app-shell"
+import { FilesPage } from "@/pages/files"
 import { HomePage } from "@/pages/home"
 import { NeedsPage } from "@/pages/needs"
 import { NotesPage } from "@/pages/notes"
@@ -18,7 +19,7 @@ export const router = createBrowserRouter([
       { path: "/tasks/:rootId", element: <TaskThreadPage /> },
       { path: "/team", element: <TeamPage /> },
       { path: "/notes", element: <NotesPage /> },
-      { path: "/files", element: <Placeholder title="Files" issue="09" /> },
+      { path: "/files", element: <FilesPage /> },
       { path: "/sent", element: <Placeholder title="Sent messages" issue="10" /> },
       { path: "/activity", element: <Placeholder title="Activity" issue="11" /> },
       { path: "/drill", element: <Placeholder title="Security drill" issue="12" /> },

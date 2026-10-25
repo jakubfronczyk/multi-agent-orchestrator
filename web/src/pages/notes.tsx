@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useSearchParams } from "react-router"
 import { memoryQuery, memoryVersionsQuery } from "@/api/memory"
@@ -7,7 +7,7 @@ import { AgentShape } from "@/components/agent-shape"
 import { FilterPills } from "@/components/filter-pills"
 import { Page } from "@/components/page"
 import { TrustPill } from "@/components/trust-pill"
-import { useInvalidateOn } from "@/events/use-invalidate-on"
+import { useInvalidateOnToolFinished } from "@/events/use-invalidate-on-tool"
 import type { MemoryEntryView } from "@/generated/MemoryEntryView"
 import type { MemoryScope } from "@/generated/MemoryScope"
 import { useAgents } from "@/lib/agents"
@@ -27,15 +27,8 @@ export function NotesPage() {
   const filter: Filter = raw === "shared" || raw === "private" ? raw : "all"
   const notes = useQuery(memoryQuery(filter === "all" ? {} : { scope: filter }))
 
-  // `tool_call_finished` names no tool for a successful call, so the ids of `memory_write`
-  // requests are remembered to recognise when one of them lands.
-  const writes = useRef(new Set<string>())
-  const isWrite = (event: Parameters<Parameters<typeof useInvalidateOn>[1]>[0]) => {
-    if (event.type === "tool_call_requested" && event.data.tool === "memory_write") writes.current.add(event.data.call_id)
-    return event.type === "tool_call_finished" && writes.current.has(event.data.call_id)
-  }
-  useInvalidateOn(["memory"], isWrite)
-  useInvalidateOn(["memory-versions"], (event) => event.type === "tool_call_finished" && writes.current.has(event.data.call_id))
+  useInvalidateOnToolFinished(["memory"], "memory_write")
+  useInvalidateOnToolFinished(["memory-versions"], "memory_write")
 
   const entries = notes.data?.entries ?? []
   return (
