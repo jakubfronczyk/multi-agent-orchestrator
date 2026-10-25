@@ -26,6 +26,7 @@ tokio-util = "0.7"
 tower-http = { version = "0.7", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 ts-rs = { version = "12", features = ["uuid-impl", "chrono-impl", "serde-json-impl", "no-serde-warnings"] }
 uuid = { version = "1", features = ["v7", "serde"] }

@@ -11,6 +11,7 @@ use serde_json::Value;
 
 use crate::sqlite::text::from_text;
 
+pub mod fetch;
 pub mod files;
 pub mod memory;
 pub mod messages;

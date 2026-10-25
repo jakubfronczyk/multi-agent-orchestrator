@@ -22,6 +22,7 @@ use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
 mod delegate;
+mod fetch;
 mod files;
 mod gateway;
 mod memory;
