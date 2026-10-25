@@ -8,3 +8,4 @@ Every state change in a task is an append-only event. The runs, tool calls and a
 - Totals that only events carry, such as cost, are summed from events instead of kept in their own table.
 - Writes outside a task (agent edits, notes, files, the outbox) stay plain table writes.
 - Two in-memory changes happen before their event: `claim_taint` and `try_start_run`, each a check and update in one locked step so parallel calls cannot race. If the event then fails, the task is left stricter (tainted, or one run slot used), never looser.
+- A turn is registered as live just before its `run_started` commits, so a client that saw the event can always cancel it; the entry is removed if the event fails.

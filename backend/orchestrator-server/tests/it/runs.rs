@@ -8,6 +8,23 @@ use std::time::Duration;
 
 use crate::{DEADLINE, app, app_with, events_until_finished, request, test_config, wait_for};
 
+/// A client that sees `run_started` can cancel the turn at once: it is live before the event.
+#[sqlx::test]
+async fn a_turn_is_cancellable_as_soon_as_its_start_is_seen(pool: SqlitePool) {
+    let app = app(pool).await;
+    let mut rx = app.store.subscribe();
+    let engine = std::sync::Arc::clone(&app.engine);
+    let canceller = tokio::spawn(async move {
+        let root = wait_for(&mut rx, |e| {
+            matches!(e.event, RunEvent::RunStarted { .. }).then_some(e.root_run_id)
+        })
+        .await;
+        engine.cancel(root)
+    });
+    app.engine.start(request("test:hang")).await.expect("start");
+    assert!(canceller.await.expect("join"), "the started turn was live");
+}
+
 #[sqlx::test]
 async fn post_runs_streams_the_run_over_sse(pool: SqlitePool) {
     let app = app(pool).await;
