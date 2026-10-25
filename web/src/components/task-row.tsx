@@ -65,9 +65,10 @@ export function TaskRow({ run, teamName }: { run: RunSummary; teamName?: string 
         })}
       </span>
       <span className="row-span-2 min-w-0">
-        <b className="block truncate text-base font-medium">
-          {run.title ?? run.task} <TeamTag name={teamName} />
-        </b>
+        <span className="flex min-w-0 items-center gap-2">
+          <b className="min-w-0 truncate text-base font-medium">{run.title ?? run.task}</b>
+          <TeamTag name={teamName} />
+        </span>
         {subtitle(run) && <small className="block truncate text-sm text-muted-foreground">{subtitle(run)}</small>}
       </span>
       <span className={cn("justify-self-end text-sm whitespace-nowrap", TONE_CLASS[status.tone])}>{status.text}</span>

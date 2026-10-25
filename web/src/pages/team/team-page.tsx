@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router"
 import { agentsQuery } from "@/api/agents"
@@ -66,6 +66,12 @@ function TeamHeader({ team }: { team: TeamView }) {
   const [mode, setMode] = useState<"view" | "rename" | "delete">("view")
   const [name, setName] = useState(team.name)
   const [error, setError] = useState<string | null>(null)
+  const renameButton = useRef<HTMLButtonElement>(null)
+  // The form unmounts on save or cancel; focus goes back to the button that opened it.
+  const closeForm = () => {
+    setMode("view")
+    requestAnimationFrame(() => renameButton.current?.focus())
+  }
   const refresh = async () => {
     await client.invalidateQueries({ queryKey: ["teams"] })
     await client.invalidateQueries({ queryKey: ["agents"] })
@@ -74,7 +80,7 @@ function TeamHeader({ team }: { team: TeamView }) {
     mutationFn: () => renameTeam(team.id, { name }),
     onSuccess: async () => {
       await refresh()
-      setMode("view")
+      closeForm()
     },
     onError: (failure) => setError(isApiError(failure, 422) ? failure.message : `Couldn't rename it. ${failure.message}`),
   })
@@ -116,7 +122,7 @@ function TeamHeader({ team }: { team: TeamView }) {
           <Button type="submit" size="sm" disabled={!name.trim() || rename.isPending}>
             Save name
           </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={() => setMode("view")}>
+          <Button type="button" size="sm" variant="ghost" onClick={closeForm}>
             Cancel
           </Button>
         </form>
@@ -128,6 +134,7 @@ function TeamHeader({ team }: { team: TeamView }) {
           </span>
           <span className="ml-auto flex gap-1">
             <Button
+              ref={renameButton}
               size="sm"
               variant="ghost"
               onClick={() => {
@@ -141,6 +148,7 @@ function TeamHeader({ team }: { team: TeamView }) {
             <Button
               size="sm"
               variant="ghost"
+              className="text-destructive"
               onClick={() => {
                 setError(null)
                 setMode("delete")

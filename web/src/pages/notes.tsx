@@ -29,9 +29,11 @@ export function NotesPage() {
   const notes = useQuery(memoryQuery(filter === "all" ? {} : { scope: filter }))
   const { team: selected } = useSelectedTeam()
   const names = useTeamNames()
-  // `?team=` opens a deleted team's notes from the switcher, read-only.
-  const teamId = params.get("team") ?? selected?.id
+  // `?deleted=` opens a deleted team's notes from the switcher, read-only.
+  const deleted = params.get("deleted")
+  const teamId = deleted ?? selected?.id
   const teamName = teamId ? names.nameOf(teamId) : undefined
+  const unknown = deleted !== null && names.teams.length > 0 && teamName === undefined
 
   useInvalidateOnToolFinished(["memory"], "memory_write")
   useInvalidateOnToolFinished(["memory-versions"], "memory_write")
@@ -40,7 +42,7 @@ export function NotesPage() {
   return (
     <Page
       title="Team notes"
-      lede={`Notes ${teamName ?? "your team"} keeps between tasks. Every teammate of the team can read its shared notes; a private note only the teammate it belongs to. Each change is kept as a version with its own trust label. The Lead can read only trusted shared notes. Untrusted ones are invisible to it.`}
+      lede={unknown ? "No team has this id." : `Notes ${teamName ?? "your team"} keeps between tasks. Every teammate of the team can read its shared notes; a private note only the teammate it belongs to. Each change is kept as a version with its own trust label. The Lead can read only trusted shared notes. Untrusted ones are invisible to it.`}
     >
       <FilterPills
         label="Show notes"

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router"
 import { ChevronDown, Plus, Users } from "lucide-react"
@@ -25,6 +25,10 @@ export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
   const navigate = useNavigate()
   const client = useQueryClient()
   const [adding, setAdding] = useState(false)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const nameInput = useRef<HTMLInputElement>(null)
+  // Radix returns focus to the trigger when the menu closes; after "New team" it goes to the field.
+  const openingForm = useRef(false)
   const [name, setName] = useState("")
   const [error, setError] = useState<string | null>(null)
 
@@ -48,12 +52,23 @@ export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex flex-col gap-2 pb-3">
       <DropdownMenu>
-        <DropdownMenuTrigger className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm ring-1 ring-border ring-inset outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring">
+        <DropdownMenuTrigger
+          ref={trigger}
+          className="flex h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm ring-1 ring-border ring-inset outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring">
           <Users className="size-4 flex-none text-sidebar-foreground" />
           <span className="min-w-0 flex-1 truncate font-medium">{team.name}</span>
           <ChevronDown className="size-4 flex-none text-muted-foreground" />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-[232px] max-w-[calc(100vw-48px)]">
+        <DropdownMenuContent
+          align="start"
+          className="w-[232px] max-w-[calc(100vw-48px)]"
+          onCloseAutoFocus={(event) => {
+            if (!openingForm.current) return
+            openingForm.current = false
+            event.preventDefault()
+            requestAnimationFrame(() => nameInput.current?.focus())
+          }}
+        >
           <DropdownMenuLabel className="text-xs text-muted-foreground">Teams</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={team.id} onValueChange={(id) => selectTeam(id)}>
             {teams.map((t) => (
@@ -66,6 +81,7 @@ export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
           <DropdownMenuItem
             onSelect={() => {
               setError(null)
+              openingForm.current = true
               setAdding(true)
             }}
           >
@@ -81,7 +97,7 @@ export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
                   key={t.id}
                   onSelect={() => {
                     onNavigate?.()
-                    void navigate(`/notes?team=${t.id}`)
+                    void navigate(`/notes?deleted=${t.id}`)
                   }}
                 >
                   <span className="truncate text-sidebar-foreground">{t.name}</span>
@@ -100,7 +116,7 @@ export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
           }}
         >
           <input
-            autoFocus
+            ref={nameInput}
             aria-label="New team name"
             placeholder="Team name"
             value={name}
@@ -120,7 +136,15 @@ export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
             <Button type="submit" size="sm" disabled={!name.trim() || create.isPending}>
               Create
             </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setAdding(false)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setAdding(false)
+                trigger.current?.focus()
+              }}
+            >
               Cancel
             </Button>
           </div>

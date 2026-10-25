@@ -6,14 +6,18 @@ export function FilterPills<K extends string>({
   value,
   onChange,
   label,
+  showLabel,
 }: {
   options: [K, string][]
   value: K
   onChange: (next: K) => void
   label: string
+  /** Prints the label before the pills, where two rows of pills would read as one. */
+  showLabel?: boolean
 }) {
   return (
-    <div role="group" aria-label={label} className="flex flex-wrap gap-1">
+    <div role="group" aria-label={label} className="flex flex-wrap items-center gap-1">
+      {showLabel && <span className="mr-1 text-sm text-muted-foreground">{label}</span>}
       {options.map(([key, text]) => (
         <button
           key={key}
