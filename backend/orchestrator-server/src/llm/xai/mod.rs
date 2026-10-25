@@ -20,6 +20,8 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::sqlite::text::to_text;
+
 const BASE_URL: &str = "https://api.x.ai/v1";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// `cost_in_usd_ticks` counts 10^10 ticks per USD; dividing by 10^4 gives micros.
@@ -167,10 +169,7 @@ impl XaiProvider {
 }
 
 fn model_id(model: Model) -> String {
-    serde_json::to_value(model)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_string))
-        .unwrap_or_default()
+    to_text(&model).unwrap_or_default()
 }
 
 fn request_body(request: &CompletionRequest) -> ResponsesRequest<'_> {
@@ -199,10 +198,7 @@ fn request_body(request: &CompletionRequest) -> ResponsesRequest<'_> {
         .iter()
         .map(|spec| FunctionTool {
             r#type: "function",
-            name: serde_json::to_value(spec.name)
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_string))
-                .unwrap_or_default(),
+            name: to_text(&spec.name).unwrap_or_default(),
             description: &spec.description,
             parameters: &spec.schema,
         })
@@ -246,9 +242,14 @@ fn key_cap_message(body: &str) -> String {
     }
 }
 
+/// A 429 caused by the key's own token cap, not the team's rate limit.
+fn is_key_cap(status: StatusCode, body: &str) -> bool {
+    status == StatusCode::TOO_MANY_REQUESTS && body.contains(KEY_CAP_MARKER)
+}
+
 /// 429 and 5xx are retried; every other non-success status fails the call.
 fn status_error(status: StatusCode, body: &str) -> LlmError {
-    if status == StatusCode::TOO_MANY_REQUESTS && body.contains(KEY_CAP_MARKER) {
+    if is_key_cap(status, body) {
         return LlmError::RateLimited(key_cap_message(body));
     }
     let detail = match serde_json::from_str::<XaiError>(body) {
@@ -288,8 +289,7 @@ impl LlmProvider for XaiProvider {
             .map_err(|_| LlmError::Server("the reply broke off".to_string()))?;
         if !status.is_success() {
             let error = status_error(status, &body);
-            if status == StatusCode::TOO_MANY_REQUESTS
-                && body.contains(KEY_CAP_MARKER)
+            if is_key_cap(status, body.as_str())
                 && !self.key_cap_logged.swap(true, Ordering::Relaxed)
             {
                 tracing::warn!(

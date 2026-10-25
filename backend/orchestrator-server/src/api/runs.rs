@@ -14,7 +14,7 @@ use super::AppState;
 use super::error::ApiError;
 use super::json::ApiJson;
 use super::query;
-use crate::llm::S1_DECISION;
+use crate::llm::{LAUNDER, S1_DECISION};
 use crate::sqlite::runs::{self, RunDetail, RunList};
 use crate::tools::workspace::EntryKind;
 
@@ -48,7 +48,7 @@ pub async fn start(
     State(state): State<AppState>,
     ApiJson(request): ApiJson<StartRunRequest>,
 ) -> Result<(StatusCode, Json<StartRunResponse>), ApiError> {
-    if request.scenario.as_deref() == Some("launder") {
+    if request.scenario.as_deref() == Some(LAUNDER) {
         require_s1_decision(&state).await?;
     }
     let run_id = state

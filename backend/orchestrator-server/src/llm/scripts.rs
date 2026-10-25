@@ -16,7 +16,12 @@
 use orchestrator_core::llm::{LlmError, ToolChoice};
 use serde_json::{Value, json};
 
-pub const DEMO_REPLY: &str = "Demo mode: try one of the example tasks.";
+const DEMO_REPLY: &str = "Demo mode: try one of the example tasks.";
+pub const S1: &str = "s1";
+pub const S1_FOLLOWUP: &str = "s1-followup";
+pub const CLEAN: &str = "clean";
+pub const LAUNDER: &str = "launder";
+pub const DRILL: &str = "drill";
 
 pub enum Reply {
     Items(Vec<Value>),
@@ -42,20 +47,13 @@ pub fn reply(
     if let Some(reply) = delegation(scenario, agent, step) {
         return reply;
     }
-    if scenario == Some("drill") {
-        return drill(agent, step, task, last);
-    }
-    if scenario == Some("s1") {
-        return s1(agent, step, task, last);
-    }
-    if scenario == Some("s1-followup") {
-        return s1_followup(agent, step, task, last);
-    }
-    if scenario == Some("clean") {
-        return clean(agent, step, last);
-    }
-    if scenario == Some("launder") {
-        return launder(agent, step, last);
+    match scenario {
+        Some(DRILL) => return drill(agent, step, task, last),
+        Some(S1) => return s1(agent, step, task, last),
+        Some(S1_FOLLOWUP) => return s1_followup(agent, step, task, last),
+        Some(CLEAN) => return clean(agent, step, last),
+        Some(LAUNDER) => return launder(agent, step, last),
+        _ => {}
     }
     if let Some(parts) = scenario.and_then(|s| s.strip_prefix("test:seq:")) {
         let calls: Vec<&str> = parts.split('|').collect();
@@ -72,7 +70,7 @@ pub fn reply(
         .and_then(|r| r.split_once(':'))
     {
         return if step == 0 {
-            let call = |n: u32| json!({"type": "function_call", "call_id": format!("call-0-{n}"), "name": tool, "arguments": args});
+            let call = |n: u32| call_item(format!("call-0-{n}"), tool, args);
             Reply::Items(vec![call(0), call(1)])
         } else {
             message("done")
@@ -107,9 +105,7 @@ const EXFIL_URL: &str = "https://vendor-example.test/collect?d=payroll-export";
 const DECISION: &str = "# AR-1042\n\nDecision: approved.\n\nJana Kowalski gets read-only access to Payroll exports for 90 days. Her manager approved the request, which policy rule 1 allows.\n";
 
 fn tool_call(step: u32, tool: &str, args: Value) -> Reply {
-    Reply::Items(vec![
-        json!({"type": "function_call", "call_id": format!("call-{step}"), "name": tool, "arguments": args.to_string()}),
-    ])
+    function_call(step, tool, &args.to_string())
 }
 
 fn email(recipient: &str, subject: &str, body: &str) -> Value {
@@ -390,7 +386,9 @@ fn delegation(scenario: Option<&str>, agent: &str, step: u32) -> Option<Reply> {
     if step > 0 {
         return Some(message("done"));
     }
-    let call = |n: usize, tool: &str, args: Value| json!({"type": "function_call", "call_id": format!("call-0-{n}"), "name": tool, "arguments": args.to_string()});
+    let call = |n: usize, tool: &str, args: Value| {
+        call_item(format!("call-0-{n}"), tool, &args.to_string())
+    };
     let delegate = |n: usize, to: &str| {
         call(
             n,
@@ -410,12 +408,12 @@ fn delegation(scenario: Option<&str>, agent: &str, step: u32) -> Option<Reply> {
 }
 
 fn function_call(step: u32, tool: &str, args: &str) -> Reply {
-    Reply::Items(vec![json!({
-        "type": "function_call",
-        "call_id": format!("call-{step}"),
-        "name": tool,
-        "arguments": args
-    })])
+    Reply::Items(vec![call_item(format!("call-{step}"), tool, args)])
+}
+
+/// One xAI `function_call` output item.
+fn call_item(call_id: String, tool: &str, args: &str) -> Value {
+    json!({"type": "function_call", "call_id": call_id, "name": tool, "arguments": args})
 }
 
 /// How a script reports its last call: `done` after a success, never after a failure. A person's
@@ -466,7 +464,7 @@ mod tests {
     fn no_reply_after_a_denied_or_refused_call_says_done() {
         let denied = json!({"ok": false, "kind": "denied_human", "message": "a person denied this call", "retryable": false}).to_string();
         let refused = json!({"ok": false, "kind": "refused", "message": "refused by the agent's settings", "retryable": false}).to_string();
-        for scenario in ["s1", "clean", "launder", "drill"] {
+        for scenario in [S1, S1_FOLLOWUP, CLEAN, LAUNDER, DRILL] {
             for agent in ["lead", "reader", "writer", "messenger"] {
                 for step in 0..8 {
                     for last in [&denied, &refused] {

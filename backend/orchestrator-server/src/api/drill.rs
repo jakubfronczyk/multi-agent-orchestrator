@@ -11,6 +11,7 @@ use super::error::ApiError;
 use super::runs::{StartRunResponse, start_error};
 use super::{AppState, query};
 use crate::config;
+use crate::llm::DRILL;
 use crate::sqlite::drill::{self, DrillReport};
 
 /// Always scripted: it plays a model that obeys the planted note, so the gates are what stop it.
@@ -24,7 +25,7 @@ pub async fn start(
             task: config::DRILL_TASK.to_string(),
             title: Some(config::DRILL_TITLE.to_string()),
             budget: None,
-            scenario: Some("drill".to_string()),
+            scenario: Some(DRILL.to_string()),
             draft_only: false,
         })
         .await
