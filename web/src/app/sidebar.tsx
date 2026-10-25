@@ -7,11 +7,13 @@ import { agentsQuery } from "@/api/agents"
 import { healthQuery } from "@/api/meta"
 import { runsQuery } from "@/api/runs"
 import { AgentShape } from "@/components/agent-shape"
+import { TeamSwitcher } from "@/components/team-switcher"
 import { isChildRun, useHubStatus, type HubStatus } from "@/events/event-hub"
 import { useInvalidateOn } from "@/events/use-invalidate-on"
 import type { EventEnvelope } from "@/generated/EventEnvelope"
 import type { RunSummary } from "@/generated/RunSummary"
 import { isMac } from "@/lib/platform"
+import { useTeamNames } from "@/lib/selected-team"
 import { Appearance } from "./appearance"
 
 const NAV: [string, LucideIcon, string][] = [
@@ -61,6 +63,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pending = useQuery(approvalsQuery("pending"))
   const agents = useQuery(agentsQuery)
   const status = useHubStatus()
+  const names = useTeamNames()
 
   // A follow-up turn ends with its own run id, not the root's, so only known delegated runs are
   // skipped; a run whose start this app never saw refetches.
@@ -83,7 +86,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     return (
       <NavLink key={run.id} to={`/tasks/${run.id}`} onClick={onNavigate} className={(s) => cn(rowClass(s), "gap-2")}>
         {live && agent && <AgentShape icon={agent.icon} colour={agent.colour} pulse />}
-        <span className="min-w-0 truncate">{run.title ?? run.task}</span>
+        <span className="min-w-0 flex-1 truncate">{run.title ?? run.task}</span>
+        {/* Every team's tasks are listed; with more than one team each row names its own. */}
+        {names.many && (
+          <small className="max-w-[40%] flex-none truncate text-xs font-normal text-muted-foreground">
+            {names.nameOf(run.team_id)}
+          </small>
+        )}
       </NavLink>
     )
   }
@@ -106,6 +115,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </small>
         )}
       </div>
+
+      <TeamSwitcher onNavigate={onNavigate} />
 
       <NavLink to="/" end onClick={onNavigate} className={rowClass}>
         <Plus className="size-[18px]" />

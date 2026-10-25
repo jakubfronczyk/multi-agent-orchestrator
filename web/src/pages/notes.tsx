@@ -68,7 +68,7 @@ function NoteCard({ note }: { note: MemoryEntryView }) {
   const [open, setOpen] = useState(false)
   // The history loads only once it is opened.
   const versions = useQuery({ ...memoryVersionsQuery(note.id), enabled: open })
-  const author = look.bySlug(note.author_slug)
+  const author = look.byId(note.author_agent_id)
   const owner = note.owner_agent_id ? look.byId(note.owner_agent_id) : undefined
   const count = note.version
 
@@ -122,7 +122,7 @@ function NoteCard({ note }: { note: MemoryEntryView }) {
                     {version.content}
                   </p>
                   <small className="block text-xs text-muted-foreground">
-                    {look.bySlug(version.author_slug)?.name ?? version.author_slug}, {dayTime(version.created_at)}
+                    {look.byId(version.author_agent_id)?.name ?? version.author_slug}, {dayTime(version.created_at)}
                     {i === 0 && ", current"}
                     {task && <>, in {task.title ?? task.task}</>}.{" "}
                     <Link

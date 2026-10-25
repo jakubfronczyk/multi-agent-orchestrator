@@ -85,7 +85,7 @@ export function NeedsPage() {
 }
 
 function EarlierRow({ approval }: { approval: ApprovalView }) {
-  const look = useAgents()
+  const look = useAgents(approval.team_id)
   const location = useLocation()
   const runs = useQuery(runsQuery())
   const slug = approval.custody.agent_path.at(-1)

@@ -31,7 +31,7 @@ export function CallRow({
   /** Names the agent before the call, for rows not nested under a hand-off. */
   showAgent?: boolean
 }) {
-  const look = useAgents()
+  const look = useAgents(call.team_id)
   const location = useLocation()
   const agent = look.byId(call.agent_id)
   const label = callLabel(call)

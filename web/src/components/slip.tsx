@@ -38,7 +38,7 @@ const TONE = {
  * resolved only when the server says so (`status`), so a card at 0:00 waits for that event.
  */
 export function Slip({ approval }: { approval: ApprovalView }) {
-  const look = useAgents()
+  const look = useAgents(approval.team_id)
   const location = useLocation()
   const client = useQueryClient()
   const runs = useQuery(runsQuery())

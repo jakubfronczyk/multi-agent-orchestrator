@@ -90,7 +90,7 @@ function Missing({ text }: { text: string }) {
 }
 
 function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalView[] }) {
-  const look = useAgents()
+  const look = useAgents(state.teamId)
   const client = useQueryClient()
   const runs = useQuery(runsQuery())
   const summary = runs.data?.runs.find((run) => run.id === state.rootRunId)
@@ -441,7 +441,7 @@ function TurnSection({
   onCancel: () => void
   cancelling: boolean
 }) {
-  const look = useAgents()
+  const look = useAgents(state.teamId)
   const run = state.runs.find((r) => r.id === turn.run_id)
   const lead = run ? look.byId(run.agent_id) : undefined
   const running = run?.status === "running"
@@ -535,7 +535,7 @@ function TurnSection({
 
 /** A card, then the note the person sent with a no, as their own message. */
 function CardWithNote({ approval }: { approval: ApprovalView }) {
-  const look = useAgents()
+  const look = useAgents(approval.team_id)
   const copy = actionCopy(approval.tool, approval.action, look.nameOfSlug)
   return (
     <>

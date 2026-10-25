@@ -120,7 +120,8 @@ function StatusShape({ running }: { running: boolean }) {
 }
 
 function Report({ run }: { run: RunSummary }) {
-  const look = useAgents()
+  // The report's slugs resolve in the team the drill ran on.
+  const look = useAgents(run.team_id)
   const location = useLocation()
   const report = useQuery(drillReportQuery(run.id))
   if (report.error) {

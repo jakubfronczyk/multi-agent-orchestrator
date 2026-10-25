@@ -83,10 +83,10 @@ export function HowThisHappenedSheet() {
 }
 
 function SheetBody({ callId, rootRunId }: { callId: string; rootRunId: string }) {
-  const look = useAgents()
   const query = useQuery(runQuery(rootRunId))
   // Folded like the thread, never refetched per event: the thread may share this query.
   const state = useLiveState(query.data, initThread, reduceThread)
+  const look = useAgents(query.data?.team_id)
   const detail = { data: state && asDetail(state), error: query.error }
   const approvals = useQuery(approvalsQuery())
   const tools = useQuery(toolsQuery)
