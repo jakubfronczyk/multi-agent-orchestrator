@@ -204,6 +204,129 @@ function statusDecision(status: CallStatus, call: ToolCallView, earlier: ToolCal
   }
 }
 
+export interface ActionCopy {
+  /** "send an email", after "<Agent> wants to". */
+  verb: string
+  /** "send an email to rolf.bauer@example.com", the request in lower case. */
+  ask: string
+  yes: string
+  no: string
+  peek: string
+}
+
+/** The words on an approval card, from its tool and target. */
+export function actionCopy(tool: string, action: Action | null, agentName: (slug: string) => string): ActionCopy {
+  const target = action?.target
+  if (target?.kind === "recipient") {
+    const email = target.channel === "email"
+    return {
+      verb: email ? "send an email" : "send a message",
+      ask: email ? `send an email to ${target.address}` : `send a ${target.channel} message to ${target.address}`,
+      yes: "Send",
+      no: "Don't send",
+      peek: email ? "View email" : "View message",
+    }
+  }
+  if (target?.kind === "file" && tool === "file_write") {
+    return { verb: "save a file", ask: `save ${target.path}`, yes: "Save", no: "Don't save", peek: "View file" }
+  }
+  if (target?.kind === "host") {
+    return { verb: "open a website", ask: `open ${target.host}`, yes: "Open", no: "Don't open", peek: "View address" }
+  }
+  const summary = callSummary(tool, action, agentName)
+  return {
+    verb: `use ${toolLabel(tool)}`,
+    ask: summary.charAt(0).toLowerCase() + summary.slice(1),
+    yes: "Allow",
+    no: "Don't allow",
+    peek: "View details",
+  }
+}
+
+export const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+
+export interface PreviewParts {
+  /** Labelled lines shown above the body: To, Subject, File, Address. */
+  head: [string, string][]
+  body: string
+}
+
+/**
+ * Splits a card's `preview` by its tool's format: `To: … (email)` and `Subject: …` lines
+ * before a blank line for messages, the path on the first line for saves, a JSON object
+ * with `url` for fetches. Anything else is shown whole.
+ */
+export function splitPreview(tool: string, preview: string): PreviewParts {
+  if (tool === "send_message") {
+    const [headText, ...rest] = preview.split("\n\n")
+    const head = headText
+      .split("\n")
+      .map((line) => line.match(/^(To|Subject): (.*)$/))
+      .filter((match): match is RegExpMatchArray => match !== null)
+      .map((match): [string, string] => [match[1], match[2]])
+    return head.length > 0 ? { head, body: rest.join("\n\n") } : { head: [], body: preview }
+  }
+  if (tool === "file_write") {
+    const [path, ...rest] = preview.split("\n")
+    return { head: [["File", path]], body: rest.join("\n").replace(/^\n+/, "") }
+  }
+  if (tool === "http_fetch") {
+    try {
+      const parsed: unknown = JSON.parse(preview)
+      if (parsed && typeof parsed === "object" && "url" in parsed && typeof parsed.url === "string") {
+        return { head: [["Address", parsed.url]], body: "" }
+      }
+    } catch {
+      // Not JSON: shown whole below.
+    }
+  }
+  return { head: [], body: preview }
+}
+
+/** "4:12" for the time left on a card; never negative. */
+export function formatLeft(ms: number): string {
+  const seconds = Math.max(0, Math.ceil(ms / 1000))
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+}
+
+/** Notes a person often sends with an answer; each fills the field, it never sends. */
+export const NOTE_PRESETS = [
+  "Looks suspicious",
+  "Wrong recipient",
+  "Not now",
+  "Ask me again with more detail",
+]
+
+/** The outcome line on a resolved card. */
+export function resolvedText(approval: ApprovalView): { label: string; tone: "yes" | "no" | "quiet" } {
+  switch (approval.status) {
+    case "approved":
+      return { label: approval.note ? `Approved, with your note: "${approval.note}".` : "Approved.", tone: "yes" }
+    case "denied":
+      return { label: approval.note ? `Declined, with your note: "${approval.note}".` : "Declined.", tone: "no" }
+    case "expired":
+      return {
+        label: `No answer in ${minutesBetween(approval.created_at, approval.expires_at)} minutes, counted as no.`,
+        tone: "quiet",
+      }
+    case "cancelled":
+      return { label: "Task cancelled before an answer.", tone: "quiet" }
+    case "pending":
+      return { label: "Waiting for you.", tone: "quiet" }
+    default:
+      return unreachable(approval.status)
+  }
+}
+
+/** Short outcome label for a row in a list of cards. */
+export const APPROVAL_LABEL: Record<ApprovalView["status"], string> = {
+  pending: "Waiting for you",
+  approved: "You said yes",
+  denied: "You said no",
+  expired: "No answer, counted as no",
+  cancelled: "Cancelled",
+}
+
 function unreachable(value: never): never {
   throw new Error(`Unhandled value: ${JSON.stringify(value)}`)
 }

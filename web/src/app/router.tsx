@@ -1,5 +1,6 @@
 import { createBrowserRouter } from "react-router"
 import { AppShell } from "./app-shell"
+import { NeedsPage } from "@/pages/needs"
 import { Placeholder } from "@/pages/placeholder"
 
 export const router = createBrowserRouter([
@@ -7,7 +8,7 @@ export const router = createBrowserRouter([
     element: <AppShell />,
     children: [
       { path: "/", element: <Placeholder title="New task" issue="02" /> },
-      { path: "/needs", element: <Placeholder title="Needs your OK" issue="05" /> },
+      { path: "/needs", element: <NeedsPage /> },
       { path: "/tasks", element: <Placeholder title="Tasks" issue="06" /> },
       { path: "/tasks/:rootId", element: <Placeholder title="Task" issue="03" /> },
       { path: "/team", element: <Placeholder title="Your team" issue="07" /> },
