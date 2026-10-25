@@ -3,8 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>web</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Orchestrator</title>
+    <script>
+      // Applies the stored theme before first paint so a dark choice never flashes light.
+      let theme = null
+      try {
+        theme = localStorage.getItem("theme")
+      } catch {}
+      if (theme === "dark" || (theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches))
+        document.documentElement.classList.add("dark")
+    </script>
   </head>
   <body>
     <div id="root"></div>

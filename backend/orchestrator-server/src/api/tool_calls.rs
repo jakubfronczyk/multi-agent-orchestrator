@@ -7,7 +7,7 @@ use serde::Deserialize;
 use super::AppState;
 use super::error::ApiError;
 use super::query;
-use crate::sqlite::runs::{self, ToolCallFilter, ToolCallList};
+use crate::sqlite::tool_calls::{self, ToolCallFilter, ToolCallList};
 
 const DEFAULT_LIMIT: u32 = 100;
 
@@ -31,5 +31,7 @@ pub async fn list(
         tool: query.tool,
         status: query::value("status", query.status)?,
     };
-    Ok(Json(runs::tool_calls(&state.pool, filter, limit).await?))
+    Ok(Json(
+        tool_calls::tool_calls(&state.pool, filter, limit).await?,
+    ))
 }
