@@ -35,13 +35,17 @@ export function HowThisHappenedSheet() {
     }
   }, [open])
 
+  // Replaces the entry, so Back after closing does not reopen the sheet.
   const close = () =>
-    setParams((current) => {
-      const next = new URLSearchParams(current)
-      next.delete("call")
-      next.delete("task")
-      return next
-    })
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete("call")
+        next.delete("task")
+        return next
+      },
+      { replace: true },
+    )
 
   return (
     <Sheet open={open} onOpenChange={(next) => !next && close()}>

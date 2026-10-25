@@ -32,6 +32,7 @@ import {
   turnEnding,
   turnPlan,
 } from "@/lib/thread-view"
+import { useDocumentTitle } from "@/lib/use-document-title"
 import { useNow } from "@/lib/use-now"
 
 type Chip =
@@ -265,6 +266,7 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
   }, [contentKey])
 
   const title = root?.title ?? root?.task ?? summary?.title ?? ""
+  useDocumentTitle(title)
   const hasWork = state.calls.some((call) => call.tool !== "plan")
   return (
     <div className="flex h-full flex-col">

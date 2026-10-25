@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useLocation } from "react-router"
 import { ChevronDown, TriangleAlert } from "lucide-react"
@@ -78,6 +78,12 @@ export function Slip({ approval }: { approval: ApprovalView }) {
     answer.mutate(decision)
   }
 
+  // The buttons unmount once the card resolves; focus moves to the outcome when it was answered here.
+  const outcome = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (!pending && sent.current && document.activeElement === document.body) outcome.current?.focus()
+  }, [pending])
+
   const resolved = resolvedText(approval)
   const failed = answer.isError && !isApiError(answer.error, 409)
 
@@ -153,7 +159,8 @@ export function Slip({ approval }: { approval: ApprovalView }) {
           </p>
         ))}
 
-        <details className="group text-sm">
+        {/* Open on a tainted or off-list card, so what would leave is seen before a yes. */}
+        <details open={sources.length > 0 || offList.length > 0} className="group text-sm">
           <summary className="flex w-max cursor-pointer list-none items-center gap-1 text-sidebar-foreground [&::-webkit-details-marker]:hidden">
             {copy.peek}
             <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
@@ -221,7 +228,9 @@ export function Slip({ approval }: { approval: ApprovalView }) {
           </>
         ) : (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <p className={cn("m-0 text-sm", TONE[resolved.tone])}>{resolved.label}</p>
+            <p ref={outcome} tabIndex={-1} className={cn("m-0 text-sm outline-none", TONE[resolved.tone])}>
+              {resolved.label}
+            </p>
             <Link
               to={{ pathname: location.pathname, search: sheetSearch(approval.tool_call_id, approval.root_run_id) }}
               className="ml-auto text-sm text-sidebar-foreground underline decoration-input underline-offset-[3px] hover:text-foreground hover:decoration-current"

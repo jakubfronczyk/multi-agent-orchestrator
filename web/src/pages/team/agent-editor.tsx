@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { agentsQuery, deleteAgent, replaceAgent } from "@/api/agents"
 import { AgentShape } from "@/components/agent-shape"
@@ -17,6 +17,7 @@ export function AgentEditor({ agent, team, onRemoved }: { agent: AgentRecord; te
   const [problem, setProblem] = useState<Problem | null>(null)
   const [saved, setSaved] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const removeButton = useRef<HTMLButtonElement>(null)
   const isLead = agent.role === "lead"
   const specialists = team.filter((member) => member.role === "specialist")
 
@@ -119,6 +120,7 @@ export function AgentEditor({ agent, team, onRemoved }: { agent: AgentRecord; te
         )}
         {!isLead && !confirming && (
           <button
+            ref={removeButton}
             type="button"
             onClick={() => setConfirming(true)}
             className="ml-auto text-sm text-sidebar-foreground underline decoration-input underline-offset-[3px] hover:text-foreground"
@@ -135,7 +137,16 @@ export function AgentEditor({ agent, team, onRemoved }: { agent: AgentRecord; te
           <Button size="sm" disabled={remove.isPending} onClick={() => remove.mutate()}>
             Remove
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setConfirming(false)}>
+          <Button
+            size="sm"
+            variant="outline"
+            autoFocus
+            onClick={() => {
+              setConfirming(false)
+              // The button remounts with the confirm gone; focus it once it is back.
+              requestAnimationFrame(() => removeButton.current?.focus())
+            }}
+          >
             Keep
           </Button>
         </div>
