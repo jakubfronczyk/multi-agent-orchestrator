@@ -1,0 +1,170 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.id, e.scope, e.team_id, e.owner_agent_id, e.key, e.content, e.author_agent_id,\n                  a.slug AS \"author_slug!\", e.trust, e.version, e.created_at, e.updated_at,\n                  r.root_run_id AS \"root_run_id!\"\n           FROM memory_entries e\n           JOIN agents a ON a.id = e.author_agent_id\n           JOIN memory_versions v ON v.entry_id = e.id AND v.version = e.version\n           JOIN runs r ON r.id = v.run_id\n           WHERE (?1 IS NULL OR e.scope = ?1) AND (?2 IS NULL OR e.owner_agent_id = ?2)\n             AND (?3 IS NULL OR e.key LIKE ?3 ESCAPE '\\' OR e.content LIKE ?3 ESCAPE '\\')\n             AND (?5 IS NULL OR e.team_id = ?5)\n           ORDER BY e.updated_at DESC, e.id\n           LIMIT ?4",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "scope",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "scope"
+          }
+        }
+      },
+      {
+        "name": "team_id",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "team_id"
+          }
+        }
+      },
+      {
+        "name": "owner_agent_id",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "owner_agent_id"
+          }
+        }
+      },
+      {
+        "name": "key",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "content",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "name": "author_agent_id",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "author_agent_id"
+          }
+        }
+      },
+      {
+        "name": "author_slug!",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agents",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "name": "trust",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "trust"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 11,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "root_run_id!",
+        "ordinal": 12,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "runs",
+            "name": "root_run_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "46bc9342ee35267a1c785b6cc22ee28c76c9473bcaf2f9e78ab6ebdb31733b9d"
+}

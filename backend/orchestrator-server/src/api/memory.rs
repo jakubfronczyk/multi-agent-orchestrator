@@ -12,6 +12,7 @@ use crate::sqlite::memory::{self, MemoryFilter, MemoryList, MemoryVersionList};
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     scope: Option<String>,
+    team_id: Option<String>,
     agent_id: Option<String>,
     q: Option<String>,
 }
@@ -22,6 +23,7 @@ pub async fn list(
 ) -> Result<Json<MemoryList>, ApiError> {
     let filter = MemoryFilter {
         scope: query::value("scope", query.scope)?,
+        team_id: query::id("team_id", query.team_id)?,
         agent_id: query::id("agent_id", query.agent_id)?,
         q: query.q.filter(|q| !q.is_empty()),
     };

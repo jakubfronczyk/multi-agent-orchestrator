@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.scope, e.key, e.content, e.trust, a.slug AS \"author!\"\n               FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id\n               WHERE (e.key LIKE ?1 ESCAPE '\\' OR e.content LIKE ?1 ESCAPE '\\')\n                 AND ((?2 AND e.scope = ?3) OR (?4 AND e.scope = ?5 AND e.owner_agent_id = ?6))\n                 AND (NOT ?8 OR e.trust = ?9)\n                 AND e.team_id = ?10\n               ORDER BY e.updated_at DESC\n               LIMIT ?7",
+  "describe": {
+    "columns": [
+      {
+        "name": "scope",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "scope"
+          }
+        }
+      },
+      {
+        "name": "key",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "name": "content",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "name": "trust",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "trust"
+          }
+        }
+      },
+      {
+        "name": "author!",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agents",
+            "name": "slug"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7cfc24578eed12667aeea23a60fa3c7dace4fc584102deeab12c37e43ae1b749"
+}

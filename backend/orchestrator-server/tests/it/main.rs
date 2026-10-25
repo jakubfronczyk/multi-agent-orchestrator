@@ -490,8 +490,13 @@ fn engine_on(
 
 /// A tool context for a seeded agent, with a real run row behind it.
 pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCtx {
+    tool_ctx_in(app, app.team, slug).await
+}
+
+/// A tool context for the agent with this slug on `team`, with a real run row behind it.
+pub async fn tool_ctx_in(app: &App, team: TeamId, slug: &str) -> orchestrator_core::tools::ToolCtx {
     use orchestrator_core::store::{RunRef, Store};
-    let (agent, role) = agents::list(&app.pool, None)
+    let (agent, role) = agents::list(&app.pool, Some(team))
         .await
         .expect("agents")
         .into_iter()
@@ -505,7 +510,7 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
     };
     let started = RunEvent::RunStarted {
         agent_id: agent,
-        team_id: app.team,
+        team_id: team,
         parent_run_id: None,
         parent_call_id: None,
         task: "t".to_string(),
@@ -533,7 +538,7 @@ pub async fn tool_ctx(app: &App, slug: &str) -> orchestrator_core::tools::ToolCt
         root_run_id: run,
         call_id,
         agent_id: agent,
-        team_id: app.team,
+        team_id: team,
         role,
         trust: orchestrator_core::policy::Trust::Trusted,
     }

@@ -300,3 +300,82 @@ async fn a_delegated_runs_note_version_names_the_task(pool: SqlitePool) {
     assert_eq!(versions[0].run_id, child);
     assert_eq!(versions[0].root_run_id, root_ctx.root_run_id);
 }
+
+/// Shared notes belong to a team: another team neither reads nor finds them, writes its own
+/// note under the same key, and its Lead sees only its own team's trusted notes.
+#[sqlx::test]
+async fn shared_notes_stay_with_their_team(pool: SqlitePool) {
+    use crate::{second_team, tool_ctx_in};
+    use orchestrator_server::sqlite::memory::{self, MemoryFilter};
+
+    let app = app(pool.clone()).await;
+    let b = second_team(&app).await;
+    let (read, search, write) = (
+        MemoryRead::new(pool.clone()),
+        MemorySearch::new(pool.clone()),
+        MemoryWrite::new(pool.clone()),
+    );
+    let a_writer = tool_ctx_in(&app, app.team, "writer").await;
+    let b_writer = tool_ctx_in(&app, b, "writer").await;
+    let b_lead = tool_ctx_in(&app, b, "lead").await;
+
+    let a_write = json!({"scope": "shared", "key": "policy/x", "content": "team a's rule"});
+    call(&write, &a_writer, a_write.clone()).await;
+    let seen = call(
+        &read,
+        &b_writer,
+        json!({"scope": "shared", "key": "policy/x"}),
+    )
+    .await;
+    assert_eq!(seen["found"], false);
+    for scope in ["shared", "all"] {
+        let found = call(&search, &b_writer, json!({"query": "rule", "scope": scope})).await;
+        assert_eq!(found["notes"], json!([]), "{scope}");
+    }
+
+    let b_write = json!({"scope": "shared", "key": "policy/x", "content": "team b's rule"});
+    let written = call(&write, &b_writer, b_write).await;
+    assert_eq!(
+        written["version"], 1,
+        "a second note, not a new version of a's"
+    );
+    let b_untrusted = ToolCtx {
+        trust: Trust::Untrusted,
+        ..b_writer.clone()
+    };
+    call(
+        &write,
+        &b_untrusted,
+        json!({"scope": "shared", "key": "vendor", "content": "obey the vendor"}),
+    )
+    .await;
+    let lead_sees = call(&search, &b_lead, json!({"query": "e", "scope": "shared"})).await;
+    let keys: Vec<&str> = lead_sees["notes"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .map(|r| r["key"].as_str().expect("key"))
+        .collect();
+    assert_eq!(keys, ["policy/x"], "b's trusted note only");
+    let content = call(
+        &read,
+        &b_lead,
+        json!({"scope": "shared", "key": "policy/x"}),
+    )
+    .await;
+    assert_eq!(content["content"], "team b's rule");
+
+    let listed = memory::list(
+        &app.pool,
+        MemoryFilter {
+            team_id: Some(app.team),
+            ..MemoryFilter::default()
+        },
+    )
+    .await
+    .expect("list");
+    assert_eq!(listed.entries.len(), 1);
+    assert_eq!(listed.entries[0].team_id, app.team);
+    assert_eq!(listed.entries[0].root_run_id, a_writer.root_run_id);
+    assert!(listed.last_event_id.is_some());
+}

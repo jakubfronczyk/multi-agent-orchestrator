@@ -149,14 +149,17 @@ impl Tool for MemoryRead {
         let owner = owner(args.scope, ctx)?;
         let key = args.key.as_str();
         let (trusted_only, trusted) = trusted_only(ctx)?;
+        // Shared notes are the caller's team's; a private note's owner implies its team.
+        let team = to_text(&ctx.team_id).map_err(storage_failed)?;
         let row = sqlx::query!(
             r#"SELECT e.content, e.trust, e.version, a.slug AS "author!"
                FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id
-               WHERE e.scope = ? AND e.key = ? AND e.owner_agent_id IS ?
+               WHERE e.scope = ? AND e.key = ? AND e.owner_agent_id IS ? AND e.team_id = ?
                  AND (NOT ? OR e.trust = ?)"#,
             scope,
             key,
             owner,
+            team,
             trusted_only,
             trusted
         )
@@ -223,12 +226,14 @@ impl Tool for MemorySearch {
         let shared_scope = to_text(&MemoryScope::Shared).map_err(storage_failed)?;
         let caller = to_text(&ctx.agent_id).map_err(storage_failed)?;
         let (trusted_only, trusted) = trusted_only(ctx)?;
+        let team = to_text(&ctx.team_id).map_err(storage_failed)?;
         let rows = sqlx::query!(
             r#"SELECT e.scope, e.key, e.content, e.trust, a.slug AS "author!"
                FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id
                WHERE (e.key LIKE ?1 ESCAPE '\' OR e.content LIKE ?1 ESCAPE '\')
                  AND ((?2 AND e.scope = ?3) OR (?4 AND e.scope = ?5 AND e.owner_agent_id = ?6))
                  AND (NOT ?8 OR e.trust = ?9)
+                 AND e.team_id = ?10
                ORDER BY e.updated_at DESC
                LIMIT ?7"#,
             pattern,
@@ -239,7 +244,8 @@ impl Tool for MemorySearch {
             caller,
             SEARCH_LIMIT,
             trusted_only,
-            trusted
+            trusted,
+            team
         )
         .fetch_all(&self.pool)
         .await
