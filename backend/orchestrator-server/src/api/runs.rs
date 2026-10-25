@@ -213,19 +213,37 @@ pub async fn follow_up(
     ApiJson(body): ApiJson<FollowUpBody>,
 ) -> Result<(StatusCode, Json<StartRunResponse>), ApiError> {
     let root: RunId = query::path_id(&id)?;
-    let run_id = state
-        .engine
-        .follow_up(
-            root,
-            FollowUpRequest {
-                text: body.text,
-                scenario: body.scenario,
-                draft_only: body.draft_only.unwrap_or(false),
-            },
-        )
-        .await
-        .map_err(follow_up_error)?;
-    Ok((StatusCode::ACCEPTED, Json(StartRunResponse { run_id })))
+    let team = runs::team_of(&state.pool, root).await?;
+    if let (Some(team), Some(scenario)) = (team, body.scenario.as_deref()) {
+        let missing = missing_slugs(&state, team, scenario).await?;
+        if !missing.is_empty() {
+            let message = format!(
+                "this team has no {} for the {scenario} demo",
+                missing.join(", ")
+            );
+            return Err(ApiError::conflict(&message));
+        }
+    }
+    let request = FollowUpRequest {
+        text: body.text,
+        scenario: body.scenario,
+        draft_only: body.draft_only.unwrap_or(false),
+    };
+    match state.engine.follow_up(root, request).await {
+        Ok(run_id) => Ok((StatusCode::ACCEPTED, Json(StartRunResponse { run_id }))),
+        // A delete that commits between the engine's team read and its `run_started` makes the
+        // emit fail; the team decides whether that is the delete or a real storage error.
+        Err(FollowUpError::Store(error)) => {
+            let mut conn = state.pool.acquire().await.map_err(storage)?;
+            match team {
+                Some(team) if !teams::is_live(&mut conn, team).await.map_err(storage)? => {
+                    Err(follow_up_error(FollowUpError::TeamDeleted))
+                }
+                _ => Err(follow_up_error(FollowUpError::Store(error))),
+            }
+        }
+        Err(other) => Err(follow_up_error(other)),
+    }
 }
 
 fn follow_up_error(error: FollowUpError) -> ApiError {

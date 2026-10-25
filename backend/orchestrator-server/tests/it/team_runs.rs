@@ -422,3 +422,123 @@ async fn records_and_events_carry_their_team(pool: SqlitePool) {
         assert_eq!(status, 422, "{path}");
     }
 }
+
+/// A store that deletes one team just before recording a `run_started`, as a `DELETE /teams`
+/// committing between the follow-up's team read and its first event would.
+struct DeletesTeamFirst {
+    inner: std::sync::Arc<orchestrator_server::sqlite::SqliteStore>,
+    pool: SqlitePool,
+    team: String,
+}
+
+#[async_trait::async_trait]
+impl orchestrator_core::store::Store for DeletesTeamFirst {
+    async fn emit(
+        &self,
+        at: orchestrator_core::store::RunRef,
+        event: RunEvent,
+    ) -> Result<orchestrator_core::ids::EventId, orchestrator_core::store::StoreError> {
+        if matches!(event, RunEvent::RunStarted { .. }) {
+            sqlx::query!(
+                "UPDATE teams SET deleted_at = updated_at WHERE id = ?",
+                self.team
+            )
+            .execute(&self.pool)
+            .await
+            .expect("delete");
+        }
+        self.inner.emit(at, event).await
+    }
+
+    async fn team(
+        &self,
+        team: Option<TeamId>,
+    ) -> Result<
+        Option<(TeamId, Vec<orchestrator_core::agents::AgentSpec>)>,
+        orchestrator_core::store::StoreError,
+    > {
+        self.inner.team(team).await
+    }
+
+    async fn task_events(
+        &self,
+        root: orchestrator_core::ids::RunId,
+    ) -> Result<Vec<(orchestrator_core::ids::RunId, RunEvent)>, orchestrator_core::store::StoreError>
+    {
+        self.inner.task_events(root).await
+    }
+}
+
+/// A follow-up that loses the race to a team delete is a 409, not a server error; a scripted
+/// follow-up needs its agents on the team.
+#[sqlx::test]
+async fn a_follow_up_racing_a_team_delete_is_a_conflict(pool: SqlitePool) {
+    use std::sync::Arc;
+
+    let app = app(pool).await;
+    let b = second_team(&app).await;
+    let mut rx = app.store.subscribe();
+    let root = app
+        .engine
+        .start(StartRequest {
+            team_id: Some(b),
+            ..request("test:hello")
+        })
+        .await
+        .expect("start");
+    events_until_finished(&mut rx, root).await;
+    let root_text = json!(root).as_str().expect("id").to_string();
+
+    // Without messenger among its Lead's targets, team B cannot play the scripted follow-up.
+    let lead = slug_in(&app, b, "lead").await;
+    let record = agents::get(&app.pool, lead).await.expect("lead");
+    let mut input: orchestrator_core::agents::AgentInput =
+        serde_json::from_value(serde_json::to_value(&record).expect("json")).expect("input");
+    input.delegate_targets.retain(|slug| slug != "messenger");
+    agents::replace(&app.pool, lead, input)
+        .await
+        .expect("targets");
+    let base = serve(&app).await;
+    let (status, body) = post(
+        &base,
+        &format!("/api/runs/{root_text}/messages"),
+        json!({"text": "again", "scenario": "s1-followup"}),
+    )
+    .await;
+    assert_eq!(status, 409);
+    assert_eq!(
+        body["error"]["message"],
+        "this team has no messenger for the s1-followup demo"
+    );
+
+    let racing = Arc::new(DeletesTeamFirst {
+        inner: app.store.clone(),
+        pool: app.pool.clone(),
+        team: id(b),
+    });
+    let engine = Arc::new(orchestrator_core::engine::Engine::new(
+        racing,
+        Arc::new(orchestrator_server::llm::ScriptedProvider::new()),
+        crate::tools::all(),
+        crate::test_config(),
+    ));
+    let raced = crate::serve_state(orchestrator_server::api::AppState {
+        pool: app.pool.clone(),
+        store: app.store.clone(),
+        engine,
+        provider: orchestrator_server::api::ActiveProvider::Scripted,
+        workspace: orchestrator_server::tools::workspace::Workspace::new(
+            std::env::temp_dir().join("orchestrator-test-no-workspace"),
+            app.pool.clone(),
+        ),
+    })
+    .await;
+    let (status, body) = post(
+        &raced,
+        &format!("/api/runs/{root_text}/messages"),
+        json!({"text": "again"}),
+    )
+    .await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["error"]["message"], "this task's team was deleted");
+}

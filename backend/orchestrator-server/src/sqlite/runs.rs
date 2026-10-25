@@ -301,6 +301,18 @@ fn turns(runs: &[RunView]) -> Vec<Turn> {
         .collect()
 }
 
+/// The team of the task whose root run is `root`; `None` when no root run has this id.
+pub async fn team_of(pool: &SqlitePool, root: RunId) -> Result<Option<TeamId>, ReadError> {
+    let root = encode(&root)?;
+    let team = sqlx::query_scalar!(
+        "SELECT team_id FROM runs WHERE id = ?1 AND root_run_id = ?1",
+        root
+    )
+    .fetch_optional(pool)
+    .await?;
+    team.as_deref().map(decode).transpose()
+}
+
 /// Whether a root run has this id, for telling an unknown task from a finished one.
 pub async fn root_exists(pool: &SqlitePool, root: RunId) -> Result<bool, ReadError> {
     let root = encode(&root)?;
