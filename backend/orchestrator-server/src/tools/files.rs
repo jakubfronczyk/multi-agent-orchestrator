@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use orchestrator_core::policy::{Trust, untrusted};
 use orchestrator_core::tools::{
-    Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec,
+    Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, parse_args,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use super::sandbox::{relative, resolve};
-use super::{as_stored, is_trusted, parse, spec, storage_failed};
+use super::{as_stored, is_trusted, spec, storage_failed};
 use crate::sqlite::text::{timestamp, to_text};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -248,13 +248,13 @@ impl Tool for FileList {
     }
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: ListArgs = parse(args)?;
+        let args: ListArgs = parse_args(args)?;
         file_action("list", args.path.as_deref().unwrap_or("."))
     }
 
     /// Symlinks are listed as such and never followed.
     async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: ListArgs = parse(&args)?;
+        let args: ListArgs = parse_args(&args)?;
         let path = args.path.unwrap_or_else(|| ".".to_string());
         let dir = resolve(&self.workspace.root, &path).await?;
         let mut entries = tokio::fs::read_dir(&dir)
@@ -301,13 +301,13 @@ impl Tool for FileRead {
     }
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: ReadArgs = parse(args)?;
+        let args: ReadArgs = parse_args(args)?;
         file_action("read", &args.path)
     }
 
     /// A file with no trust row counts as untrusted; the seed records rows for its files.
     async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: ReadArgs = parse(&args)?;
+        let args: ReadArgs = parse_args(&args)?;
         let path = display(&relative(&args.path)?);
         let (text, trust) = self.workspace.read_with_trust(&path).await?;
         let content = as_stored(&format!("file:{path}"), &text, trust.as_deref());
@@ -325,7 +325,7 @@ impl Tool for FileWrite {
     }
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: WriteArgs = parse(args)?;
+        let args: WriteArgs = parse_args(args)?;
         let extension = Path::new(&args.path)
             .extension()
             .and_then(|e| e.to_str())
@@ -347,7 +347,7 @@ impl Tool for FileWrite {
     /// the writer's trust only after the rename, so a failure at any step leaves "untrusted".
     /// The temp file sits next to its target: `rename` is atomic only within one filesystem.
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: WriteArgs = parse(&args)?;
+        let args: WriteArgs = parse_args(&args)?;
         let path = display(&relative(&args.path)?);
         let run = to_text(&ctx.run_id).map_err(storage_failed)?;
         let failed = || ToolError::Failed(format!("{path} cannot be written"));
@@ -392,7 +392,7 @@ impl Tool for FileWrite {
 
     /// The card shows the whole new file and says when it replaces one.
     async fn preview(&self, args: &Value) -> String {
-        let Ok(args) = parse::<WriteArgs>(args) else {
+        let Ok(args) = parse_args::<WriteArgs>(args) else {
             return serde_json::to_string_pretty(args).unwrap_or_default();
         };
         let replaces = match resolve(&self.workspace.root, &args.path).await {
@@ -415,7 +415,7 @@ impl Tool for CsvQuery {
     }
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: CsvArgs = parse(args)?;
+        let args: CsvArgs = parse_args(args)?;
         if !args.path.to_ascii_lowercase().ends_with(".csv") {
             return Err(ToolError::InvalidArgs(
                 "path: must be a .csv file".to_string(),
@@ -425,7 +425,7 @@ impl Tool for CsvQuery {
     }
 
     async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: CsvArgs = parse(&args)?;
+        let args: CsvArgs = parse_args(&args)?;
         let path = display(&relative(&args.path)?);
         let (text, trust) = self.workspace.read_with_trust(&path).await?;
         let not_csv = || ToolError::Failed(format!("{path} is not valid CSV"));

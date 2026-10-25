@@ -13,12 +13,12 @@ use crate::ids::RunId;
 use crate::runs::{CallStatus, FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, StoreError};
 use crate::tools::{
-    Action, PlanStep, Target, ToolError, ToolName, ToolOutput, ToolSpec, schema_for,
+    Action, PlanStep, Target, ToolError, ToolName, ToolOutput, ToolSpec, parse_args, schema_for,
 };
 
 use super::gateway::Ended;
 use super::run::{RunCtx, spawn_run};
-use super::{Inner, prompts};
+use super::{Inner, envelope, prompts};
 
 const TASK_CHARS: usize = 4000;
 const CONTEXT_CHARS: usize = 8000;
@@ -81,7 +81,7 @@ pub(super) fn plan_spec() -> ToolSpec {
 }
 
 pub(super) fn check_delegate(args: &Value, targets: &[Slug]) -> Result<Action, ToolError> {
-    let args = parse::<DelegateArgs>(args)?;
+    let args = parse_args::<DelegateArgs>(args)?;
     let slug = target(&args.agent, targets)?;
     within("task", &args.task, 1, TASK_CHARS)?;
     within(
@@ -103,7 +103,7 @@ pub(super) fn check_delegate(args: &Value, targets: &[Slug]) -> Result<Action, T
 }
 
 pub(super) fn check_plan(args: &Value, targets: &[Slug]) -> Result<Action, ToolError> {
-    let args = parse::<PlanArgs>(args)?;
+    let args = parse_args::<PlanArgs>(args)?;
     if args.steps.is_empty() || args.steps.len() > PLAN_STEPS {
         return Err(ToolError::InvalidArgs(format!(
             "steps: give 1 to {PLAN_STEPS} steps"
@@ -155,7 +155,7 @@ pub(super) async fn delegate(
     ctx: &RunCtx,
     args: Value,
 ) -> Result<Ended, StoreError> {
-    let Ok(args) = parse::<DelegateArgs>(&args) else {
+    let Ok(args) = parse_args::<DelegateArgs>(&args) else {
         return Ok(Ended::failed(
             CallStatus::InvalidArgs,
             "the delegation is not valid",
@@ -265,11 +265,7 @@ pub(super) async fn delegate(
 fn tainted_label(ctx: &RunCtx) -> Option<String> {
     ctx.task
         .is_tainted()
-        .then(|| prompts::source_label(&ctx.task.taint_sources()))
-}
-
-fn parse<T: for<'de> Deserialize<'de>>(args: &Value) -> Result<T, ToolError> {
-    serde_json::from_value(args.clone()).map_err(|error| ToolError::InvalidArgs(error.to_string()))
+        .then(|| envelope::source_label(&ctx.task.taint_sources()))
 }
 
 fn target(agent: &str, targets: &[Slug]) -> Result<Slug, ToolError> {

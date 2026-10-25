@@ -7,7 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use orchestrator_core::policy::TaintSource;
 use orchestrator_core::tools::{
-    Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec,
+    Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, parse_args,
 };
 use reqwest::Url;
 use reqwest::redirect::Policy;
@@ -15,7 +15,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{parse, spec};
+use super::spec;
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -122,7 +122,7 @@ impl Tool for HttpFetch {
 
     /// `host` is taken from the parsed URL, so the allowlist sees the host the fetch will use.
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: FetchArgs = parse(args)?;
+        let args: FetchArgs = parse_args(args)?;
         let url = parse_url(&args.url)?;
         let host = url
             .host_str()
@@ -140,7 +140,7 @@ impl Tool for HttpFetch {
 
     /// Every failure message names the host or the limit, never response bytes (§6 rule 4).
     async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: FetchArgs = parse(&args)?;
+        let args: FetchArgs = parse_args(&args)?;
         let url = parse_url(&args.url)?;
         let host = url.host_str().unwrap_or_default().to_string();
         let port = url.port_or_known_default().unwrap_or(80);

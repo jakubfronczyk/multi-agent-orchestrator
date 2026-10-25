@@ -8,8 +8,6 @@ use std::time::Duration;
 use orchestrator_core::policy::{Trust, untrusted};
 use orchestrator_core::tools::{MAY_ASK, Tool, ToolError, ToolName, ToolSet, ToolSpec, schema_for};
 use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
-use serde_json::Value;
 use sqlx::SqlitePool;
 
 use crate::sqlite::text::from_text;
@@ -37,17 +35,6 @@ pub fn all(pool: SqlitePool, workspace_root: PathBuf) -> ToolSet {
         Arc::new(fetch::HttpFetch::new()),
     ];
     ToolSet::new(tools)
-}
-
-/// The one argument parser every tool uses in both `check` and `run`. Arguments must be a
-/// JSON object: serde would otherwise accept an array for a struct whose fields are all optional.
-pub(crate) fn parse<T: DeserializeOwned>(args: &Value) -> Result<T, ToolError> {
-    if !args.is_object() {
-        return Err(ToolError::InvalidArgs(
-            "arguments must be a JSON object".to_string(),
-        ));
-    }
-    serde_json::from_value(args.clone()).map_err(|error| ToolError::InvalidArgs(error.to_string()))
 }
 
 /// The schema comes from the argument struct; its field docs are what the model reads.

@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use orchestrator_core::policy::TaintSource;
 use orchestrator_core::tools::{
-    Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec,
+    Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, parse_args,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use super::{parse, spec, storage_failed};
+use super::{spec, storage_failed};
 use crate::sqlite::text::{timestamp, to_text};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
@@ -157,7 +157,7 @@ impl Tool for InboxList {
     }
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        parse::<ListArgs>(args)?;
+        parse_args::<ListArgs>(args)?;
         Ok(Action {
             verb: "list".to_string(),
             target: Target::Query {
@@ -168,7 +168,7 @@ impl Tool for InboxList {
 
     /// Subjects are outside content too, so every listed id is a source, in list order.
     async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        parse::<ListArgs>(&args)?;
+        parse_args::<ListArgs>(&args)?;
         let rows = sqlx::query!(
             "SELECT id, sender, subject, received_at FROM inbox_messages ORDER BY received_at, id"
         )
@@ -199,7 +199,7 @@ impl Tool for InboxRead {
     }
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: ReadArgs = parse(args)?;
+        let args: ReadArgs = parse_args(args)?;
         if args.id.trim().is_empty() {
             return Err(ToolError::InvalidArgs("id: must not be empty".to_string()));
         }
@@ -210,7 +210,7 @@ impl Tool for InboxRead {
     }
 
     async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: ReadArgs = parse(&args)?;
+        let args: ReadArgs = parse_args(&args)?;
         let row = sqlx::query!(
             "SELECT id, sender, subject, body, received_at FROM inbox_messages WHERE id = ?",
             args.id
@@ -239,7 +239,7 @@ impl Tool for SendMessage {
     }
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: SendArgs = parse(args)?;
+        let args: SendArgs = parse_args(args)?;
         args.validate()?;
         Ok(Action {
             verb: "send".to_string(),
@@ -251,7 +251,7 @@ impl Tool for SendMessage {
     }
 
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: SendArgs = parse(&args)?;
+        let args: SendArgs = parse_args(&args)?;
         args.validate()?;
         let id = Uuid::now_v7().to_string();
         let run = to_text(&ctx.run_id).map_err(storage_failed)?;
@@ -280,7 +280,7 @@ impl Tool for SendMessage {
 
     /// The card shows the message as the person approving it will read it.
     async fn preview(&self, args: &Value) -> String {
-        let Ok(args) = parse::<SendArgs>(args) else {
+        let Ok(args) = parse_args::<SendArgs>(args) else {
             return serde_json::to_string_pretty(args).unwrap_or_default();
         };
         format!(

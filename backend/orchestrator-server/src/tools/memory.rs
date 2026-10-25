@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use orchestrator_core::tools::{
     Action, MemoryScope, NoteKey, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec,
+    parse_args,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -15,7 +16,7 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use super::{as_stored, parse, spec, storage_failed};
+use super::{as_stored, spec, storage_failed};
 use crate::sqlite::begin_write;
 use crate::sqlite::text::{timestamp, to_text};
 
@@ -129,13 +130,13 @@ impl Tool for MemoryRead {
     }
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: ReadArgs = parse(args)?;
+        let args: ReadArgs = parse_args(args)?;
         Ok(note_target(args.scope, args.key, "read"))
     }
 
     /// Another agent's private note reads exactly like a missing one.
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: ReadArgs = parse(&args)?;
+        let args: ReadArgs = parse_args(&args)?;
         let scope = to_text(&args.scope).map_err(storage_failed)?;
         let owner = owner(args.scope, ctx)?;
         let key = args.key.as_str();
@@ -175,7 +176,7 @@ impl Tool for MemorySearch {
     }
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: SearchArgs = parse(args)?;
+        let args: SearchArgs = parse_args(args)?;
         if args.query.trim().is_empty() {
             return Err(ToolError::InvalidArgs(
                 "query: must not be empty".to_string(),
@@ -189,7 +190,7 @@ impl Tool for MemorySearch {
 
     /// `all` is the caller's private notes plus shared notes, never another agent's private notes.
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: SearchArgs = parse(&args)?;
+        let args: SearchArgs = parse_args(&args)?;
         let (private, shared) = match args.scope {
             SearchScope::Private => (true, false),
             SearchScope::Shared => (false, true),
@@ -248,7 +249,7 @@ impl Tool for MemoryWrite {
     }
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
-        let args: WriteArgs = parse(args)?;
+        let args: WriteArgs = parse_args(args)?;
         if args.content.len() > CONTENT_BYTES {
             return Err(ToolError::InvalidArgs("content: at most 16 KB".to_string()));
         }
@@ -258,7 +259,7 @@ impl Tool for MemoryWrite {
     /// One transaction: the upsert bumps the version, so parallel writes to one key never
     /// share a version number, and the version row records who wrote it in which run.
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
-        let args: WriteArgs = parse(&args)?;
+        let args: WriteArgs = parse_args(&args)?;
         let scope = to_text(&args.scope).map_err(storage_failed)?;
         let owner = owner(args.scope, ctx)?;
         let author = to_text(&ctx.agent_id).map_err(storage_failed)?;

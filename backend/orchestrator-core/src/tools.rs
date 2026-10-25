@@ -7,6 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use schemars::generate::SchemaSettings;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -154,6 +155,17 @@ impl ToolSet {
             .find(|tool| tool.spec().name == name)
             .cloned()
     }
+}
+
+/// The one argument parser, for every tool's `check` and `run`. Arguments must be a JSON
+/// object: serde would otherwise accept an array for a struct whose fields are all optional.
+pub fn parse_args<T: DeserializeOwned>(args: &Value) -> Result<T, ToolError> {
+    if !args.is_object() {
+        return Err(ToolError::InvalidArgs(
+            "arguments must be a JSON object".to_string(),
+        ));
+    }
+    serde_json::from_value(args.clone()).map_err(|error| ToolError::InvalidArgs(error.to_string()))
 }
 
 /// Generates a tool's argument schema with fixed settings: draft 2020-12, every

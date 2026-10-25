@@ -16,6 +16,7 @@ use crate::store::{RunRef, Store, StoreError};
 use crate::tools::ToolSet;
 
 mod approvals;
+mod envelope;
 mod gateway;
 mod native;
 mod prompts;

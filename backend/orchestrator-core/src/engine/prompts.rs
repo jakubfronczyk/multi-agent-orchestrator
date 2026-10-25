@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use crate::agents::{AgentSpec, Role};
-use crate::policy::TaintSource;
 pub use crate::policy::untrusted;
 use crate::tools::MAY_ASK;
 
@@ -55,16 +54,4 @@ pub fn delegate_description(targets: &[Arc<AgentSpec>]) -> String {
 
 pub fn plan_description() -> String {
     format!("Record the steps you intend to take, each for a teammate or yourself. {MAY_ASK}")
-}
-
-/// How sources appear to the model and on a card: `inbox:<id>` or the URL, in read order.
-pub fn source_label(sources: &[TaintSource]) -> String {
-    sources
-        .iter()
-        .map(|source| match source {
-            TaintSource::Inbox { message_id } => format!("inbox:{message_id}"),
-            TaintSource::Web { url } => url.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
