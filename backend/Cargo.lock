@@ -1151,6 +1151,7 @@ dependencies = [
  "futures-util",
  "orchestrator-core",
  "reqwest",
+ "schemars",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -1162,6 +1163,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ts-rs",
+ "uuid",
 ]
 
 [[package]]

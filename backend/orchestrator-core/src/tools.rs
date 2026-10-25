@@ -98,6 +98,9 @@ pub struct ToolSpec {
     pub timeout: Option<Duration>,
 }
 
+/// Every tool description ends with this line.
+pub const MAY_ASK: &str = "May need human approval. If refused, do not retry; report it.";
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ToolError {
     /// The arguments do not fit the tool; the message names the field.
@@ -160,7 +163,7 @@ pub fn schema_for<T: JsonSchema>() -> Value {
         .to_value()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum MemoryScope {
@@ -169,7 +172,7 @@ pub enum MemoryScope {
 }
 
 /// A memory note's key: `[a-z0-9_./-]{1,128}`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS, JsonSchema)]
 #[serde(try_from = "String")]
 #[ts(export, type = "string")]
 pub struct NoteKey(String);

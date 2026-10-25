@@ -6,3 +6,4 @@ pub mod config;
 pub mod events;
 pub mod llm;
 pub mod sqlite;
+pub mod tools;

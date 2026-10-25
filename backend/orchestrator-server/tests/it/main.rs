@@ -23,6 +23,7 @@ use tokio::sync::broadcast;
 
 mod delegate;
 mod gateway;
+mod memory;
 mod recording;
 mod runs;
 mod taint;
