@@ -4,6 +4,7 @@ import { HomePage } from "@/pages/home"
 import { NeedsPage } from "@/pages/needs"
 import { TaskThreadPage } from "@/pages/task-thread"
 import { TasksPage } from "@/pages/tasks"
+import { TeamPage } from "@/pages/team/team-page"
 import { Placeholder } from "@/pages/placeholder"
 
 export const router = createBrowserRouter([
@@ -14,7 +15,7 @@ export const router = createBrowserRouter([
       { path: "/needs", element: <NeedsPage /> },
       { path: "/tasks", element: <TasksPage /> },
       { path: "/tasks/:rootId", element: <TaskThreadPage /> },
-      { path: "/team", element: <Placeholder title="Your team" issue="07" /> },
+      { path: "/team", element: <TeamPage /> },
       { path: "/notes", element: <Placeholder title="Team notes" issue="08" /> },
       { path: "/files", element: <Placeholder title="Files" issue="09" /> },
       { path: "/sent", element: <Placeholder title="Sent messages" issue="10" /> },
