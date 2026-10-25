@@ -1,9 +1,10 @@
-//! Read endpoints and cancel over HTTP: the task list, one task's detail and the fixed facts.
+//! Read endpoints, cancel and agent rules over HTTP: the task list, one task's detail and the
+//! fixed facts.
 
 use orchestrator_core::engine::StartRequest;
 use orchestrator_core::ids::RunId;
 use orchestrator_core::runs::{RunEvent, RunOutcome};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
 use crate::{app, events_until_finished, request, serve, wait_for};
@@ -137,5 +138,48 @@ async fn health_models_and_tools_describe_the_fixed_setup(pool: SqlitePool) {
         tool("file_read")["description"]
             .as_str()
             .is_some_and(|d| !d.is_empty())
+    );
+}
+
+/// Configuration only tightens: an agent that would send without asking is refused over HTTP.
+#[sqlx::test]
+async fn an_agent_that_sends_without_asking_is_refused(pool: SqlitePool) {
+    let app = app(pool).await;
+    let base = serve(&app).await;
+    let client = reqwest::Client::new();
+    let agent = json!({
+        "role": "specialist",
+        "slug": "loud",
+        "name": "Loud",
+        "description": "sends freely",
+        "system_prompt": "You send.",
+        "model": "grok-4.3",
+        "reasoning_effort": null,
+        "icon": "i",
+        "colour": "c",
+        "tools": {"send_message": "allow"},
+        "delegate_targets": []
+    });
+    let response = client
+        .post(format!("{base}/api/agents"))
+        .json(&agent)
+        .send()
+        .await
+        .expect("response");
+    assert_eq!(response.status().as_u16(), 422);
+    let body: Value = response.json().await.expect("json");
+    assert_eq!(body["error"]["code"], "invalid_input", "{body}");
+    assert_eq!(body["error"]["field"], "tools", "{body}");
+
+    let (_, listed) = get(&client, &format!("{base}/api/agents")).await;
+    let slugs: Vec<&str> = listed
+        .as_array()
+        .expect("agents")
+        .iter()
+        .filter_map(|a| a["slug"].as_str())
+        .collect();
+    assert!(
+        slugs.contains(&"worker") && !slugs.contains(&"loud"),
+        "nothing stored: {slugs:?}"
     );
 }

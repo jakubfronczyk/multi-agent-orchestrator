@@ -135,13 +135,18 @@ async fn writes_replace_atomically_and_untrusted_files_are_taint_sources(pool: S
         .await
         .expect("read");
     assert!(trusted.taint.is_empty(), "a trusted file taints nothing");
+}
+
+#[sqlx::test]
+async fn listings_hide_temp_files_and_unrecorded_files_read_untrusted(pool: SqlitePool) {
+    let app = app(pool.clone()).await;
+    let clean = tool_ctx(&app, "worker").await;
+    let temp = TempDir::new();
+    let workspace = Workspace::new(temp.workspace(), pool);
+    let (read, list) = (FileRead::new(workspace.clone()), FileList::new(workspace));
 
     std::fs::write(temp.workspace().join("unrecorded.md"), "no row").expect("plain file");
     std::fs::write(temp.workspace().join(".left.md.0194.tmp"), "aborted").expect("leftover");
-    let list = orchestrator_server::tools::files::FileList::new(Workspace::new(
-        temp.workspace(),
-        app.pool.clone(),
-    ));
     let listed = run(&list, &clean, json!({})).await.expect("list");
     let names: Vec<&str> = listed["entries"]
         .as_array()
@@ -157,7 +162,12 @@ async fn writes_replace_atomically_and_untrusted_files_are_taint_sources(pool: S
         unrecorded["trust"], "untrusted",
         "a file with no trust row fails closed"
     );
+}
 
+#[sqlx::test]
+async fn writes_need_a_text_extension_and_at_most_256_kb(pool: SqlitePool) {
+    let temp = TempDir::new();
+    let write = FileWrite::new(Workspace::new(temp.workspace(), pool));
     for args in [
         json!({"path": "run.exe", "content": "x"}),
         json!({"path": "big.md", "content": "x".repeat(256 * 1024 + 1)}),
