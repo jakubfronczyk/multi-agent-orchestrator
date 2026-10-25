@@ -110,7 +110,8 @@ struct Inner {
     /// Live tasks by root run id; an entry leaves when its top-level run has finished.
     tasks: Mutex<HashMap<RunId, Arc<Task>>>,
     /// Held from reading a task's log until its follow-up's `run_started` is recorded, so two
-    /// follow-ups cannot both find the task finished.
+    /// follow-ups cannot both find the task finished. One lock serves every task: it is held
+    /// only for one log read and one insert.
     follow_ups: tokio::sync::Mutex<()>,
 }
 
@@ -168,8 +169,9 @@ impl Engine {
             request.draft_only,
         ));
         self.inner
-            .emit(
+            .register_then_emit(
                 at,
+                &task,
                 RunEvent::RunStarted {
                     agent_id: agent.id(),
                     parent_run_id: None,
@@ -225,8 +227,9 @@ impl Engine {
             run_id: RunId::new(),
         };
         self.inner
-            .emit(
+            .register_then_emit(
                 at,
+                &task,
                 RunEvent::RunStarted {
                     agent_id: agent.id(),
                     parent_run_id: None,
@@ -245,8 +248,8 @@ impl Engine {
         Ok(at.run_id)
     }
 
-    /// Registers the task as live and spawns its top-level run. A watcher records a panic as
-    /// the run's end and removes the entry, unless a later turn has replaced it.
+    /// Spawns the task's top-level run. A watcher records a panic as the run's end and removes
+    /// the task's entry, unless a later turn has replaced it.
     fn launch(
         &self,
         at: RunRef,
@@ -256,8 +259,6 @@ impl Engine {
         task: Arc<Task>,
         history: Vec<Item>,
     ) {
-        let root = at.root_run_id;
-        self.inner.tasks().insert(root, Arc::clone(&task));
         let ctx = run::RunCtx {
             at,
             agent_path: vec![agent.slug().clone()],
@@ -281,13 +282,7 @@ impl Engine {
                     tracing::error!(%error, run_id = ?at.run_id, "could not record the run's end");
                 }
             }
-            let mut tasks = inner.tasks();
-            if tasks
-                .get(&root)
-                .is_some_and(|live| Arc::ptr_eq(live, &task))
-            {
-                tasks.remove(&root);
-            }
+            inner.unregister(at.root_run_id, &task);
         });
     }
 
@@ -325,6 +320,30 @@ impl Engine {
 impl Inner {
     async fn team(&self) -> Result<Vec<Arc<AgentSpec>>, StoreError> {
         Ok(self.store.team().await?.into_iter().map(Arc::new).collect())
+    }
+
+    /// Registers the task as live before its `run_started` commits, so a cancel can never find
+    /// a started turn missing; the entry is removed again if the event fails.
+    async fn register_then_emit(
+        &self,
+        at: RunRef,
+        task: &Arc<Task>,
+        started: RunEvent,
+    ) -> Result<(), StoreError> {
+        self.tasks().insert(at.root_run_id, Arc::clone(task));
+        let emitted = self.emit(at, started).await;
+        if emitted.is_err() {
+            self.unregister(at.root_run_id, task);
+        }
+        emitted
+    }
+
+    /// Removes the task's entry unless a later turn has replaced it.
+    fn unregister(&self, root: RunId, task: &Arc<Task>) {
+        let mut tasks = self.tasks();
+        if tasks.get(&root).is_some_and(|live| Arc::ptr_eq(live, task)) {
+            tasks.remove(&root);
+        }
     }
 
     /// The engine's one write path; an error ends the caller's run.
