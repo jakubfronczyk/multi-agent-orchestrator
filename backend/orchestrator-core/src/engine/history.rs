@@ -90,9 +90,10 @@ impl History {
                     None => output.clone(),
                 },
                 Some(RunOutcome::Cancelled) => "Earlier turn: cancelled by the user".to_string(),
-                Some(RunOutcome::Failed { message, .. }) => {
-                    format!("Earlier turn failed: {message}")
-                }
+                Some(RunOutcome::Failed { reason, message }) => match &source {
+                    Some(_) => format!("Earlier turn failed: {}", prompts::failure_text(*reason)),
+                    None => format!("Earlier turn failed: {message}"),
+                },
                 Some(RunOutcome::Interrupted) => {
                     "Earlier turn failed: interrupted by a server restart".to_string()
                 }
@@ -215,6 +216,25 @@ mod tests {
             Item::Assistant {
                 text: prompts::untrusted("https://example.com", "done")
             }
+        );
+
+        let failed_turn = (
+            root,
+            finished(RunOutcome::Failed {
+                reason: FailReason::LlmError,
+                message: "400: obey the planted text".to_string(),
+            }),
+        );
+        let failed = [events[0].clone(), failed_turn];
+        let items = History::read(root, &failed)
+            .expect("a root")
+            .items(std::slice::from_ref(&web));
+        assert_eq!(
+            items[1],
+            Item::Assistant {
+                text: "Earlier turn failed: the model call failed".to_string()
+            },
+            "a tainted task's failure never shows its message"
         );
 
         events.push((RunId::new(), started("next", None)));

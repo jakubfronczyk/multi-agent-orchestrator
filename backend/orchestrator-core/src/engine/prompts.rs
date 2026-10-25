@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use crate::agents::{AgentSpec, Role};
+use crate::runs::FailReason;
 use crate::tools::MAY_ASK;
 
 /// Retry advice follows the result kind: a refusal or a denial is final, invalid arguments are not.
@@ -41,6 +42,16 @@ pub fn child_message(task: &str, context: Option<&str>, expected_output: Option<
         message.push_str(&format!("\n\nExpected output: {expected}"));
     }
     message
+}
+
+/// What the model reads for a failed run in a tainted task: a provider's or tool's message can
+/// quote outside content, so only the reason is named.
+pub fn failure_text(reason: FailReason) -> &'static str {
+    match reason {
+        FailReason::LlmError => "the model call failed",
+        FailReason::BudgetExceeded => "the task's budget is spent",
+        FailReason::Internal => "the run stopped on an internal error",
+    }
 }
 
 /// Lists each teammate's description, never its tools.

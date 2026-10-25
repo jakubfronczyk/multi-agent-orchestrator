@@ -8,7 +8,7 @@ An agent is open to prompt injection when it has three abilities at once: it rea
 
 The seeded roles keep the three abilities apart for the Lead and the Writer. The Reader and the Messenger can hold all three; each one's way out is gated in code:
 
-- **Lead:** plans, delegates and reads team notes. `lead()` forbids it every tool that reads outside content and `memory_write`. The Lead reads trusted notes only; untrusted notes are invisible to it, and the gateway drops any result that names outside content before the Lead sees it. So it never reads outside content directly. Specialists' reports reach it wrapped as untrusted, and the task is tainted by then, so anything it delegates afterwards runs in a tainted task where sends and saves ask.
+- **Lead:** plans, delegates and reads team notes. `lead()` forbids it every tool that reads outside content and `memory_write`. The Lead reads trusted notes only; untrusted notes are invisible to it, and the gateway drops any result that names outside content before the Lead sees it. So it never reads outside content directly. Specialists' reports reach it wrapped as untrusted; in a tainted task a failed specialist's error reaches it only as a fixed text naming the reason. The task is tainted by then, so anything it delegates afterwards runs in a tainted task where sends and saves ask.
 - **Reader:** reads the inbox and the web (outside content), files and CSV data (private data), and fetches URLs (egress). Its `send_message` is set to deny, so a planted "forward this" is refused and logged without a card. Fetching is gated:
   - In a tainted task every fetch asks.
   - A host off the allowlist always asks.

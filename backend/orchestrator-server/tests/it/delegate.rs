@@ -6,6 +6,7 @@ use std::sync::Arc;
 use orchestrator_core::llm::Item;
 use orchestrator_core::runs::{CallStatus, FailReason, RunEvent, RunOutcome};
 use orchestrator_server::events::EventEnvelope;
+use orchestrator_server::llm::PLANTED_ERROR;
 use sqlx::SqlitePool;
 
 use crate::recording::Recording;
@@ -273,6 +274,38 @@ async fn a_failed_child_is_an_error_result_and_the_lead_continues(pool: SqlitePo
         root_outcome(&events),
         RunOutcome::Completed { .. }
     ));
+}
+
+/// In a tainted task a failed child's error can quote outside content, so the Lead gets a
+/// fixed text for the failure, never the provider's message.
+#[sqlx::test]
+async fn a_failed_child_in_a_tainted_task_never_shows_the_lead_its_error(pool: SqlitePool) {
+    let recording = Arc::new(Recording::new());
+    let app = app_with_llm(pool, test_config(), recording.clone()).await;
+    let mut rx = app.store.subscribe();
+    let root = app
+        .engine
+        .start(request("test:delegate-tainted-fail"))
+        .await
+        .expect("start");
+    let events = task_events(&mut rx, root).await;
+    assert_eq!(
+        calls_finished(&events, true),
+        [(CallStatus::ChildFailed, false)]
+    );
+
+    let seen_by_lead: String = recording
+        .requests()
+        .into_iter()
+        .filter(|r| r.script.agent.as_str() == "lead")
+        .flat_map(|r| r.transcript)
+        .filter_map(|item| match item {
+            Item::ToolOutput { output, .. } => Some(output),
+            _ => None,
+        })
+        .collect();
+    assert!(!seen_by_lead.contains(PLANTED_ERROR), "{seen_by_lead}");
+    assert!(seen_by_lead.contains("model call failed"), "{seen_by_lead}");
 }
 
 #[sqlx::test]

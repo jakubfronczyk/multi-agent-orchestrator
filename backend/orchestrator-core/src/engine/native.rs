@@ -242,8 +242,13 @@ pub(super) async fn delegate(
             output,
             untrusted: envelope::source_label(&ctx.task.taint_sources()),
         },
-        RunOutcome::Failed { message, .. } => {
-            Ended::failed(CallStatus::ChildFailed, &message, None)
+        RunOutcome::Failed { reason, message } => {
+            let message = if ctx.task.is_tainted() {
+                prompts::failure_text(reason)
+            } else {
+                &message
+            };
+            Ended::failed(CallStatus::ChildFailed, message, None)
         }
         RunOutcome::Cancelled | RunOutcome::Interrupted => Ended::failed(
             CallStatus::ChildCancelled,
