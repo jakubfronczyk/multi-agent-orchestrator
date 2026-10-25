@@ -21,21 +21,8 @@ pub enum Model {
     Grok420NonReasoning,
 }
 
-/// Who serves a model. A second provider is a new variant here plus a server adapter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Provider {
-    Xai,
-}
-
 impl Model {
     pub const ALL: [Model; 2] = [Model::Grok43, Model::Grok420NonReasoning];
-
-    /// Every model is listed, so a new model fails to compile until its provider is chosen.
-    pub fn provider(self) -> Provider {
-        match self {
-            Model::Grok43 | Model::Grok420NonReasoning => Provider::Xai,
-        }
-    }
 
     /// The reasoning efforts the model accepts; empty means it takes none.
     pub fn efforts(self) -> &'static [ReasoningEffort] {

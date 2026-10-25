@@ -1,8 +1,9 @@
-//! Live state of one task, shared by every run in it. Only `apply` changes it, and only
-//! after the event that justifies the change has been committed.
+//! Live state of one task, shared by every run in it. `apply` changes it after the event that
+//! justifies the change is committed; `try_start_run` and `claim_taint` check and set under the lock.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::{AgentSpec, Slug};
@@ -10,7 +11,6 @@ use crate::money::Micros;
 use crate::policy::{Decision, Effect, Facts, TaintSource};
 use crate::runs::RunEvent;
 use crate::tools::{Action, ToolName};
-use serde_json::Value;
 
 pub struct Task {
     budget: Micros,
@@ -73,7 +73,7 @@ impl Task {
     }
 
     /// Checks and counts a new run in one locked step, so parallel delegations cannot both
-    /// take the last slot. The one state change that does not go through `apply`.
+    /// take the last slot.
     pub fn try_start_run(&self, limit: u32) -> bool {
         let mut state = self.lock();
         if state.runs_started >= limit {
@@ -108,8 +108,7 @@ impl Task {
     }
 
     /// Records a source the first time it is seen and says whether it was new, in one locked
-    /// step, so parallel calls reading the same source emit `task_tainted` once. With
-    /// `try_start_run`, one of the two state changes that do not go through `apply`.
+    /// step, so parallel calls reading the same source emit `task_tainted` once.
     pub fn claim_taint(&self, source: &TaintSource) -> bool {
         let mut state = self.lock();
         if state.taint.contains(source) {

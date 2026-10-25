@@ -160,6 +160,7 @@ mod tests {
             Rule::InvalidArgs,
             Rule::RepeatOfRefused,
             Rule::ExternalEffect,
+            Rule::DraftOnly,
         ] {
             let tag = serde_json::to_value(&rule).expect("json")["kind"].clone();
             assert_eq!(tag, rule.kind());

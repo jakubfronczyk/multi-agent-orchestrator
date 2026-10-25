@@ -128,7 +128,8 @@ pub struct ToolCtx {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolOutput {
     pub content: Value,
-    /// The outside content this result carries; read only when the tool's name taints.
+    /// The outside content this result carries, untrusted stored data included; every source
+    /// taints the task.
     pub taint: Vec<TaintSource>,
 }
 
