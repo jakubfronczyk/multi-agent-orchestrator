@@ -1,0 +1,152 @@
+//! The drill report: every way out of a task, read from its calls. An exit is any call to a
+//! tool whose effect is External or Egress, whether or not it ran.
+
+use orchestrator_core::ids::{RunId, ToolCallId};
+use orchestrator_core::policy::{Decision, Effect, Rule};
+use orchestrator_core::runs::{ApprovalStatus, CallStatus, RunStatus};
+use orchestrator_core::tools::{Action, ToolName};
+use serde::Serialize;
+use sqlx::SqlitePool;
+use ts_rs::TS;
+
+use super::text::{from_text, to_text};
+
+/// Who stopped or let through an exit: policy alone, or a person on a card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum DecidedBy {
+    Gateway,
+    /// The call asked; `approval` says how the card ended, an expiry counting as no.
+    User,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct DrillExit {
+    pub call_id: ToolCallId,
+    pub run_id: RunId,
+    /// The slug of the agent that made the call.
+    pub agent: String,
+    pub tool: ToolName,
+    /// `None` when the arguments were invalid.
+    pub action: Option<Action>,
+    pub decision: Option<Decision>,
+    pub rules: Vec<Rule>,
+    pub decided_by: DecidedBy,
+    pub approval: Option<ApprovalStatus>,
+    /// How the call ended; `None` while it is still open.
+    pub status: Option<CallStatus>,
+}
+
+/// Exits in request order, with the task's state and how many messages it actually sent.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct DrillReport {
+    pub root_run_id: RunId,
+    pub status: RunStatus,
+    pub exits: Vec<DrillExit>,
+    pub messages_sent: u32,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DrillReadError {
+    #[error("storage failed: {0}")]
+    Storage(#[from] sqlx::Error),
+    #[error("stored call is unreadable: {0}")]
+    Corrupt(String),
+}
+
+/// The report for the task whose root run is `root`, or `None` when no root run has this id.
+pub async fn report(pool: &SqlitePool, root: RunId) -> Result<Option<DrillReport>, DrillReadError> {
+    let root_text = to_text(&root).map_err(corrupt)?;
+    let mut tx = pool.begin().await?;
+    let status = sqlx::query_scalar!(
+        "SELECT status FROM runs WHERE id = ?1 AND parent_run_id IS NULL",
+        root_text
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(status) = status else {
+        return Ok(None);
+    };
+    let rows = sqlx::query!(
+        r#"SELECT t.id, t.run_id, t.tool, t.action, t.decision, t.rules, t.status,
+                  ag.slug AS "agent!", a.status AS "approval?"
+           FROM tool_calls t
+           JOIN runs r ON r.id = t.run_id
+           JOIN agents ag ON ag.id = t.agent_id
+           LEFT JOIN approvals a ON a.tool_call_id = t.id
+           WHERE r.root_run_id = ?1
+           ORDER BY t.requested_at, t.id"#,
+        root_text
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let sent = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "sent!: i64" FROM outbox_messages o JOIN runs r ON r.id = o.run_id
+           WHERE r.root_run_id = ?1"#,
+        root_text
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let mut exits = Vec::new();
+    for row in rows {
+        // A name the model made up is no tool, so it is no exit.
+        let Ok(tool) = from_text::<ToolName>(&row.tool) else {
+            continue;
+        };
+        if !matches!(tool.effect(), Effect::External | Effect::Egress) {
+            continue;
+        }
+        let decision: Option<Decision> = row
+            .decision
+            .as_deref()
+            .map(from_text)
+            .transpose()
+            .map_err(corrupt)?;
+        exits.push(DrillExit {
+            call_id: from_text(&row.id).map_err(corrupt)?,
+            run_id: from_text(&row.run_id).map_err(corrupt)?,
+            agent: row.agent,
+            tool,
+            action: row
+                .action
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(corrupt)?,
+            decided_by: if decision == Some(Decision::Ask) {
+                DecidedBy::User
+            } else {
+                DecidedBy::Gateway
+            },
+            decision,
+            rules: serde_json::from_str(&row.rules).map_err(corrupt)?,
+            approval: row
+                .approval
+                .as_deref()
+                .map(from_text)
+                .transpose()
+                .map_err(corrupt)?,
+            status: row
+                .status
+                .as_deref()
+                .map(from_text)
+                .transpose()
+                .map_err(corrupt)?,
+        });
+    }
+    Ok(Some(DrillReport {
+        root_run_id: root,
+        status: from_text(&status).map_err(corrupt)?,
+        exits,
+        messages_sent: u32::try_from(sent).map_err(corrupt)?,
+    }))
+}
+
+fn corrupt(error: impl std::fmt::Display) -> DrillReadError {
+    DrillReadError::Corrupt(error.to_string())
+}

@@ -597,3 +597,67 @@ async fn the_read_views_show_what_the_real_tools_did(pool: SqlitePool) {
     assert_eq!(escape["error"]["field"], "path");
     assert_eq!(get_json(&base, "/api/files?path=missing.md").await.0, 404);
 }
+
+/// `/drill` over HTTP on the real tools: the report lists all four exits in order, with the
+/// gateway stopping two alone and a person denying the two cards, and nothing sent.
+#[sqlx::test]
+async fn the_drill_report_lists_every_exit_and_who_stopped_it(pool: SqlitePool) {
+    let seeded = seeded(pool).await;
+    answer_approvals(&seeded, |_| Answer::Deny { note: None });
+    let base = crate::serve_state(AppState {
+        pool: seeded.pool.clone(),
+        store: seeded.store.clone(),
+        engine: seeded.engine.clone(),
+        provider: ActiveProvider::Scripted,
+        workspace: Workspace::new(seeded.temp.workspace(), seeded.pool.clone()),
+    })
+    .await;
+    let mut rx = seeded.store.subscribe();
+    let started = reqwest::Client::new()
+        .post(format!("{base}/api/drill"))
+        .send()
+        .await
+        .expect("post");
+    assert_eq!(started.status(), 202);
+    let body: serde_json::Value = started.json().await.expect("json");
+    let root: RunId = serde_json::from_value(body["run_id"].clone()).expect("run id");
+    task_events(&mut rx, root).await;
+
+    let (status, report) = get_json(&base, &format!("/api/drill/{root}/report")).await;
+    assert_eq!(status, 200);
+    assert_eq!(report["status"], "completed");
+    assert_eq!(report["messages_sent"], 0);
+    let exits: Vec<(&str, &str, &str, &str, &str)> = report["exits"]
+        .as_array()
+        .expect("exits")
+        .iter()
+        .map(|exit| {
+            (
+                exit["agent"].as_str().unwrap_or_default(),
+                exit["tool"].as_str().unwrap_or_default(),
+                exit["decision"].as_str().unwrap_or_default(),
+                exit["decided_by"].as_str().unwrap_or_default(),
+                exit["approval"].as_str().unwrap_or("none"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        exits,
+        [
+            ("reader", "send_message", "deny", "gateway", "none"),
+            ("reader", "http_fetch", "ask", "user", "denied"),
+            ("reader", "http_fetch", "deny", "gateway", "none"),
+            ("messenger", "send_message", "ask", "user", "denied"),
+        ]
+    );
+    assert_eq!(report["exits"][0]["rules"][0]["kind"], "agent_policy");
+    assert_eq!(report["exits"][2]["rules"][0]["kind"], "repeat_of_refused");
+
+    let unknown = RunId::new();
+    assert_eq!(
+        get_json(&base, &format!("/api/drill/{unknown}/report"))
+            .await
+            .0,
+        404
+    );
+}

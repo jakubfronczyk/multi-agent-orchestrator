@@ -1,0 +1,122 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t.id, t.run_id, t.tool, t.action, t.decision, t.rules, t.status,\n                  ag.slug AS \"agent!\", a.status AS \"approval?\"\n           FROM tool_calls t\n           JOIN runs r ON r.id = t.run_id\n           JOIN agents ag ON ag.id = t.agent_id\n           LEFT JOIN approvals a ON a.tool_call_id = t.id\n           WHERE r.root_run_id = ?1\n           ORDER BY t.requested_at, t.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "run_id",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "run_id"
+          }
+        }
+      },
+      {
+        "name": "tool",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "tool"
+          }
+        }
+      },
+      {
+        "name": "action",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "action"
+          }
+        }
+      },
+      {
+        "name": "decision",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "decision"
+          }
+        }
+      },
+      {
+        "name": "rules",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "rules"
+          }
+        }
+      },
+      {
+        "name": "status",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tool_calls",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "name": "agent!",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agents",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "name": "approval?",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "approvals",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "323fb8c8774fc70687259dc91636df1edf16d6c65af7e6f9b55f1d8565e4758b"
+}

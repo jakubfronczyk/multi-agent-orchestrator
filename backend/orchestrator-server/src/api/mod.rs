@@ -14,6 +14,7 @@ use tower_http::trace::TraceLayer;
 
 mod agents;
 mod approvals;
+mod drill;
 mod error;
 mod events;
 mod files;
@@ -51,6 +52,8 @@ pub fn router(state: AppState) -> Router {
         .route("/memory/{id}/versions", get(memory::versions))
         .route("/outbox", get(outbox::list))
         .route("/files", get(files::view))
+        .route("/drill", post(drill::start))
+        .route("/drill/{id}/report", get(drill::report))
         .route("/approvals", get(approvals::list))
         .route("/approvals/{id}", post(approvals::answer))
         .route("/events", get(events::stream))

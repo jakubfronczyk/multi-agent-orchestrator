@@ -1,0 +1,47 @@
+//! `POST /api/drill` starts the seeded security drill as a task led by the Lead;
+//! `GET /api/drill/{run_id}/report` lists every exit the task tried and who decided it.
+
+use axum::Json;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use orchestrator_core::engine::StartRequest;
+use orchestrator_core::ids::RunId;
+
+use super::AppState;
+use super::error::ApiError;
+use super::runs::{StartRunResponse, start_error};
+use crate::config;
+use crate::sqlite::drill::{self, DrillReport};
+
+/// The scripted provider plays the `drill` replies; with xAI the model meets the planted note itself.
+pub async fn start(
+    State(state): State<AppState>,
+) -> Result<(StatusCode, Json<StartRunResponse>), ApiError> {
+    let run_id = state
+        .engine
+        .start(StartRequest {
+            agent_id: None,
+            task: config::DRILL_TASK.to_string(),
+            title: Some(config::DRILL_TITLE.to_string()),
+            budget: None,
+            scenario: Some("drill".to_string()),
+        })
+        .await
+        .map_err(start_error)?;
+    Ok((StatusCode::ACCEPTED, Json(StartRunResponse { run_id })))
+}
+
+pub async fn report(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<DrillReport>, ApiError> {
+    let root: RunId = id.parse().map_err(|_| ApiError::not_found())?;
+    drill::report(&state.pool, root)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "drill report read failed");
+            ApiError::internal()
+        })?
+        .map(Json)
+        .ok_or_else(ApiError::not_found)
+}

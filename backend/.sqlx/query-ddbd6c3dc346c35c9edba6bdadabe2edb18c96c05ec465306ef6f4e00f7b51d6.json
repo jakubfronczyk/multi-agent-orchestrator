@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) AS \"sent!: i64\" FROM outbox_messages o JOIN runs r ON r.id = o.run_id\n           WHERE r.root_run_id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "sent!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ddbd6c3dc346c35c9edba6bdadabe2edb18c96c05ec465306ef6f4e00f7b51d6"
+}

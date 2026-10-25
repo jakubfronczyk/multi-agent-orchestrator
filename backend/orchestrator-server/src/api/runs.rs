@@ -58,7 +58,7 @@ pub async fn start(
     Ok((StatusCode::ACCEPTED, Json(StartRunResponse { run_id })))
 }
 
-fn start_error(error: StartError) -> ApiError {
+pub(super) fn start_error(error: StartError) -> ApiError {
     match error {
         StartError::NoLead => ApiError::invalid("agent_id", "the team has no Lead"),
         StartError::UnknownAgent => ApiError::invalid("agent_id", "no live agent has this id"),

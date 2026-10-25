@@ -8,6 +8,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 
 pub mod agents;
 pub mod approvals;
+pub mod drill;
 pub mod events;
 pub mod memory;
 pub mod outbox;
