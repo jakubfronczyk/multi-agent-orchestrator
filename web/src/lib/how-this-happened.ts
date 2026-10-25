@@ -113,13 +113,12 @@ export function explainApproval(
     label: "What it had read before",
     lines: [readBeforeText(approval.custody.taint_sources.map(sourceLabel))],
   })
-  // A card means the outcome was Ask, but taint or an off-list host escalate any setting to Ask,
-  // so the setting itself is named only when neither is present.
-  const escalated = approval.custody.rules.some((rule) => rule.kind === "taint" || rule.kind === "off_allowlist")
+  // A card means the verdict was Ask, and an agent_policy rule appears only for a setting
+  // stricter than Allow; Deny would have refused, so that setting is Ask.
   const rules = reasonsText(approval.custody.rules, {
     agent: agentName,
     tool: approval.tool,
-    decision: escalated ? null : "ask",
+    decision: "ask",
   })
   if (rules.length > 0) hops.push({ kind: "rule", label: "The rule", lines: rules })
   hops.push({

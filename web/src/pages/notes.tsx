@@ -89,7 +89,6 @@ function NoteCard({ note }: { note: MemoryEntryView }) {
       </div>
       <p className="m-0 text-base break-words">{note.content}</p>
       <small className="font-mono text-xs break-all text-muted-foreground">{note.key}</small>
-      <small className="text-sm text-muted-foreground">Written by {author?.name ?? note.author_slug}.</small>
       {note.scope === "shared" && note.trust === "untrusted" && (
         <span className="text-sm text-amber-800 dark:text-amber-300">
           Lead can't see this note, because it is untrusted.

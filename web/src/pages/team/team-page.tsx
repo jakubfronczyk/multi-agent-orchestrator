@@ -10,7 +10,8 @@ export function TeamPage() {
   const agents = useQuery(agentsQuery)
   const [params, setParams] = useSearchParams()
   const adding = params.get("add") === "1"
-  const list = agents.data ?? []
+  // The Lead is the default selection, so it comes first.
+  const list = [...(agents.data ?? [])].sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"))
   const lead = list.find((agent) => agent.role === "lead")
   const selected = list.find((agent) => agent.slug === params.get("agent")) ?? lead
 

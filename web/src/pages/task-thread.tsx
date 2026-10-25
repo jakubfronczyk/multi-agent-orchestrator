@@ -393,7 +393,8 @@ const SOURCE_KIND: Record<TaintSource["kind"], string> = {
 function TaintBanner({ sources }: { sources: TaintSource[] }) {
   const chip = "rounded-full bg-card px-2.5 py-0.5 text-xs text-sidebar-foreground ring-1 ring-border ring-inset"
   return (
-    <div className="sticky top-2 z-[3] flex gap-3 rounded-lg bg-amber-50 px-4 py-3 text-sm ring-1 ring-border dark:bg-card dark:bg-linear-to-r dark:from-amber-950/45 dark:to-amber-950/45">
+    // Sticky only from md: at phone width it would cover a sixth of the screen.
+    <div className="z-[3] flex gap-3 rounded-lg bg-amber-50 md:sticky md:top-2 px-4 py-3 text-sm ring-1 ring-border dark:bg-card dark:bg-linear-to-r dark:from-amber-950/45 dark:to-amber-950/45">
       <TriangleAlert className="mt-0.5 size-[18px] flex-none text-amber-800 dark:text-amber-300" />
       <div className="min-w-0">
         <b className="font-semibold">This task read outside content.</b> {TAINT_EFFECT}
