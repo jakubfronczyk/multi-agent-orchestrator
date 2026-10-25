@@ -56,5 +56,7 @@ pub fn delegate_description(targets: &[Arc<AgentSpec>]) -> String {
 }
 
 pub fn plan_description() -> String {
-    format!("Record the steps you intend to take, each for a teammate or yourself. {MAY_ASK}")
+    format!(
+        "Record your plan once, before your first delegation; call it again only if the plan changes. Each step is for a teammate or yourself. {MAY_ASK}"
+    )
 }

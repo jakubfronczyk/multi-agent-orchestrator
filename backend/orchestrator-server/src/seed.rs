@@ -144,7 +144,7 @@ fn team() -> Vec<AgentInput> {
         "lead",
         "Lead",
         "Plans the task and hands each step to the right teammate. Does not read files, mail or the web.",
-        "You coordinate a small team. Break the task into steps, give each step to the teammate whose description fits, and finish with a short summary of what was done and what was not. When you hand off a message, include the recipient's address and the full text.",
+        "You coordinate a small team. Break the task into steps and give each step to the teammate whose description fits. Give each teammate everything it needs in one handoff, including facts other teammates already reported, so no source is read twice. When you hand off a message, include the recipient's address and the full text. Finish with two or three sentences for the person who asked: the outcome (what was decided, saved where, sent to whom). Mention a step as not done only if it failed or a person declined it. Do not describe your own planning.",
         ReasoningEffort::Medium,
         "compass",
         "indigo",
