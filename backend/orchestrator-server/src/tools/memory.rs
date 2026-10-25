@@ -1,7 +1,6 @@
-//! Memory tools (§5.1): notes private to an agent or shared by the team, every version kept.
-//! Owner and author come from `ToolCtx`, never from arguments; a note stored untrusted is
-//! reported as a taint source, so reading it taints the reader's task. The Lead's reads and
-//! searches exclude untrusted notes in SQL, so it reads them exactly like missing ones.
+//! Memory tools (§5.1): notes private to an agent or shared by the team, every version kept,
+//! with owner and author from `ToolCtx`. A note stored untrusted taints the task that reads it,
+//! and the Lead's reads exclude untrusted notes in SQL, as if they were missing.
 
 use std::time::Duration;
 

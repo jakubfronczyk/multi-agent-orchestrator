@@ -76,8 +76,10 @@ pub async fn interrupt_unfinished(
             };
             store.emit(at, interrupted).await?;
         }
-        let outcome = RunOutcome::Interrupted;
-        store.emit(at, RunEvent::RunFinished { outcome }).await?;
+        let finished = RunEvent::RunFinished {
+            outcome: RunOutcome::Interrupted,
+        };
+        store.emit(at, finished).await?;
     }
     Ok(runs.len())
 }

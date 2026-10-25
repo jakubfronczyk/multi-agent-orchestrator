@@ -94,8 +94,7 @@ pub async fn create(pool: &SqlitePool, input: AgentInput) -> Result<AgentRecord,
         now
     )
     .execute(&mut *tx)
-    .await
-    ?;
+    .await?;
     write_tools(&mut tx, &id, spec.tools()).await?;
 
     let record = load(&mut tx, &id).await?.ok_or(AgentError::NotFound)?;

@@ -245,7 +245,7 @@ impl Tool for SendMessage {
             verb: "send".to_string(),
             target: Target::Recipient {
                 channel: args.channel.name().to_string(),
-                address: args.recipient.as_str().to_string(),
+                address: args.recipient,
             },
         })
     }

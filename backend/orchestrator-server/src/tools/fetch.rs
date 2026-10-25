@@ -110,10 +110,6 @@ fn push_capped(body: &mut Vec<u8>, chunk: &[u8]) -> bool {
     false
 }
 
-fn failed(message: String) -> ToolError {
-    ToolError::Failed(message)
-}
-
 #[async_trait]
 impl Tool for HttpFetch {
     fn spec(&self) -> &ToolSpec {
@@ -151,36 +147,36 @@ impl Tool for HttpFetch {
             .connect_timeout(CONNECT_TIMEOUT);
         match url.host() {
             Some(url::Host::Ipv4(ip)) if blocked_v4(ip) => {
-                return Err(failed(format!("{host} is not public")));
+                return Err(ToolError::Failed(format!("{host} is not public")));
             }
             Some(url::Host::Ipv6(ip)) if blocked_v6(ip) => {
-                return Err(failed(format!("{host} is not public")));
+                return Err(ToolError::Failed(format!("{host} is not public")));
             }
             Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)) => {}
             Some(url::Host::Domain(domain)) => {
                 let resolved: Vec<SocketAddr> = tokio::net::lookup_host((domain, port))
                     .await
-                    .map_err(|_| failed(format!("{host} could not be resolved")))?
+                    .map_err(|_| ToolError::Failed(format!("{host} could not be resolved")))?
                     .collect();
                 if resolved.is_empty() || resolved.iter().any(|addr| is_blocked(addr.ip())) {
-                    return Err(failed(format!(
+                    return Err(ToolError::Failed(format!(
                         "{host} resolves to an address that is not public"
                     )));
                 }
                 // Pinning the checked address means a second DNS answer cannot redirect the connection.
                 client = client.resolve(domain, resolved[0]);
             }
-            None => return Err(failed("the URL has no host".to_string())),
+            None => return Err(ToolError::Failed("the URL has no host".to_string())),
         }
         let client = client
             .build()
-            .map_err(|_| failed("the HTTP client could not start".to_string()))?;
+            .map_err(|_| ToolError::Failed("the HTTP client could not start".to_string()))?;
 
         let mut response = client
             .get(url.clone())
             .send()
             .await
-            .map_err(|_| failed(format!("could not fetch from {host}")))?;
+            .map_err(|_| ToolError::Failed(format!("could not fetch from {host}")))?;
         let status = response.status().as_u16();
         let content_type = response
             .headers()
@@ -193,7 +189,7 @@ impl Tool for HttpFetch {
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|_| failed(format!("the response from {host} broke off")))?
+            .map_err(|_| ToolError::Failed(format!("the response from {host} broke off")))?
         {
             if push_capped(&mut body, &chunk) {
                 truncated = true;

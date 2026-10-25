@@ -1,5 +1,4 @@
-//! The JSON body extractor: structural input errors carry the failing path as `field`.
-//! Rules on well-formed values are checked later, in core.
+//! The JSON body extractor for every handler that takes a body.
 
 use axum::body::Bytes;
 use axum::extract::{FromRequest, Request};

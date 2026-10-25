@@ -73,7 +73,7 @@ async fn provider() -> anyhow::Result<(Arc<dyn LlmProvider>, ActiveProvider)> {
                 ActiveProvider::Xai,
             ))
         }
-        Ok(_) | Err(_) => {
+        _ => {
             tracing::info!("provider: scripted (demo mode: scripted replies)");
             Ok((
                 Arc::new(ScenarioRouter::new(None)),
