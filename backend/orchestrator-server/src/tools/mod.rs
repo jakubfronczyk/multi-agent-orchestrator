@@ -13,6 +13,7 @@ use crate::sqlite::text::from_text;
 
 pub mod files;
 pub mod memory;
+pub mod messages;
 mod sandbox;
 
 /// The one argument parser every tool uses in both `check` and `run`.

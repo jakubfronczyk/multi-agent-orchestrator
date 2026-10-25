@@ -25,6 +25,7 @@ mod delegate;
 mod files;
 mod gateway;
 mod memory;
+mod messages;
 mod recording;
 mod runs;
 mod taint;

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT run_id, recipient, body FROM outbox_messages",
+  "describe": {
+    "columns": [
+      {
+        "name": "run_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "run_id"
+          }
+        }
+      },
+      {
+        "name": "recipient",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "recipient"
+          }
+        }
+      },
+      {
+        "name": "body",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "body"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "06a871e54273d0fde219dc78bf3892bd5f8fe8e57b0a3dd8fa0671d9449323ab"
+}

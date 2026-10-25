@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, sender, subject, received_at FROM inbox_messages ORDER BY received_at, id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "sender",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "sender"
+          }
+        }
+      },
+      {
+        "name": "subject",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "subject"
+          }
+        }
+      },
+      {
+        "name": "received_at",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "received_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "133226b6e7590aad0cfa8052ab143728ded61c7f62c92650f54d0d848c5e9c5e"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO inbox_messages (id, sender, subject, body, received_at) VALUES (?, 'someone@example.com', ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "e8654c0bd079cf277508f84266085024ae2367c1f163f8b3b0bfe258b4722b33"
+}

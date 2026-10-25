@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, sender, subject, body, received_at FROM inbox_messages WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "sender",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "sender"
+          }
+        }
+      },
+      {
+        "name": "subject",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "subject"
+          }
+        }
+      },
+      {
+        "name": "body",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "name": "received_at",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "received_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0fea00848cac5a5aebdf0bf85c184ff20bfc714aea8d0ec94b879fe77e87bf07"
+}
