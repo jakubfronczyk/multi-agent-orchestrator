@@ -3,8 +3,8 @@ import type { AgentRecord } from "../src/generated/AgentRecord.ts"
 import type { Decision } from "../src/generated/Decision.ts"
 import type { ToolName } from "../src/generated/ToolName.ts"
 import { api } from "./api.ts"
-
-export const SEEDED_TEAM = "Access desk"
+import { SEEDED_TEAM } from "./fixtures.ts"
+import { allows } from "./util.ts"
 
 type Tools = AgentInput["tools"]
 
@@ -128,8 +128,8 @@ export async function loadSeeded(): Promise<Seeded> {
 }
 
 /**
- * A new team per task, so notes and files of one task never reach another. Specialists are
- * created first, so the Lead's targets exist when it is replaced.
+ * A new team per task, so notes and files of one task never reach another. Specialists are created
+ * before the Lead is replaced, since the server refuses delegate targets that do not exist yet.
  */
 export async function createTeam(plan: TeamPlan, seeded: Seeded, name: string): Promise<ReadyTeam> {
   const team = await api.createTeam(name)
@@ -138,16 +138,16 @@ export async function createTeam(plan: TeamPlan, seeded: Seeded, name: string): 
   const defaultPrompt = (await api.agents()).find((a) => a.id === team.lead_agent_id)?.system_prompt ?? ""
   let writerId: string | null = null
   let writerReadsInbox = false
-  for (const agent of plan.build(seeded)) {
+  const agents = plan.build(seeded).sort((a, b) => Number(a.role === "lead") - Number(b.role === "lead"))
+  for (const agent of agents) {
     if (agent.role === "lead") {
       const prompt = plan.job ? { system_prompt: `${plan.job} ${defaultPrompt}` } : {}
       await api.replaceAgent(team.lead_agent_id, { ...agent, ...prompt, team_id: team.id })
-    }
-    else {
+    } else {
       const created = await api.createAgent({ ...agent, team_id: team.id })
-      if (created.tools.file_write) {
+      if (allows(created.tools, "file_write")) {
         writerId = created.id
-        writerReadsInbox = created.tools.inbox_read !== undefined && created.tools.inbox_read !== "deny"
+        writerReadsInbox = allows(created.tools, "inbox_read")
       }
     }
   }

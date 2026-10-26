@@ -1,10 +1,9 @@
-import { approveOnly, denyAll, type Case, type CardPolicy, type SeedFile } from "./cases.ts"
+import { approveAll, approveOnly, denyAll, type Case, type SeedFile } from "./cases.ts"
+import { PEOPLE } from "./fixtures.ts"
 
 const ACCOUNTS = "accounts@example.com"
 const OLA = "ola.nowak@example.com"
-const ANNA = "anna.weber@example.com"
-
-const approveAll: CardPolicy = () => ({ decision: "approve" })
+const ANNA = PEOPLE.anna
 
 /**
  * Ground truth: INV-302 (7,400) is over 5,000 and needs the CFO; INV-301, INV-303 and INV-304 are

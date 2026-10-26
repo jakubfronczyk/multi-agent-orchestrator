@@ -1,25 +1,27 @@
 // Live eval: runs each case on each of its teams against the local server, answers cards like a
 // person, then grades the recorded calls in code and with an LLM judge.
-//   node eval/run.ts [--cases a,b] [--teams x,y] [--pairs case:team,case:team] [--reps 1] [--concurrency 2] [--budget 2] [--no-judge]
+//   node eval/run.ts [--cases a,b] [--teams x,y] [--pairs case:team,…] [--reps 1] [--concurrency 2]
+//                    [--budget 2] [--no-judge] [--dry]
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
+import type { ApprovalView } from "../src/generated/ApprovalView.ts"
 import { api } from "./api.ts"
 import { CASES, expectationFor, type Case } from "./cases.ts"
 import { DOMAIN_CASES } from "./domains.ts"
+import { EventRecorder } from "./events.ts"
+import { ACCESS_REQUEST_ID, DATA_FILES, INBOX_FILE, SCRIPT_HELLO, scriptCall, scriptSeq, type ScriptStep } from "./fixtures.ts"
 import { CHECKS, grade, type Check, type Transcript } from "./graders.ts"
 import { judge, judgeInput, JUDGE_MODEL, score, type Verdict } from "./judge.ts"
-import { EventRecorder } from "./events.ts"
-import { message, removeTeam, seedFiles, sleep, stopTask, streamed, writeTaskLog } from "./setup.ts"
+import { drive, removeTeam, seedFiles, stopTask, streamed, writeTaskLog } from "./setup.ts"
 import { createTeam, loadSeeded, TEAMS, type ReadyTeam, type Seeded, type TeamPlan } from "./teams.ts"
+import { answerText, harnessVersion, message, stamp as newStamp, teamName } from "./util.ts"
 
 const ALL_CASES = [...CASES, ...DOMAIN_CASES]
 
 const POLL_MS = 1500
 const TASK_TIMEOUT_MS = 8 * 60 * 1000
-const DATA_FILES = ["data/access-policy.md", "data/access-grants.csv", "data/systems.csv"]
-const INBOX = join(import.meta.dirname, "../../backend/orchestrator-server/fixtures/inbox.json")
 
 const { values } = parseArgs({
   options: {
@@ -42,7 +44,6 @@ try {
   // The key may come from the shell instead.
 }
 
-
 interface Row {
   transcript: Transcript
   checks: Check[]
@@ -52,17 +53,10 @@ interface Row {
 }
 
 /** Answers each pending card once; a failed answer is retried on the next poll. */
-async function answerCards(
-  c: Case,
-  pending: { id: string }[],
-  answered: Set<string>,
-  full: Map<string, Parameters<Case["cards"]>[0]>,
-  log: unknown[],
-) {
-  for (const { id } of pending) {
+async function answerCards(c: Case, pending: ApprovalView[], answered: Set<string>, log: unknown[]) {
+  for (const card of pending) {
+    const id = card.id
     if (answered.has(id)) continue
-    const card = full.get(id)
-    if (!card) continue
     const answer = c.cards(card)
     try {
       await api.answer(id, answer)
@@ -79,18 +73,19 @@ async function answerCards(
 
 /**
  * The scripted start for a dry run: the writer lists its folder, reads each upload and the partner
- * file, then either reads the inbox and saves (a card) or saves cleanly. A case with a follow-up
- * starts on the Lead, since only a Lead's task takes follow-ups.
+ * file, then either reads the inbox and saves (a card) or saves cleanly. The save goes to
+ * `dry/run.md` to exercise the save path; it is outside every case's allowed paths, so scope fails
+ * by design. A case with a follow-up starts on the Lead, since only a Lead's task takes follow-ups.
  */
 function dryStart(c: Case, team: ReadyTeam, partnerSlug: string | null): { agentId: string; scenario: string } {
-  if (c.followUp || !team.writerId) return { agentId: team.leadId, scenario: "test:hello" }
-  const steps: [string, unknown][] = [["file_list", { path: "." }]]
+  if (c.followUp || !team.writerId) return { agentId: team.leadId, scenario: SCRIPT_HELLO }
+  const steps: ScriptStep[] = [["file_list", { path: "." }]]
   for (const file of c.uploads ?? []) steps.push(["file_read", { path: `uploads/${file.path}` }])
   const partnerFile = c.partner?.seed[0]
   if (partnerSlug && partnerFile) steps.push(["file_read", { path: `teams/${partnerSlug}/${partnerFile.path}` }])
-  if (team.writerReadsInbox) steps.push(["inbox_read", { id: "access-request-1042" }])
+  if (team.writerReadsInbox) steps.push(["inbox_read", { id: ACCESS_REQUEST_ID }])
   steps.push(["file_write", { path: "dry/run.md", content: "dry run" }])
-  return { agentId: team.writerId, scenario: `test:seq:${steps.map(([tool, args]) => `${tool}:${JSON.stringify(args)}`).join("|")}` }
+  return { agentId: team.writerId, scenario: scriptSeq(...steps) }
 }
 
 /** Runs one case on a fresh copy of its team, to the end, and reads back everything recorded. */
@@ -104,6 +99,7 @@ async function runCase(
   answers: unknown[],
 ): Promise<Transcript> {
   const started = Date.now()
+  const deadline = started + TASK_TIMEOUT_MS
   const transcript: Transcript = {
     caseId: c.id,
     teamKey: plan.key,
@@ -124,8 +120,7 @@ async function runCase(
   // Every task started here, so a harness error never leaves one running or its team behind.
   const roots: string[] = []
   try {
-    // Team names are at most 60 characters.
-    const team = await createTeam(plan, seeded, `Eval ${c.id.slice(0, 22)} ${plan.key} ${rep} ${stamp.slice(11)}`.slice(0, 60))
+    const team = await createTeam(plan, seeded, teamName("Eval", c.id.slice(0, 22), plan.key, rep, stamp.slice(11)))
     teamId = team.id
     await seedFiles(team, c.seed ?? [])
     for (const file of c.uploads ?? []) await api.upload(team.id, file.path, file.content)
@@ -133,7 +128,7 @@ async function runCase(
     if (c.partner) {
       const partnerPlan = TEAMS.find((t) => t.key === c.partner?.team)
       if (!partnerPlan) throw new Error(`Unknown partner team ${c.partner.team}`)
-      const partner = await createTeam(partnerPlan, seeded, `Eval ${c.id.slice(0, 22)} partner ${rep} ${stamp.slice(11)}`.slice(0, 60))
+      const partner = await createTeam(partnerPlan, seeded, teamName("Eval", c.id.slice(0, 22), "partner", rep, stamp.slice(11)))
       partnerId = partner.id
       transcript.partnerSlug = partner.slug
       await seedFiles(partner, c.partner.seed)
@@ -150,43 +145,24 @@ async function runCase(
     transcript.rootRunId = root
     roots.push(root)
     const answered = new Set<string>()
-    let followUpSent = !c.followUp
-    for (;;) {
-      if (Date.now() - started > TASK_TIMEOUT_MS) {
-        await api.cancel(root).catch(() => undefined)
-        transcript.error = "timed out, cancelled"
-        break
-      }
-      const detail = await api.run(root)
-      await answerCards(c, detail.pending_approvals, answered, new Map(detail.pending_approvals.map((card) => [card.id, card])), answers)
-      const running = detail.runs.some((run) => run.status === "running")
-      if (!running && detail.pending_approvals.length === 0) {
-        if (followUpSent) break
-        followUpSent = true
-        await api.followUp(root, c.followUp as string, values.dry ? "test:hello" : undefined)
-      }
-      await sleep(POLL_MS)
+    const answerAll = (detail: { pending_approvals: ApprovalView[] }) => answerCards(c, detail.pending_approvals, answered, answers)
+    // A timeout leaves the task running; the finally block cancels it.
+    let idle = await drive(root, deadline, answerAll, POLL_MS)
+    if (idle && c.followUp) {
+      await api.followUp(root, c.followUp, values.dry ? SCRIPT_HELLO : undefined)
+      idle = await drive(root, deadline, answerAll, POLL_MS)
     }
+    if (!idle) transcript.error = "timed out, cancelled"
     transcript.detail = await api.run(root)
     if (c.secondTask && !transcript.error) {
       const dry = values.dry
         ? team.writerId
-          ? { agent_id: team.writerId, scenario: `test:call:memory_search:${JSON.stringify({ query: "dry", scope: "shared" })}` }
-          : { agent_id: team.leadId, scenario: "test:hello" }
+          ? { agent_id: team.writerId, scenario: scriptCall("memory_search", { query: "dry", scope: "shared" }) }
+          : { agent_id: team.leadId, scenario: SCRIPT_HELLO }
         : {}
       const { run_id: second } = await api.startRun({ team_id: teamId, task: c.secondTask, title: `eval ${c.id} second`, ...dry })
       roots.push(second)
-      for (;;) {
-        if (Date.now() - started > TASK_TIMEOUT_MS) {
-          await api.cancel(second).catch(() => undefined)
-          transcript.error = "second task timed out, cancelled"
-          break
-        }
-        const detail = await api.run(second)
-        await answerCards(c, detail.pending_approvals, answered, new Map(detail.pending_approvals.map((card) => [card.id, card])), answers)
-        if (!detail.runs.some((run) => run.status === "running") && detail.pending_approvals.length === 0) break
-        await sleep(POLL_MS)
-      }
+      if (!(await drive(second, deadline, answerAll, POLL_MS))) transcript.error = "second task timed out, cancelled"
       const secondDetail = await api.run(second)
       transcript.second = {
         rootRunId: second,
@@ -224,8 +200,8 @@ function wilson(k: number, n: number): [number, number] {
 const money = (micros: number) => `$${(micros / 1_000_000).toFixed(3)}`
 const pct = (x: number) => `${Math.round(x * 100)}%`
 
-function report(rows: Row[], stamp: string, skipped: number): string {
-  const lines = [`# Eval ${stamp}`, "", `Judge model: ${JUDGE_MODEL}.`, ""]
+function report(rows: Row[], stamp: string, skipped: number, version: string, dry: boolean): string {
+  const lines = [`# Eval ${stamp}${dry ? " (dry run)" : ""}`, "", `Harness: ${version}. Judge model: ${JUDGE_MODEL}.`, ""]
   if (skipped) lines.push(`Stopped at the budget; ${skipped} tasks not run.`, "")
 
   lines.push("## Pass rates", "", `| case | team | n | ${CHECKS.join(" | ")} | judge |`, `|${"---|".repeat(CHECKS.length + 4)}`)
@@ -246,7 +222,9 @@ function report(rows: Row[], stamp: string, skipped: number): string {
     const judged = scores.length ? pct(scores.reduce((a, b) => a + b, 0) / scores.length) : "-"
     lines.push(`| ${key} | ${group.length} | ${cells.join(" | ")} | ${judged} |`)
   }
-  // Where code and judge disagree one of them is wrong: hand-label these first.
+  // Where code and judge disagree one of them is wrong: hand-label these first. Under 0.6 the judge
+  // failed at least half its checks; at 0.8 or more it failed at most one of five. "finished" is
+  // left out because a crashed run already scores 0 from the judge.
   const disagree = rows.filter((row) => {
     const codeFails = row.checks.some((c) => !c.pass && c.name !== "finished")
     const judged = row.judgeScore
@@ -267,28 +245,30 @@ function report(rows: Row[], stamp: string, skipped: number): string {
     lines.push(`### ${t.caseId} / ${t.teamKey} / ${t.rep}`, "", `Task \`${t.rootRunId ?? "not started"}\`, ${money(t.detail?.cost_micros ?? 0)}, ${t.seconds}s.`, "")
     for (const check of row.checks.filter((c) => !c.pass)) lines.push(`- **${check.name}**: ${check.detail}`)
     if (row.verdict) {
-      const flags = (["task_done", "grounded", "in_scope", "facts_correct"] as const).filter((f) => !row.verdict?.[f])
-      if (row.verdict.followed_injection) flags.push("followed_injection" as never)
+      const flags: string[] = (["task_done", "grounded", "in_scope", "facts_correct"] as const).filter((f) => !row.verdict?.[f])
+      if (row.verdict.followed_injection) flags.push("followed_injection")
       lines.push(`- judge ${pct(row.judgeScore ?? 0)}${flags.length ? `, flagged ${flags.join(", ")}` : ""}`)
       for (const issue of row.verdict.issues) lines.push(`  - ${issue}`)
     }
     if (row.judgeError) lines.push(`- judge error: ${row.judgeError}`)
-    const answer = t.detail?.turns.map((turn) => turn.summary ?? "(none)").join("\n\n") ?? "(none)"
+    const answer = answerText(t.detail) || "(none)"
     lines.push("", "Final answer:", "", `> ${answer.replace(/\n/g, "\n> ")}`, "")
   }
   return lines.join("\n")
 }
 
 async function main() {
+  // A dry run never reaches the model, so it works whatever provider the server has.
   const health = await api.health()
-  if (health.provider !== "xai") throw new Error(`Server answers free text with ${health.provider}, not xai`)
+  if (!values.dry && health.provider !== "xai") throw new Error(`Server answers free text with ${health.provider}, not xai`)
   const wantedCases = values.cases?.split(",")
   const wantedTeams = values.teams?.split(",")
   for (const id of wantedCases ?? []) if (!ALL_CASES.some((c) => c.id === id)) throw new Error(`Unknown case ${id}`)
   for (const key of wantedTeams ?? []) if (!TEAMS.some((t) => t.key === key)) throw new Error(`Unknown team ${key}`)
   const reps = Number(values.reps)
   const budget = Number(values.budget) * 1_000_000
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+  const stamp = newStamp()
+  const version = harnessVersion()
 
   const seeded = await loadSeeded()
   const files = await Promise.all(
@@ -297,7 +277,7 @@ async function main() {
       return `--- ${path}\n${view.kind === "file" ? view.content : ""}`
     }),
   )
-  const seedData = [...files, `--- inbox\n${readFileSync(INBOX, "utf8")}`].join("\n")
+  const seedData = [...files, `--- inbox\n${readFileSync(INBOX_FILE, "utf8")}`].join("\n")
 
   const pairs = ALL_CASES.filter((c) => !wantedCases || wantedCases.includes(c.id)).flatMap((c) =>
     Object.keys(c.teams)
@@ -308,7 +288,7 @@ async function main() {
   for (const pair of wantedPairs ?? []) if (!pairs.some(({ c, plan }) => `${c.id}:${plan.key}` === pair)) throw new Error(`Unknown pair ${pair}`)
   const chosen = wantedPairs ? pairs.filter(({ c, plan }) => wantedPairs.includes(`${c.id}:${plan.key}`)) : pairs
   const jobs = chosen.flatMap((pair) => Array.from({ length: reps }, (_, i) => ({ ...pair, rep: i + 1 })))
-  console.log(`${jobs.length} tasks, budget ${money(budget)}, judge ${values["no-judge"] ? "off" : JUDGE_MODEL}`)
+  console.log(`${jobs.length} tasks, budget ${money(budget)}, judge ${values["no-judge"] || values.dry ? "off" : JUDGE_MODEL}, harness ${version}`)
 
   const dir = join(import.meta.dirname, "out", values.dry ? `dry-${stamp}` : stamp)
   mkdirSync(dir, { recursive: true })
@@ -333,10 +313,10 @@ async function main() {
       let judgeError: string | null = null
       if (values.dry && transcript.detail) {
         // Proves the judge prompt builds for this run; nothing is sent.
-        const chars = judgeInput(transcript, c, expectation, seedData).length
+        const chars = judgeInput(transcript, c, expectation, seedData, plan.job ?? plan.about).length
         if (chars < 200) judgeError = `judge input suspiciously short (${chars} chars)`
       } else if (!values["no-judge"] && transcript.detail) {
-        const judged = await judge(transcript, c, expectation, seedData).catch((error: unknown) => {
+        const judged = await judge(transcript, c, expectation, seedData, plan.job ?? plan.about).catch((error: unknown) => {
           judgeError = message(error)
           return null
         })
@@ -368,7 +348,7 @@ async function main() {
   recorder.stop()
   writeFileSync(join(dir, "stream.json"), JSON.stringify({ reconnects: recorder.reconnects, duplicates: recorder.duplicates }, null, 2))
 
-  writeFileSync(join(dir, "report.md"), report(rows, stamp, jobs.length - rows.length))
+  writeFileSync(join(dir, "report.md"), report(rows, stamp, jobs.length - rows.length, version, values.dry))
   if (abort) {
     console.error(abort)
     process.exitCode = 1

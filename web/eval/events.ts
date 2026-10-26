@@ -1,6 +1,6 @@
 import type { EventEnvelope } from "../src/generated/EventEnvelope.ts"
-
-const BASE = process.env.EVAL_API ?? "http://localhost:8787/api"
+import { BASE } from "./api.ts"
+import { message, sleep } from "./util.ts"
 
 /**
  * Records `/api/events` for the whole eval. A dropped stream reconnects with `Last-Event-ID`, so
@@ -50,8 +50,8 @@ export class EventRecorder {
         this.reconnects.push(`stream ended after id ${this.lastId}`)
       } catch (error) {
         if (this.controller.signal.aborted) return
-        this.reconnects.push(error instanceof Error ? error.message : String(error))
-        await new Promise((resolve) => setTimeout(resolve, 1000))
+        this.reconnects.push(message(error))
+        await sleep(1000)
       }
     }
   }

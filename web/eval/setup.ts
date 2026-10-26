@@ -4,24 +4,37 @@ import type { RunDetail } from "../src/generated/RunDetail.ts"
 import { api } from "./api.ts"
 import type { SeedFile } from "./cases.ts"
 import type { EventRecorder } from "./events.ts"
+import { scriptCall } from "./fixtures.ts"
 import type { ReadyTeam } from "./teams.ts"
+import { message, sleep } from "./util.ts"
 
-export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-export const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
-
-/** The task once no run of it is running, or the last snapshot when `timeoutMs` passes. */
-export async function waitIdle(root: string, timeoutMs = 60_000, pollMs = 300): Promise<RunDetail> {
-  const started = Date.now()
+/**
+ * Polls the task until it has runs, none of them running and no card waiting, calling `onPoll` with
+ * each snapshot first (to answer cards). Null when `deadline` (epoch ms) passes before that.
+ */
+export async function drive(
+  root: string,
+  deadline: number,
+  onPoll?: (detail: RunDetail) => Promise<void>,
+  pollMs = 300,
+): Promise<RunDetail | null> {
   for (;;) {
     const detail = await api.run(root)
-    if (detail.runs.length > 0 && detail.runs.every((run) => run.status !== "running")) return detail
-    if (Date.now() - started > timeoutMs) return detail
+    await onPoll?.(detail)
+    const idle = detail.runs.length > 0 && detail.runs.every((run) => run.status !== "running")
+    if (idle && detail.pending_approvals.length === 0) return detail
+    if (Date.now() > deadline) return null
     await sleep(pollMs)
   }
 }
 
+/** The task once it is idle, or its last snapshot when `timeoutMs` passes. */
+export async function waitIdle(root: string, timeoutMs = 60_000): Promise<RunDetail> {
+  return (await drive(root, Date.now() + timeoutMs)) ?? api.run(root)
+}
+
 /** Cancels the task if any run of it is still running, then waits until none is; a 409 means it already ended. */
-export async function stopTask(root: string) {
+export async function stopTask(root: string): Promise<void> {
   const detail = await api.run(root).catch(() => null)
   if (!detail?.runs.some((run) => run.status === "running")) return
   await api.cancel(root).catch(() => undefined)
@@ -29,7 +42,7 @@ export async function stopTask(root: string) {
 }
 
 /** Deletes a team, retrying while the server still sees a task of it running; warns when it gives up. */
-export async function removeTeam(id: string, label: string) {
+export async function removeTeam(id: string, label: string): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       await api.deleteTeam(id)
@@ -63,8 +76,8 @@ export async function seedFiles(team: ReadyTeam, files: SeedFile[]) {
   if (files.length === 0) return
   if (!team.writerId) throw new Error(`team ${team.key} has no agent that can save files to seed`)
   for (const file of files) {
-    const args = JSON.stringify({ path: file.path, content: file.content })
-    const detail = await waitIdle(await scripted(team.id, team.writerId, `test:call:file_write:${args}`, `Seed ${file.path}`))
+    const scenario = scriptCall("file_write", { path: file.path, content: file.content })
+    const detail = await waitIdle(await scripted(team.id, team.writerId, scenario, `Seed ${file.path}`))
     if (!detail.tool_calls.some((c) => c.tool === "file_write" && c.status === "ok")) throw new Error(`seeding ${file.path} failed`)
   }
 }

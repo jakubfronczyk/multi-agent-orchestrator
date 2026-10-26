@@ -13,7 +13,7 @@ import type { TeamList } from "../src/generated/TeamList.ts"
 import type { TeamView } from "../src/generated/TeamView.ts"
 import type { UploadResponse } from "../src/generated/UploadResponse.ts"
 
-const BASE = process.env.EVAL_API ?? "http://localhost:8787/api"
+export const BASE = process.env.EVAL_API ?? "http://localhost:8787/api"
 
 async function call<T>(method: string, path: string, payload?: unknown): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {

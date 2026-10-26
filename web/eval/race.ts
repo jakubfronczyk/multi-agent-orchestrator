@@ -11,8 +11,10 @@ import type { ToolCallView } from "../src/generated/ToolCallView.ts"
 import { api } from "./api.ts"
 import { EventRecorder } from "./events.ts"
 import { grade, type Check, type Transcript } from "./graders.ts"
-import { message, removeTeam, scripted, seedFiles, sleep, stopTask, streamed, waitIdle, writeTaskLog } from "./setup.ts"
+import { ACCESS_REQUEST_ID, SCRIPT_HANG, scriptCall, scriptSeq, type ScriptStep } from "./fixtures.ts"
+import { removeTeam, scripted, seedFiles, stopTask, streamed, waitIdle, writeTaskLog } from "./setup.ts"
 import { createTeam, loadSeeded, TEAMS, type ReadyTeam } from "./teams.ts"
+import { harnessVersion, message, sleep, stamp as newStamp, teamName } from "./util.ts"
 
 const { values } = parseArgs({ options: { only: { type: "string" }, loops: { type: "string", default: "5" } } })
 const LOOPS = Number(values.loops)
@@ -20,17 +22,12 @@ const LOOPS = Number(values.loops)
 interface Ctx {
   a: ReadyTeam
   b: ReadyTeam
-  aLead: string
   recorder: EventRecorder
-  dir: string
   /** Every task a test started, for the orchestration check and the replay check. */
   roots: string[]
 }
 
-const call = (...parts: [string, unknown][]) => parts.map(([tool, args]) => `${tool}:${JSON.stringify(args)}`).join("|")
-const seq = (...parts: [string, unknown][]) => `test:seq:${call(...parts)}`
-const one = (tool: string, args: unknown) => `test:call:${tool}:${JSON.stringify(args)}`
-const INBOX = ["inbox_read", { id: "access-request-1042" }] as [string, unknown]
+const INBOX: ScriptStep = ["inbox_read", { id: ACCESS_REQUEST_ID }]
 
 async function start(ctx: Ctx, team: ReadyTeam, scenario: string, task: string) {
   const root = await scripted(team.id, team.writerId as string, scenario, task)
@@ -74,7 +71,7 @@ const TESTS: Record<string, Test> = {
       await start(
         ctx,
         ctx.a,
-        seq(
+        scriptSeq(
           ["file_write", { path: "notes/a.md", content: "alpha" }],
           ["file_read", { path: "notes/a.md" }],
           ["file_list", { path: "notes" }],
@@ -95,7 +92,7 @@ const TESTS: Record<string, Test> = {
 
   /** `data/` is read-only for every team. */
   async "data-read-only"(ctx) {
-    const detail = await waitIdle(await start(ctx, ctx.a, one("file_write", { path: "data/hack.md", content: "x" }), "write data/"))
+    const detail = await waitIdle(await start(ctx, ctx.a, scriptCall("file_write", { path: "data/hack.md", content: "x" }), "write data/"))
     const write = callsOf(detail, "file_write")[0]
     return write?.status === "ok" ? ["a write into data/ went through"] : []
   },
@@ -103,7 +100,7 @@ const TESTS: Record<string, Test> = {
   /** After outside content the save asks, runs once approved, and is stored untrusted. */
   async "taint-raises-write"(ctx) {
     const p: string[] = []
-    const root = await start(ctx, ctx.a, seq(INBOX, ["file_write", { path: "tainted/x.md", content: "from inbox" }]), "taint raises write")
+    const root = await start(ctx, ctx.a, scriptSeq(INBOX, ["file_write", { path: "tainted/x.md", content: "from inbox" }]), "taint raises write")
     const pending = await card(root)
     expect(p, pending.tool === "file_write", `card is for ${pending.tool}`)
     await api.answer(pending.id, { decision: "approve" })
@@ -120,7 +117,7 @@ const TESTS: Record<string, Test> = {
     for (let i = 0; i < LOOPS; i++) {
       const path = `race/same-${i}.md`
       const [x, y] = await Promise.all(
-        ["X", "Y"].map((who) => start(ctx, ctx.a, one("file_write", { path, content: `${who}-${i}` }), `race ${who} ${i}`)),
+        ["X", "Y"].map((who) => start(ctx, ctx.a, scriptCall("file_write", { path, content: `${who}-${i}` }), `race ${who} ${i}`)),
       )
       await Promise.all([waitIdle(x), waitIdle(y)])
       const view = await file(ctx.a, path)
@@ -136,10 +133,10 @@ const TESTS: Record<string, Test> = {
     const p: string[] = []
     for (let i = 0; i < LOOPS; i++) {
       const path = `race/mixed-${i}.md`
-      const tainted = await start(ctx, ctx.a, seq(INBOX, ["file_write", { path, content: `TAINTED-${i}` }]), `tainted ${i}`)
+      const tainted = await start(ctx, ctx.a, scriptSeq(INBOX, ["file_write", { path, content: `TAINTED-${i}` }]), `tainted ${i}`)
       const pending = await card(tainted)
       const [clean] = await Promise.all([
-        start(ctx, ctx.a, one("file_write", { path, content: `CLEAN-${i}` }), `clean ${i}`),
+        start(ctx, ctx.a, scriptCall("file_write", { path, content: `CLEAN-${i}` }), `clean ${i}`),
         api.answer(pending.id, { decision: "approve" }),
       ])
       await Promise.all([waitIdle(clean), waitIdle(tainted)])
@@ -158,7 +155,7 @@ const TESTS: Record<string, Test> = {
     const p: string[] = []
     const winners: string[] = []
     for (let i = 0; i < LOOPS; i++) {
-      const root = await start(ctx, ctx.a, seq(INBOX, ["file_write", { path: `race/double-${i}.md`, content: "x" }]), `double ${i}`)
+      const root = await start(ctx, ctx.a, scriptSeq(INBOX, ["file_write", { path: `race/double-${i}.md`, content: "x" }]), `double ${i}`)
       const pending = await card(root)
       const order: ("approve" | "deny")[] = i % 2 === 0 ? ["approve", "deny"] : ["deny", "approve"]
       const results = await Promise.allSettled(order.map((decision) => api.answer(pending.id, { decision })))
@@ -181,8 +178,8 @@ const TESTS: Record<string, Test> = {
   /** A save whose path differs from a trusted file only in letter case is refused, so tainted bytes never sit behind the trusted label. */
   async "case-variant-write"(ctx) {
     const p: string[] = []
-    await waitIdle(await start(ctx, ctx.a, one("file_write", { path: "race/case.md", content: "CLEAN" }), "case: clean save"))
-    const tainted = await start(ctx, ctx.a, seq(INBOX, ["file_write", { path: "RACE/Case.md", content: "TAINTED" }]), "case: tainted twin")
+    await waitIdle(await start(ctx, ctx.a, scriptCall("file_write", { path: "race/case.md", content: "CLEAN" }), "case: clean save"))
+    const tainted = await start(ctx, ctx.a, scriptSeq(INBOX, ["file_write", { path: "RACE/Case.md", content: "TAINTED" }]), "case: tainted twin")
     const pending = await card(tainted)
     await api.answer(pending.id, { decision: "approve" })
     const detail = await waitIdle(tainted)
@@ -196,7 +193,7 @@ const TESTS: Record<string, Test> = {
   /** Cancelling a task with a card waiting cancels the card and the call. */
   async "cancel-pending-card"(ctx) {
     const p: string[] = []
-    const root = await start(ctx, ctx.a, seq(INBOX, ["file_write", { path: "race/cancel.md", content: "x" }]), "cancel pending card")
+    const root = await start(ctx, ctx.a, scriptSeq(INBOX, ["file_write", { path: "race/cancel.md", content: "x" }]), "cancel pending card")
     const pending = await card(root)
     await api.cancel(root)
     const detail = await waitIdle(root)
@@ -205,19 +202,17 @@ const TESTS: Record<string, Test> = {
     expect(p, callsOf(detail, "file_write")[0]?.status === "cancelled", `call ended ${callsOf(detail, "file_write")[0]?.status}`)
     expect(p, detail.runs[0]?.status === "cancelled", `task ended ${detail.runs[0]?.status}`)
     expect(p, (await file(ctx.a, "race/cancel.md")) === null, "the cancelled save was written")
-    try {
-      await api.answer(pending.id, { decision: "approve" })
-      p.push("answering a cancelled card was accepted")
-    } catch {
-      // 409 expected.
-    }
+    await api.answer(pending.id, { decision: "approve" }).then(
+      () => p.push("answering a cancelled card was accepted"),
+      (error: unknown) => expect(p, message(error).includes(": 409 "), `answering a cancelled card: ${message(error)}`),
+    )
     return p
   },
 
   /** A running task refuses a follow-up and blocks deleting its team; cancel ends it. */
   async "running-task-guards"(ctx) {
     const p: string[] = []
-    const { run_id: root } = await api.startRun({ team_id: ctx.a.id, agent_id: ctx.aLead, task: "hang", scenario: "test:hang" })
+    const { run_id: root } = await api.startRun({ team_id: ctx.a.id, agent_id: ctx.a.leadId, task: "hang", scenario: SCRIPT_HANG })
     ctx.roots.push(root)
     await sleep(500)
     await api.followUp(root, "more").then(
@@ -237,7 +232,7 @@ const TESTS: Record<string, Test> = {
   /** Without a grant, another team's folder is refused before any card, and taints nothing. */
   async "cross-no-grant"(ctx) {
     const p: string[] = []
-    const detail = await waitIdle(await start(ctx, ctx.a, one("file_read", { path: `teams/${ctx.b.slug}/shared.md` }), "cross no grant"))
+    const detail = await waitIdle(await start(ctx, ctx.a, scriptCall("file_read", { path: `teams/${ctx.b.slug}/shared.md` }), "cross no grant"))
     const read = callsOf(detail, "file_read")[0]
     expect(p, read?.status !== "ok", "read another team's folder without a grant")
     expect(p, rules(read).includes("no_access"), `refused for ${rules(read) || "no rule"}, not no_access`)
@@ -254,7 +249,7 @@ const TESTS: Record<string, Test> = {
       await start(
         ctx,
         ctx.a,
-        seq(["file_read", { path: `teams/${ctx.b.slug}/shared.md` }], ["file_write", { path: `teams/${ctx.b.slug}/from-a.md`, content: "x" }]),
+        scriptSeq(["file_read", { path: `teams/${ctx.b.slug}/shared.md` }], ["file_write", { path: `teams/${ctx.b.slug}/from-a.md`, content: "x" }]),
         "cross read grant",
       ),
     )
@@ -270,7 +265,7 @@ const TESTS: Record<string, Test> = {
   async "cross-write-grant"(ctx) {
     const p: string[] = []
     await api.setFileAccess(ctx.a.id, ctx.b.id, "read_write")
-    const detail = await waitIdle(await start(ctx, ctx.a, one("file_write", { path: `teams/${ctx.b.slug}/granted.md`, content: "from A" }), "cross write grant"))
+    const detail = await waitIdle(await start(ctx, ctx.a, scriptCall("file_write", { path: `teams/${ctx.b.slug}/granted.md`, content: "from A" }), "cross write grant"))
     expect(p, callsOf(detail, "file_write")[0]?.status === "ok", `granted write ended ${callsOf(detail, "file_write")[0]?.status}`)
     const view = await file(ctx.b, "granted.md")
     expect(p, view?.content === "from A", "B does not see A's write at granted.md")
@@ -283,7 +278,7 @@ const TESTS: Record<string, Test> = {
   async "cross-tainted-write"(ctx) {
     const p: string[] = []
     await api.setFileAccess(ctx.a.id, ctx.b.id, "read_write")
-    const root = await start(ctx, ctx.a, seq(INBOX, ["file_write", { path: `teams/${ctx.b.slug}/tainted.md`, content: "x" }]), "cross tainted write")
+    const root = await start(ctx, ctx.a, scriptSeq(INBOX, ["file_write", { path: `teams/${ctx.b.slug}/tainted.md`, content: "x" }]), "cross tainted write")
     const pending = await card(root)
     await api.answer(pending.id, { decision: "approve" })
     await waitIdle(root)
@@ -294,11 +289,11 @@ const TESTS: Record<string, Test> = {
   /** Reading another team's untrusted file taints the reader: the label crosses with the data. */
   async "cross-label-travels"(ctx) {
     const p: string[] = []
-    const seed = await start(ctx, ctx.b, seq(INBOX, ["file_write", { path: "untrusted.md", content: "outside" }]), "B untrusted file")
+    const seed = await start(ctx, ctx.b, scriptSeq(INBOX, ["file_write", { path: "untrusted.md", content: "outside" }]), "B untrusted file")
     await api.answer((await card(seed)).id, { decision: "approve" })
     await waitIdle(seed)
     await api.setFileAccess(ctx.a.id, ctx.b.id, "read")
-    const detail = await waitIdle(await start(ctx, ctx.a, one("file_read", { path: `teams/${ctx.b.slug}/untrusted.md` }), "cross label"))
+    const detail = await waitIdle(await start(ctx, ctx.a, scriptCall("file_read", { path: `teams/${ctx.b.slug}/untrusted.md` }), "cross label"))
     expect(p, callsOf(detail, "file_read")[0]?.status === "ok", "read of granted untrusted file failed")
     expect(p, detail.taint_sources.some((s) => s.kind === "file"), "reading an untrusted file did not taint the task")
     return p
@@ -312,7 +307,7 @@ const TESTS: Record<string, Test> = {
     const root = await start(
       ctx,
       ctx.a,
-      seq(["file_read", { path }], INBOX, ["file_write", { path: "race/pause.md", content: "x" }], ["file_list", { path: `teams/${ctx.b.slug}` }]),
+      scriptSeq(["file_read", { path }], INBOX, ["file_write", { path: "race/pause.md", content: "x" }], ["file_list", { path: `teams/${ctx.b.slug}` }]),
       "revoke mid task",
     )
     const pending = await card(root)
@@ -329,8 +324,8 @@ const TESTS: Record<string, Test> = {
   /** Shared notes belong to one team: another team reading the same key gets nothing. */
   async "notes-per-team"(ctx) {
     const p: string[] = []
-    await waitIdle(await start(ctx, ctx.a, one("memory_write", { scope: "shared", key: "race.secret", content: "only-team-a" }), "A note"))
-    const detail = await waitIdle(await start(ctx, ctx.b, one("memory_read", { scope: "shared", key: "race.secret" }), "B reads A's note"))
+    await waitIdle(await start(ctx, ctx.a, scriptCall("memory_write", { scope: "shared", key: "race.secret", content: "only-team-a" }), "A note"))
+    const detail = await waitIdle(await start(ctx, ctx.b, scriptCall("memory_read", { scope: "shared", key: "race.secret" }), "B reads A's note"))
     const read = callsOf(detail, "memory_read")[0]
     expect(p, !(read?.result_preview ?? "").includes("only-team-a"), "team B read team A's shared note")
     return p
@@ -361,7 +356,8 @@ async function replayCheck(ctx: Ctx): Promise<string[]> {
 async function main() {
   const health = await api.health()
   console.log(`server up, provider ${health.provider}; scripted tasks only`)
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+  const stamp = newStamp()
+  const version = harnessVersion()
   const dir = join(import.meta.dirname, "out", `race-${stamp}`)
   mkdirSync(dir, { recursive: true })
   const seeded = await loadSeeded()
@@ -375,11 +371,10 @@ async function main() {
 
   for (const name of names) {
     // Fresh teams per test, so grants, files and notes of one test never reach another.
-    const a = await createTeam(plan, seeded, `Race A ${name} ${stamp}`)
-    const b = await createTeam(plan, seeded, `Race B ${name} ${stamp}`)
-    const aLead = (await api.teams()).teams.find((t) => t.id === a.id)?.lead_agent_id as string
+    const a = await createTeam(plan, seeded, teamName("Race A", name, stamp.slice(11)))
+    const b = await createTeam(plan, seeded, teamName("Race B", name, stamp.slice(11)))
     await seedFiles(b, [{ path: "shared.md", content: "B's shared file" }])
-    const ctx: Ctx = { a, b, aLead, recorder, dir, roots: [] }
+    const ctx: Ctx = { a, b, recorder, roots: [] }
     let problems: string[]
     try {
       problems = await TESTS[name](ctx)
@@ -408,7 +403,7 @@ async function main() {
     console.log(`${problems.length ? "FAIL" : "ok  "} ${name}${problems.length ? `\n       ${problems.join("\n       ")}` : ""}`)
   }
   recorder.stop()
-  const lines = [`# Race and access checks ${stamp}`, "", "| test | result |", "|---|---|"]
+  const lines = [`# Race and access checks ${stamp}`, "", `Harness: ${version}.`, "", "| test | result |", "|---|---|"]
   for (const r of results) lines.push(`| ${r.name} | ${r.problems.length ? `FAIL: ${r.problems.join("; ")}` : "ok"} |`)
   lines.push("", `Stream reconnects: ${recorder.reconnects.length}`)
   writeFileSync(join(dir, "report.md"), lines.join("\n"))
