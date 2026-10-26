@@ -16,7 +16,7 @@ Until step 4, every deploy interrupts running tasks and expires pending approval
 - Replace the loopback Host/Origin guard with the public host behind the ALB.
 - Add OIDC login and record who started, approved or cancelled.
 - Add authorization: each task, approval and inbox belongs to a user; only the owner (or a role allowed to) can see, approve or cancel it. Without this, any logged-in user can approve another user's send.
-- Cap budgets, request bodies and text fields; put demo routes behind a flag.
+- Cap the per-task budget and the length of task text and titles on `POST /runs` (request bodies, team names, delegated task text and message fields are already capped); put the demo routes (`/drill`, scenarios) behind a flag.
 - Read config from the environment and secrets from a secrets manager.
 - Handle SIGTERM, check the database in `/health`, add a Dockerfile.
 - Record latency, cost, retries, rate limits and pending approvals; add tracing.
@@ -26,7 +26,7 @@ Until step 4, every deploy interrupts running tasks and expires pending approval
   - the `web/eval/` cases moved into Langfuse datasets, scored by the existing code checks and the judge, so each prompt version has a tracked score;
   - human feedback on summaries and approvals recorded as scores.
   - Self-hosted because traces contain prompts, emails and fetched pages, which stay inside our network. It is an observability tool, not an agent framework; the loop, policy and gateway stay our code.
-- Support erasure by encrypting personal data with a per-user key and deleting the key. The key must cover every store that holds it: event payloads, `tool_calls` arguments, outbox bodies, memory, files, and Langfuse (or mask personal data before it reaches Langfuse and set a retention period).
+- Support erasure by encrypting personal data with a per-user key and deleting the key. The key must cover every store that holds it: event payloads, task text and titles, `tool_calls` arguments and result previews, approval previews, inbox and outbox messages (cc included), memory entries and all their versions, files, and Langfuse (or mask personal data before it reaches Langfuse and set a retention period).
 
 **Step 2. Postgres.** When high availability is needed, or before step 3.
 - Event ids stop arriving in commit order, so replay can skip events. Assign ids under an advisory lock or a per-task sequence.

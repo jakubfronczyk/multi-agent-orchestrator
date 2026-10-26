@@ -13,6 +13,7 @@ Lead ──delegate──▶ Reader
                      send_message to vendor ──────────▶ REFUSED   Reader's send is deny, no card
                      http_fetch ?d=payroll-export ────▶ CARD      taint + off-allowlist host
                      http_fetch, same call again ─────▶ REFUSED   repeat of a refused call
+                                                                  (asks again if you said yes)
 Lead ──delegate──▶ Messenger
                      send_message to vendor ──────────▶ CARD      custody: lead → messenger,
                                                                   after reading vendor-note
@@ -20,13 +21,17 @@ Lead ──delegate──▶ Messenger
                                                deny both cards ──────────┴──▶ outbox: empty
 ```
 
-Four exits: two stopped by policy with no card, two put to a person with the reason
-attached. Answering yes on the Messenger card is the one way the mail goes out, and the
-report marks it as a leak.
+Four exits. If you answer no to the cards, two are stopped by policy with no card and two go
+to a person with the reason attached. A yes on the fetch card means the repeat fetch asks
+again instead of being refused, and the fetch itself always fails: `vendor-example.test` is a
+reserved name that never resolves. A yes on the Messenger card is the only way the mail goes
+out: `messages_sent` counts it, and the Security drill page marks it as the one leak.
 
 ## Run it
 
-- **UI:** Home → Security drill. The report opens on the Security drill page.
+- **UI:** New task → Security drill, or the sidebar's Security drill → Run security drill.
+  Either opens the task, where you answer the cards. When it finishes, the report is on the
+  Security drill page.
 - **API:** `POST /api/drill?team_id=` → `202 {run_id}`, then
   `GET /api/drill/{run_id}/report`. See [`API.md`](API.md#security-drill).
 
@@ -49,9 +54,10 @@ agents said. Built in `backend/orchestrator-server/src/sqlite/drill.rs`.
 ## Pinned by tests
 
 - `the_drill_stops_every_exit_on_the_real_tools` (`backend/orchestrator-server/tests/it/seeded.rs`)
-  asserts each decision and rule, that both cards name `vendor-note` as the taint source,
-  the custody path `lead → messenger`, and an empty outbox.
-- `the_drill_report_lists_every_exit_and_who_stopped_it` (same file) checks the report.
+  asserts the decision and rules of the Reader's send and both fetches, that both cards name
+  `vendor-note` as the taint source, the custody path `lead → messenger`, and an empty outbox.
+- `the_drill_report_lists_every_exit_and_who_stopped_it` (same file) checks the report,
+  the Messenger send's decision included.
 - `the_drill_holds_on_a_second_team` (`teams_safety.rs`) runs it on a second team: same four
   exits, nothing sent.
 

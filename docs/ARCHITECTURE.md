@@ -7,7 +7,7 @@ What is built today, why, and what each choice costs. Production plan: `PRODUCTI
 - The brief requires agents that can be edited in the UI with an allow, ask or deny policy per tool, an orchestrator that delegates and is visible live, memory with private and shared scopes that records its author, tools that run in the backend rather than as xAI server-side tools, function calling against xAI Grok, and no agent frameworks.
 - One developer built it against a fixed deadline.
 - It serves one local user on 127.0.0.1. There are no accounts, no authentication and no tenants: whoever can reach the port is both operator and approver. A middleware refuses any request whose Host is not a loopback name and any state-changing request from another origin.
-- Trusted by assumption: the task text the user types, and the seeded reference files in `data/`. Approval timeouts use one process clock.
+- Trusted by assumption: the task text the user types, the seeded reference files in `data/`, and notes or files the person writes or marks as trusted (ADR 0009). Approval timeouts use one process clock.
 - It runs locally with no infrastructure, and the demo scenarios replay the same way every time.
 - The result is one process, one SQLite file and one local folder.
 
@@ -61,7 +61,7 @@ Each decision starts with what was built and why. **Cost** is what it gives up. 
 
 The core crate holds the domain, engine and policy with no I/O, so the policy is a pure function and the engine is tested without a database. Exhaustive matching on tools means an unclassified tool fails to compile.
 
-- **Cost:** the `Store` trait covers only the engine. The API, tools, recovery and workspace talk to SQLite directly, so switching databases is a port of 82 queries and 111 database tests, not a new trait implementation.
+- **Cost:** the `Store` trait covers only the engine. The API, tools, recovery and workspace talk to SQLite directly, so switching databases is a port of 98 queries and 161 database tests, not a new trait implementation.
 - **Changes when:** the move to Postgres (production step 2).
 
 ### 4.2 xAI client written by hand
@@ -71,16 +71,18 @@ The Responses API is called over raw HTTP because the design needs fields that S
 - **Cost:** retries and response types are written by hand. A reply without a cost fails the call. Backoff is paced per process, not per API key.
 - **Changes when:** several processes share one key (production step 3), or a second provider is added (production step 5). In production any client works, as long as every tool call still goes through one gateway.
 
-### 4.3 Scripted provider for scenarios
+### 4.3 Scripted provider for tests and the drill
 
-Scenario tasks replay recorded model responses; free-text tasks go to Grok when a key is set. The demo and the security drill behave the same on every run, cost nothing and work without a key.
+Scenario tasks replay recorded model responses; everything else goes to Grok when a key is set. The security drill and every test in CI are scripted, so they behave the same on every run, cost nothing and need no key. The starter tasks on Home are live.
 
 - **Cost:** scripted runs test the permission checks, not the prompts.
-- **Changes when:** a prompt change passes CI but fails against the live model. Production step 1 adds live-model evals.
+- **Covered by:** `just eval`, a live-model eval with graded cases (41 tasks for about $1.20), and `just eval-race`, free scripted checks against a running server.
 
 ### 4.4 One Lead, delegation as a tool
 
 The Lead is the only agent that can delegate, and delegation is a tool call like any other. That gives one plan and one summary per task, and delegation is logged, budgeted and limited by the same gateway. A task allows depth 2, 12 runs, 12 steps for the Lead and 8 per specialist, and a budget. Follow-up messages start a new Lead turn in the same task.
+
+Every answer ends with a server-written "From the record:" line listing what the turn saved, noted and sent, and what was attempted and didn't happen; each hand-off result carries the child's call ledger. A model's claim of a save or send can always be checked against the calls.
 
 - **Cost:** specialists cannot talk to each other directly.
 - **Changes when:** specialists need to negotiate. Peer messaging would become one more tool behind the same gateway.
@@ -117,10 +119,10 @@ An approval is a database row plus a waiter in memory. The card shows which agen
 
 ### 4.9 Outside content: uploads, web fetch, draft-only
 
-Uploaded files (csv, md, txt, json) are stored as untrusted, so reading one taints the task like an email. An upload to an existing path is refused. `http_fetch` resolves the host, blocks private address ranges, pins the resolved address, follows only redirects to the same host and scheme (each hop checked again), uses no proxy and caps responses at 1 MiB. A host outside the allowlist needs approval. Draft-only mode refuses every lasting change without asking.
+Uploads accept any file up to 10 MB and are stored untrusted in the team's `uploads/`, so reading one taints the task like an email: spreadsheets become one CSV per sheet, Word documents Markdown and PDFs their text (at most 256 KB), other files are kept as sent and can't be read by agents; a taken name gets the next free number. `http_fetch` resolves the host, blocks private address ranges, pins the resolved address, follows up to 3 same-site redirects (same host and port, or an http→https upgrade; each hop checked again) and reports any other in `location`, sends a User-Agent, returns an HTML page as its title and readable text, uses no proxy and caps responses at 1 MiB. A host outside the allowlist needs approval. Draft-only mode refuses every lasting change without asking.
 
 - **Cost:** the allowlist is compiled in (`example.com` and its subdomains), so changing it needs a rebuild.
-- **Changes when:** users need their own hosts (production step 6), or uploads from known colleagues must be trusted, which needs authentication (production step 1).
+- **Changes when:** users need their own hosts (production step 6). The person can already vouch for an upload with "Mark as trusted" (ADR 0009).
 
 ### 4.10 SQLite and the event log
 
@@ -138,13 +140,13 @@ At startup, every unfinished run is closed as interrupted and pending approvals 
 
 ### 4.12 Memory
 
-Notes have private and shared scopes, keep every version, record the authoring agent from the call context (an agent cannot claim to be another), and carry a trust label. Search is substring matching, because the corpus is small enough for agents to search with tools.
+Notes have private and shared scopes, keep every version, record the authoring agent from the call context (an agent cannot claim to be another), and carry a trust label. Search returns notes matching any word of the query, those matching the most words first, because the corpus is small enough for agents to search with tools. The person can also create, edit and delete shared notes; their versions have no author agent (ADR 0009).
 
-- **Changes when:** substring search stops finding what agents need (production step 7).
+- **Changes when:** word matching stops finding what agents need (production step 7).
 
 ### 4.13 Tests, CI and UI
 
-Integration tests run real tools against a real SQLite database with the scripted provider, including scenarios for a clean task, an injection drill and data passed between tasks. CI runs formatting, clippy with warnings denied, the tests, a check that generated TypeScript types match the Rust types, and the sqlx query check. CI also builds and lints the web app. The UI is React with TypeScript types generated from Rust, with pages for tasks, the task thread, approvals, team, notes, files, sent messages, activity and the drill.
+Integration tests run real tools against a real SQLite database with the scripted provider, including scenarios for a clean task, an injection drill and data passed between tasks. CI runs formatting, clippy with warnings denied, the tests, a check that generated TypeScript types match the Rust types, and the sqlx query check. CI also builds and lints the web app. The UI is React with TypeScript types generated from Rust, with pages for home (with a welcome dialog), tasks, the task thread, approvals, team, notes, files, sent messages, activity and the drill.
 
 - **Cost:** the dependency audit runs by hand.
 
@@ -166,7 +168,7 @@ The inbox is seeded from fixture files and `send_message` writes to an outbox ta
 
 ### 4.16 Teams and file grants
 
-A team groups agents, delegation targets and shared notes; it is not a security boundary, because there is one user and nobody to keep out (ADR 0007). The policy takes no team as input, so adding teams can only remove paths. Each team has its own folder; agents reach it, the read-only `data/` folder, and the folders of teams the user has granted (ADR 0008). A path out of reach is refused before the policy runs, and grants are read on every call, so a revoke applies at the next file step. The inbox, outbox, approvals, audit log and event stream are shared across teams, each record labelled with its team.
+A team groups agents, delegation targets and shared notes; it is not a security boundary, because there is one user and nobody to keep out (ADR 0007). The policy takes no team as input, so adding teams can only remove paths. Each team has its own folder; agents reach it, the read-only `data/` folder, and the folders of teams the user has granted (ADR 0008). A path out of reach is refused before the policy runs, and grants are read on every call, so a revoke applies at the next file step. Trust rows compare paths ignoring letter case and saved paths are ASCII, so on a case-insensitive disk one file can never sit behind two trust labels. The inbox, outbox, approvals, audit log and event stream are shared across teams, each record labelled with its team.
 
 - **Cost:** no per-team permissions on the shared inbox or approvals.
 - **Changes when:** a second user exists; teams then need owners and approvals need authorization (production step 1).
@@ -196,7 +198,7 @@ A team groups agents, delegation targets and shared notes; it is not a security 
 
 ## 6. How it was built
 
-- Built solo with coding agents. Issues are local plan files kept out of git, decisions are ADRs 0001–0008, commits are small and conventional, and `just ci` runs on every push. Review meant checking agent output against the ADRs and the tests.
+- Built solo with coding agents. Issues are local plan files kept out of git, decisions are ADRs 0001–0009, commits are small and conventional, and `just ci` runs on every push. Review meant checking agent output against the ADRs and the tests.
 
 ---
 
@@ -207,7 +209,8 @@ Paths: `core/` = `backend/orchestrator-core/src/`, `srv/` = `backend/orchestrato
 - Policy: `core/policy/decide.rs` (`decide`, `raised_by_taint`, `leaves_a_change`)
 - Tool risk and parsing: `core/tools.rs` (`effect`, `taints`, `lead`, `parse_args`, `ToolError`)
 - Gateway, timeouts, Lead result guard: `core/engine/gateway.rs`
-- Delegation and failure text: `core/engine/native.rs` (`delegate`, `tainted_label`), `core/engine/prompts.rs` (`failure_text`)
+- Delegation and failure text: `core/engine/native.rs` (`delegate`), `core/engine/envelope.rs` (`source_label`), `core/engine/prompts.rs` (`failure_text`)
+- The answer's record of saves and sends: `core/engine/record.rs`
 - Step limits per role: `core/agents.rs` (`Role::max_steps`, `validated`)
 - Approvals: `core/engine/approvals.rs`, `srv/api/approvals.rs`
 - Retries: `core/engine/run.rs`, `srv/llm/xai/mod.rs` (`is_retryable`), `srv/config.rs` (`retry_backoff`)
@@ -224,4 +227,4 @@ Paths: `core/` = `backend/orchestrator-core/src/`, `srv/` = `backend/orchestrato
 - Tests and CI: `backend/orchestrator-server/tests/it/`, `justfile`, `.github/workflows/ci.yml`
 - Loopback guard: `srv/api/origin.rs` (`loopback_only`)
 - Live eval harness: `web/eval/`
-- ADRs: `docs/adr/0001`–`0008`
+- ADRs: `docs/adr/0001`–`0009`
