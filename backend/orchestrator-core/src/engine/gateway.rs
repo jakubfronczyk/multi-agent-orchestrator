@@ -251,7 +251,7 @@ pub(super) async fn execute(
             call_id,
             tool: call.name.clone(),
             args,
-            action: Some(action),
+            action: Some(action.clone()),
             decision: None,
             reasons: Vec::new(),
         };
@@ -262,7 +262,8 @@ pub(super) async fn execute(
             tool: Some(name),
             at: started,
         };
-        finish(inner, ctx, call, &ended, None, false).await?;
+        let status = finish(inner, ctx, call, &ended, None, false).await?;
+        ctx.task.record_action(name, status, &action.target);
         return Ok(envelope::render(&ended, None));
     }
     let (decision, reasons) = match &reach {
@@ -319,7 +320,7 @@ pub(super) async fn execute(
         tool: Some(name),
         at: started,
     };
-    finish(
+    let status = finish(
         inner,
         ctx,
         started,
@@ -328,6 +329,7 @@ pub(super) async fn execute(
         !sources.is_empty(),
     )
     .await?;
+    ctx.task.record_action(name, status, &action.target);
     let untrusted = envelope::source_label(&sources);
     Ok(envelope::render(&ended, untrusted.as_deref()))
 }
@@ -630,7 +632,7 @@ async fn finish(
     ended: &Ended,
     refused: Option<(ToolName, Value)>,
     tainted: bool,
-) -> Result<(), StoreError> {
+) -> Result<CallStatus, StoreError> {
     let (status, result_preview, child_run_id) = match ended {
         Ended::Ok(output) => (
             CallStatus::Ok,
@@ -667,7 +669,7 @@ async fn finish(
             tool: call.tool,
             status,
         });
-    Ok(())
+    Ok(status)
 }
 
 fn parse_json(raw: &str) -> Result<Value, String> {

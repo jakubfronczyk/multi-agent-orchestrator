@@ -22,6 +22,7 @@ mod gateway;
 mod history;
 mod native;
 mod prompts;
+mod record;
 mod run;
 mod task;
 

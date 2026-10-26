@@ -15,7 +15,7 @@ use crate::runs::{CallStatus, FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, StoreError};
 use crate::tools::ToolName;
 
-use super::{Inner, Task, envelope, gateway, prompts};
+use super::{Inner, Task, envelope, gateway, prompts, record};
 
 const MAX_PARALLEL_CALLS: usize = 4;
 
@@ -67,6 +67,19 @@ async fn run_agent(inner: Arc<Inner>, ctx: RunCtx) -> RunOutcome {
             tracing::error!(%error, run_id = ?ctx.at.run_id, "storage failed during the run");
             failed(FailReason::Internal, "storage failed during the run")
         }
+    };
+    // The person's answer ends with what the turn saved and sent, written from its calls, so a
+    // model's claim of a save or send that never happened cannot stand alone.
+    let outcome = match outcome {
+        RunOutcome::Completed { output, truncated } if ctx.depth == 0 => RunOutcome::Completed {
+            output: format!(
+                "{}\n\n{}",
+                output.trim_end(),
+                record::summary(&ctx.task.actions())
+            ),
+            truncated,
+        },
+        other => other,
     };
     let finished = RunEvent::RunFinished {
         outcome: outcome.clone(),

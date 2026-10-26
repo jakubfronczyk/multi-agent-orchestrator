@@ -213,7 +213,10 @@ async fn a_running_task_is_a_conflict_and_a_cancelled_one_takes_a_follow_up(pool
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     };
     assert_eq!(detail.turns[0].outcome, Some(RunOutcome::Cancelled));
-    assert_eq!(detail.turns[1].summary.as_deref(), Some("hello"));
+    assert_eq!(
+        detail.turns[1].summary.as_deref(),
+        Some("hello\n\nFrom the record: nothing was saved or sent.")
+    );
     let follow_up = recording
         .requests()
         .into_iter()

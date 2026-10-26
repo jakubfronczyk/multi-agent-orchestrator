@@ -10,8 +10,8 @@ use crate::agents::{AgentSpec, Slug};
 use crate::ids::TeamId;
 use crate::money::Micros;
 use crate::policy::{Decision, Effect, Facts, TaintSource};
-use crate::runs::RunEvent;
-use crate::tools::{Action, ToolName};
+use crate::runs::{CallStatus, RunEvent};
+use crate::tools::{Action, Target, ToolName};
 
 pub(super) struct Task {
     /// The team the task runs in, fixed at its start.
@@ -37,6 +37,16 @@ struct TaskState {
     /// Calls refused by agent policy or denied by a person; a repeat is refused without a card.
     /// A draft-only refusal is not recorded, so a later turn may make the same call.
     refused: Vec<(ToolName, Value)>,
+    /// This turn's saves, notes and sends and how each ended, in finish order.
+    actions: Vec<Done>,
+}
+
+/// One save, note or send of the turn: what it targeted and how it ended.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Done {
+    pub tool: ToolName,
+    pub status: CallStatus,
+    pub target: Target,
 }
 
 impl Task {
@@ -59,6 +69,7 @@ impl Task {
                 taint: Vec::new(),
                 runs_started: 1,
                 refused: Vec::new(),
+                actions: Vec::new(),
             }),
         }
     }
@@ -132,6 +143,24 @@ impl Task {
         }
         state.taint.push(source.clone());
         true
+    }
+
+    /// Keeps a finished save, note or send; other calls change nothing the person needs told.
+    pub(super) fn record_action(&self, tool: ToolName, status: CallStatus, target: &Target) {
+        if matches!(
+            tool,
+            ToolName::FileWrite | ToolName::MemoryWrite | ToolName::SendMessage
+        ) {
+            self.lock().actions.push(Done {
+                tool,
+                status,
+                target: target.clone(),
+            });
+        }
+    }
+
+    pub(super) fn actions(&self) -> Vec<Done> {
+        self.lock().actions.clone()
     }
 
     /// Same tool, equal arguments (`Value ==`).

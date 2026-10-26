@@ -1302,3 +1302,21 @@ async fn the_lead_sees_each_teammates_calls_and_how_they_ended(pool: SqlitePool)
         ]
     );
 }
+
+/// The answer's account of saves and sends is written from the calls: S1 saved its decision,
+/// emailed Anna and the person declined the send to Rolf, and the answer ends saying exactly that.
+#[sqlx::test]
+async fn the_answer_ends_with_what_the_record_shows(pool: SqlitePool) {
+    let seeded = Seeded::new(pool).await;
+    answer_approvals(&seeded.store, &seeded.engine, deny_rolf);
+    let (_, events) = run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+    let RunOutcome::Completed { output, .. } = root_outcome(&events) else {
+        panic!("s1 completed")
+    };
+    let record = output.rsplit("\n\n").next().expect("record line");
+    assert_eq!(
+        record,
+        "From the record: saved the note systems/payroll-exports-owner; saved decisions/AR-1042.md; sent an email to \
+         anna.weber@example.com. Not done: sending an email to rolf.bauer@example.com (you declined it)."
+    );
+}
