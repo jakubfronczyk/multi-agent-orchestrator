@@ -1239,3 +1239,39 @@ async fn every_scenario_makes_only_valid_calls(pool: SqlitePool) {
         );
     }
 }
+
+/// A hand-off result carries what the child's run did, from its calls, next to what its model
+/// said: in S1 the Lead sees the Messenger's denied send to Rolf, then its sent mail to Anna.
+#[sqlx::test]
+async fn the_lead_sees_each_teammates_calls_and_how_they_ended(pool: SqlitePool) {
+    let recording = Arc::new(crate::recording::Recording::new());
+    let seeded = Seeded::with_llm(pool, recording.clone()).await;
+    answer_approvals(&seeded.store, &seeded.engine, deny_rolf);
+    run_scenario(&seeded, "s1", "Check access request AR-1042").await;
+
+    // The Lead's last request holds every hand-off result of the turn, in call order.
+    let last = recording
+        .requests()
+        .into_iter()
+        .rfind(|r| r.script.agent.as_str() == "lead")
+        .expect("the Lead's last step");
+    let messenger: Vec<serde_json::Value> = last
+        .transcript
+        .into_iter()
+        .filter_map(|item| match item {
+            orchestrator_core::llm::Item::ToolOutput { output, .. } => {
+                serde_json::from_str::<serde_json::Value>(&output).ok()
+            }
+            _ => None,
+        })
+        .filter(|body| body["agent"] == "messenger")
+        .map(|body| body["calls"].clone())
+        .collect();
+    assert_eq!(
+        messenger,
+        [
+            json!([{"tool": "send_message", "status": "denied_human"}]),
+            json!([{"tool": "send_message", "status": "ok"}])
+        ]
+    );
+}

@@ -2,7 +2,7 @@
 //! Each call gets exactly one output and exactly one `tool_call_finished`.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
@@ -21,7 +21,7 @@ use crate::tools::{
 };
 
 use super::approvals::Waited;
-use super::run::RunCtx;
+use super::run::{CallLine, RunCtx};
 use super::{Inner, envelope, native};
 
 /// How a call ended, before it is rendered for the model.
@@ -35,6 +35,8 @@ pub(super) enum Ended {
         output: String,
         /// The task's sources when it was tainted at the child's end.
         untrusted: Option<String>,
+        /// What the child's run did, from its calls, beside what its model said.
+        calls: Vec<CallLine>,
     },
     Failed {
         status: CallStatus,
@@ -253,7 +255,12 @@ pub(super) async fn execute(
         };
         inner.emit(ctx.at, requested).await?;
         let ended = Ended::failed(CallStatus::Internal, "the path could not be checked", None);
-        finish(inner, ctx, call_id, started, &ended, None, false).await?;
+        let call = Started {
+            id: call_id,
+            tool: Some(name),
+            at: started,
+        };
+        finish(inner, ctx, call, &ended, None, false).await?;
         return Ok(envelope::render(&ended, None));
     }
     let (decision, reasons) = match &reach {
@@ -305,10 +312,14 @@ pub(super) async fn execute(
             ..
         }
     ) && !matches!(reasons.first(), Some(Rule::DraftOnly | Rule::NoAccess));
+    let started = Started {
+        id: call_id,
+        tool: Some(name),
+        at: started,
+    };
     finish(
         inner,
         ctx,
-        call_id,
         started,
         &ended,
         refused_or_denied.then_some((name, args)),
@@ -440,7 +451,13 @@ async fn refuse_early(
     };
     inner.emit(ctx.at, requested).await?;
     let ended = Ended::failed(status, &message, None);
-    finish(inner, ctx, call_id, Instant::now(), &ended, None, false).await?;
+    let tool = serde_json::from_value(Value::String(call.name.clone())).ok();
+    let started = Started {
+        id: call_id,
+        tool,
+        at: Instant::now(),
+    };
+    finish(inner, ctx, started, &ended, None, false).await?;
     Ok(envelope::render(&ended, None))
 }
 
@@ -595,13 +612,19 @@ async fn sleep_or_forever(timeout: Option<Duration>) {
     }
 }
 
+/// A call being finished: its id, its tool when it is one of the closed set, and its start.
+struct Started {
+    id: ToolCallId,
+    tool: Option<ToolName>,
+    at: Instant,
+}
+
 /// The only terminal emit for a call. `refused` carries tool and args for the repeat check;
 /// `tainted` is whether its result brought outside content into the task.
 async fn finish(
     inner: &Inner,
     ctx: &RunCtx,
-    call_id: ToolCallId,
-    started: Instant,
+    call: Started,
     ended: &Ended,
     refused: Option<(ToolName, Value)>,
     tainted: bool,
@@ -624,10 +647,10 @@ async fn finish(
         None => (None, None),
     };
     let finished = RunEvent::ToolCallFinished {
-        call_id,
+        call_id: call.id,
         status,
         result_preview: Some(result_preview),
-        duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        duration_ms: u64::try_from(call.at.elapsed().as_millis()).unwrap_or(u64::MAX),
         child_run_id,
         tool,
         args,
@@ -635,6 +658,13 @@ async fn finish(
     };
     inner.emit(ctx.at, finished.clone()).await?;
     ctx.task.apply(&finished);
+    ctx.calls
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(CallLine {
+            tool: call.tool,
+            status,
+        });
     Ok(())
 }
 

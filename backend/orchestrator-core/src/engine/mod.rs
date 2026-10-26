@@ -291,6 +291,7 @@ impl Engine {
             cancel: task.cancel_token(),
             caller: None,
             history,
+            calls: Arc::default(),
         };
         let handle = run::spawn_run(Arc::clone(&self.inner), ctx);
         let inner = Arc::clone(&self.inner);

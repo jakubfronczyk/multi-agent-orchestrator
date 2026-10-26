@@ -1,7 +1,7 @@
 //! The run loop (§7.1): budget, cancellation, step limit, one model call per step.
 //! Every exit ends in exactly one `run_finished`; a failed emit ends the run.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::{StreamExt, stream};
@@ -11,8 +11,9 @@ use tokio_util::sync::CancellationToken;
 use crate::agents::{AgentSpec, Slug};
 use crate::llm::{CompletionRequest, CompletionResponse, Item, LlmError, ScriptKey, ToolChoice};
 use crate::policy::TaintSource;
-use crate::runs::{FailReason, RunEvent, RunOutcome};
+use crate::runs::{CallStatus, FailReason, RunEvent, RunOutcome};
 use crate::store::{RunRef, StoreError};
+use crate::tools::ToolName;
 
 use super::{Inner, Task, envelope, gateway, prompts};
 
@@ -37,6 +38,17 @@ pub(super) struct RunCtx {
     pub agent_path: Vec<Slug>,
     /// Earlier turns of the task, before `task_text`; empty except on a follow-up.
     pub history: Vec<Item>,
+    /// Every call this run made and how it ended, in finish order; a delegated run's caller
+    /// reads it to report what the run did, not what its model said.
+    pub calls: Arc<Mutex<Vec<CallLine>>>,
+}
+
+/// One finished call: the tool, when it is one of the closed set, and how it ended. No argument
+/// is kept, so nothing a model wrote reaches the caller through it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub(super) struct CallLine {
+    pub tool: Option<ToolName>,
+    pub status: CallStatus,
 }
 
 /// Every run is its own spawned task. The future is boxed because a run can start a child

@@ -56,6 +56,7 @@ pub(super) fn render(ended: &Ended, untrusted: Option<&str>) -> String {
             truncated,
             output,
             untrusted,
+            calls,
             ..
         } => {
             let status = if *truncated { "truncated" } else { "completed" };
@@ -74,6 +75,8 @@ pub(super) fn render(ended: &Ended, untrusted: Option<&str>) -> String {
             if cut {
                 body["truncated"] = json!(true);
             }
+            // Recorded by the gateway, not written by the model, so it stays outside the wrapper.
+            body["calls"] = json!(calls);
             body.to_string()
         }
         Ended::Failed {

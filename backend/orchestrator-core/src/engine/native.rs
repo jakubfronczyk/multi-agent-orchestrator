@@ -1,7 +1,7 @@
 //! The two tools the engine runs itself: `delegate` starts a child run, `plan` records steps.
 //! Their arguments are parsed and checked like any tool's before a decision is made.
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use schemars::JsonSchema;
@@ -215,7 +215,9 @@ pub(super) async fn delegate(
         caller: Some(ctx.agent.name().to_string()),
         agent_path,
         history: Vec::new(),
+        calls: Arc::default(),
     };
+    let calls = Arc::clone(&child_ctx.calls);
     let child_cancel = child_ctx.cancel.clone();
     let outcome = match spawn_run(Arc::clone(inner), child_ctx).await {
         Ok(outcome) => outcome,
@@ -242,6 +244,7 @@ pub(super) async fn delegate(
             truncated,
             output,
             untrusted: envelope::source_label(&ctx.task.taint_sources()),
+            calls: calls.lock().unwrap_or_else(PoisonError::into_inner).clone(),
         },
         RunOutcome::Failed { reason, message } => {
             let message = if ctx.task.is_tainted() {
