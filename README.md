@@ -7,7 +7,6 @@ shows how the call came to be. Rust (axum, SQLite), React.
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): invariants, decisions and their costs, known limits
 - [`docs/PRODUCTION.md`](docs/PRODUCTION.md): from one local process to multi-node AWS
-- [`docs/API.md`](docs/API.md): HTTP endpoints, the event stream, error codes
 - [`docs/adr/`](docs/adr/), [`GLOSSARY.md`](GLOSSARY.md)
 
 ---
