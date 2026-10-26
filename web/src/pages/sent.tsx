@@ -149,6 +149,7 @@ function SentCard({
           <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
             <span className="min-w-0 truncate">
               To {message.recipient}
+              {message.cc.length > 0 && <>, cc {message.cc.join(", ")}</>}
               {agent && <>, from {agent.name}</>}
             </span>
             <TeamTag name={teamName} />

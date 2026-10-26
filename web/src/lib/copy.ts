@@ -38,6 +38,9 @@ export const DECISION_LABEL: Record<Decision, string> = {
   deny: "Deny",
 }
 
+/** Everyone copied in also receives the email, so a card or line naming the recipient names them too. */
+const ccText = (cc: string[]) => (cc.length > 0 ? `, copying ${cc.join(", ")}` : "")
+
 /** One line for what a call does, from its tool and action target. */
 export function callSummary(tool: string, action: Action | null, agentName: (slug: string) => string): string {
   if (!action) return tool in TOOL_LABEL ? toolLabel(tool) : `Unknown tool "${tool}"`
@@ -50,7 +53,7 @@ export function callSummary(tool: string, action: Action | null, agentName: (slu
       return `Read ${target.path}`
     case "recipient":
       return target.channel === "email"
-        ? `Email ${target.address}`
+        ? `Email ${target.address}${ccText(target.cc)}`
         : `Message ${target.address} on ${target.channel}`
     case "message":
       return `Read inbox message ${target.id}`
@@ -234,7 +237,7 @@ export function actionCopy(tool: string, action: Action | null, agentName: (slug
     const email = target.channel === "email"
     return {
       verb: email ? "send an email" : "send a message",
-      ask: email ? `send an email to ${target.address}` : `send a ${target.channel} message to ${target.address}`,
+      ask: email ? `send an email to ${target.address}${ccText(target.cc)}` : `send a ${target.channel} message to ${target.address}`,
       yes: "Send",
       no: "Don't send",
       peek: email ? "View email" : "View message",
