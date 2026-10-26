@@ -19,4 +19,8 @@ tool_call_id: ToolCallId,
 /**
  * `email` or `chat`.
  */
-channel: string, recipient: string, subject: string | null, body: string, sent_at: string, };
+channel: string, recipient: string, 
+/**
+ * Copied in on the same email; each of them received it too.
+ */
+cc: Array<string>, subject: string | null, body: string, sent_at: string, };

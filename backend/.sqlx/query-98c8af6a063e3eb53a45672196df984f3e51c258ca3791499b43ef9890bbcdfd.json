@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT o.id, o.run_id, r.root_run_id, r.team_id, o.tool_call_id, o.channel, o.recipient, o.subject,\n                o.body, o.sent_at\n         FROM outbox_messages o JOIN runs r ON r.id = o.run_id\n         WHERE (?1 IS NULL OR r.team_id = ?1)\n         ORDER BY o.sent_at DESC, o.id DESC LIMIT ?2",
+  "query": "SELECT o.id, o.run_id, r.root_run_id, r.team_id, o.tool_call_id, o.channel, o.recipient, o.cc, o.subject,\n                o.body, o.sent_at\n         FROM outbox_messages o JOIN runs r ON r.id = o.run_id\n         WHERE (?1 IS NULL OR r.team_id = ?1)\n         ORDER BY o.sent_at DESC, o.id DESC LIMIT ?2",
   "describe": {
     "columns": [
       {
@@ -81,8 +81,19 @@
         }
       },
       {
-        "name": "subject",
+        "name": "cc",
         "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbox_messages",
+            "name": "cc"
+          }
+        }
+      },
+      {
+        "name": "subject",
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "body",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "sent_at",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -125,10 +136,11 @@
       false,
       false,
       false,
+      false,
       true,
       false,
       false
     ]
   },
-  "hash": "3900e120e887af53413649ebb0a635c8437df887332fef63c89ff481bf4bbc40"
+  "hash": "98c8af6a063e3eb53a45672196df984f3e51c258ca3791499b43ef9890bbcdfd"
 }

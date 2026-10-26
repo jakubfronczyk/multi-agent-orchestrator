@@ -268,12 +268,34 @@ pub struct Action {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export)]
 pub enum Target {
-    File { path: String },
-    Recipient { channel: String, address: String },
-    Message { id: String },
-    Host { url: String, host: String },
-    Note { scope: MemoryScope, key: NoteKey },
-    Query { text: String },
-    Agent { slug: Slug },
-    Plan { steps: Vec<PlanStep> },
+    File {
+        path: String,
+    },
+    Recipient {
+        channel: String,
+        address: String,
+        /// People copied in on an email; every one of them receives it.
+        #[serde(default)]
+        cc: Vec<String>,
+    },
+    Message {
+        id: String,
+    },
+    Host {
+        url: String,
+        host: String,
+    },
+    Note {
+        scope: MemoryScope,
+        key: NoteKey,
+    },
+    Query {
+        text: String,
+    },
+    Agent {
+        slug: Slug,
+    },
+    Plan {
+        steps: Vec<PlanStep>,
+    },
 }

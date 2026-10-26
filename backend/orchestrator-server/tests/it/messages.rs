@@ -74,7 +74,7 @@ async fn send_message_validates_previews_and_writes_the_outbox(pool: SqlitePool)
 
     let action = send.check(&args).expect("valid");
     assert!(
-        matches!(action.target, Target::Recipient { ref channel, ref address } if channel == "email" && address == "anna.weber@example.com")
+        matches!(action.target, Target::Recipient { ref channel, ref address, .. } if channel == "email" && address == "anna.weber@example.com")
     );
     assert_eq!(
         send.preview(ctx.team_id, &args).await,
@@ -103,4 +103,42 @@ async fn send_message_validates_previews_and_writes_the_outbox(pool: SqlitePool)
         (row.recipient.as_str(), row.body.as_str()),
         ("anna.weber@example.com", "Approved for 90 days.")
     );
+}
+
+/// An email can copy people in: the card shows every address, one message is stored with its
+/// copies, and a copy on a chat, a bad address or a repeated one is refused before anything runs.
+#[sqlx::test]
+async fn an_email_copies_people_in_on_one_message(pool: SqlitePool) {
+    let app = app(pool.clone()).await;
+    let ctx = tool_ctx(&app, "messenger").await;
+    let send = SendMessage::new(pool.clone());
+    let args = json!({"channel": "email", "recipient": "anna.weber@example.com", "cc": ["rolf.bauer@example.com"], "subject": "AR-1042", "body": "Approved for 90 days."});
+
+    let action = send.check(&args).expect("valid");
+    assert!(matches!(
+        action.target,
+        Target::Recipient { ref cc, .. } if cc == &["rolf.bauer@example.com".to_string()]
+    ));
+    assert!(
+        send.preview(ctx.team_id, &args)
+            .await
+            .contains("\nCc: rolf.bauer@example.com\n")
+    );
+    let sent = send.run(&ctx, args).await.expect("sent").content;
+    assert_eq!(sent["cc"], json!(["rolf.bauer@example.com"]));
+    let stored = orchestrator_server::sqlite::outbox::list(&pool, Default::default())
+        .await
+        .expect("outbox")
+        .messages;
+    assert_eq!(stored.len(), 1, "one message, not one per address");
+    assert_eq!(stored[0].cc, ["rolf.bauer@example.com"]);
+
+    for bad in [
+        json!({"channel": "chat", "recipient": "anna", "cc": ["rolf.bauer@example.com"], "body": "x"}),
+        json!({"channel": "email", "recipient": "anna.weber@example.com", "cc": ["not-an-address"], "body": "x"}),
+        json!({"channel": "email", "recipient": "anna.weber@example.com", "cc": ["Anna.Weber@example.com"], "body": "x"}),
+        json!({"channel": "email", "recipient": "a@example.com", "cc": ["b@x.io", "c@x.io", "d@x.io", "e@x.io", "f@x.io", "g@x.io"], "body": "x"}),
+    ] {
+        assert!(send.check(&bad).is_err(), "{bad}");
+    }
 }

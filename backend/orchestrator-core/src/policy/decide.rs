@@ -132,6 +132,7 @@ mod tests {
         Target::Recipient {
             channel: "email".to_string(),
             address: "a@example.com".to_string(),
+            cc: Vec::new(),
         }
     }
 

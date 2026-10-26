@@ -21,6 +21,7 @@ use crate::sqlite::text::{timestamp, to_text};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 const SUBJECT_CHARS: usize = 200;
+const CC_LIMIT: usize = 5;
 const BODY_CHARS: usize = 8000;
 
 #[derive(Deserialize, JsonSchema)]
@@ -57,11 +58,20 @@ struct SendArgs {
     channel: Channel,
     /// An email address for email, a handle for chat.
     recipient: String,
+    /// Email only: up to 5 more addresses copied in on the same message.
+    #[serde(default)]
+    cc: Vec<String>,
     /// At most 200 characters.
     #[serde(default)]
     subject: Option<String>,
     /// The message, 1 to 8000 characters.
     body: String,
+}
+
+fn is_email(address: &str) -> bool {
+    address.split_once('@').is_some_and(|(user, host)| {
+        !user.is_empty() && host.contains('.') && !address.contains(char::is_whitespace)
+    })
 }
 
 impl SendArgs {
@@ -75,9 +85,7 @@ impl SendArgs {
             ));
         }
         let valid_recipient = match self.channel {
-            Channel::Email => recipient.split_once('@').is_some_and(|(user, host)| {
-                !user.is_empty() && host.contains('.') && !recipient.contains(char::is_whitespace)
-            }),
+            Channel::Email => is_email(recipient),
             Channel::Chat => !recipient.is_empty() && !recipient.contains(char::is_whitespace),
         };
         if !valid_recipient {
@@ -85,6 +93,30 @@ impl SendArgs {
                 "recipient: not a valid {} recipient",
                 self.channel.name()
             )));
+        }
+        if !self.cc.is_empty() && matches!(self.channel, Channel::Chat) {
+            return Err(ToolError::InvalidArgs(
+                "cc: only an email has copies".to_string(),
+            ));
+        }
+        if self.cc.len() > CC_LIMIT {
+            return Err(ToolError::InvalidArgs(
+                "cc: at most 5 addresses".to_string(),
+            ));
+        }
+        for (i, copy) in self.cc.iter().enumerate() {
+            if copy != copy.trim() || !is_email(copy) {
+                return Err(ToolError::InvalidArgs(format!(
+                    "cc: {copy:?} is not an email address"
+                )));
+            }
+            let repeated = copy.eq_ignore_ascii_case(recipient)
+                || self.cc[..i]
+                    .iter()
+                    .any(|earlier| earlier.eq_ignore_ascii_case(copy));
+            if repeated {
+                return Err(ToolError::InvalidArgs(format!("cc: {copy} is named twice")));
+            }
         }
         if self
             .subject
@@ -247,6 +279,7 @@ impl Tool for SendMessage {
             target: Target::Recipient {
                 channel: args.channel.name().to_string(),
                 address: args.recipient,
+                cc: args.cc,
             },
         })
     }
@@ -259,15 +292,17 @@ impl Tool for SendMessage {
         let call = to_text(&ctx.call_id).map_err(storage_failed)?;
         let channel = args.channel.name();
         let recipient = args.recipient.as_str();
+        let cc = serde_json::to_string(&args.cc).map_err(storage_failed)?;
         let now = timestamp(Utc::now());
         sqlx::query!(
-            "INSERT INTO outbox_messages (id, run_id, tool_call_id, channel, recipient, subject, body, sent_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO outbox_messages (id, run_id, tool_call_id, channel, recipient, cc, subject, body, sent_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             id,
             run,
             call,
             channel,
             recipient,
+            cc,
             args.subject,
             args.body,
             now
@@ -276,7 +311,7 @@ impl Tool for SendMessage {
         .await
         .map_err(storage_failed)?;
         Ok(ToolOutput {
-            content: json!({ "sent": true, "id": id, "to": recipient }),
+            content: json!({ "sent": true, "id": id, "to": recipient, "cc": args.cc }),
             taint: Vec::new(),
         })
     }
@@ -286,8 +321,13 @@ impl Tool for SendMessage {
         let Ok(args) = parse_args::<SendArgs>(args) else {
             return serde_json::to_string_pretty(args).unwrap_or_default();
         };
+        let cc = if args.cc.is_empty() {
+            String::new()
+        } else {
+            format!("\nCc: {}", args.cc.join(", "))
+        };
         format!(
-            "To: {} ({})\nSubject: {}\n\n{}",
+            "To: {} ({}){cc}\nSubject: {}\n\n{}",
             args.recipient.as_str(),
             args.channel.name(),
             args.subject.as_deref().unwrap_or("(none)"),

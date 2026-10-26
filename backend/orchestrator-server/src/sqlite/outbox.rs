@@ -6,7 +6,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 
-use super::read::{ReadError, decode, decode_time, encode_opt};
+use super::read::{ReadError, corrupt, decode, decode_time, encode_opt};
 
 const LIST_LIMIT: u32 = 200;
 
@@ -24,6 +24,8 @@ pub struct OutboxMessage {
     /// `email` or `chat`.
     pub channel: String,
     pub recipient: String,
+    /// Copied in on the same email; each of them received it too.
+    pub cc: Vec<String>,
     pub subject: Option<String>,
     pub body: String,
     pub sent_at: DateTime<Utc>,
@@ -45,7 +47,7 @@ pub struct OutboxFilter {
 pub async fn list(pool: &SqlitePool, filter: OutboxFilter) -> Result<OutboxList, ReadError> {
     let team = encode_opt(filter.team_id.as_ref())?;
     let rows = sqlx::query!(
-        "SELECT o.id, o.run_id, r.root_run_id, r.team_id, o.tool_call_id, o.channel, o.recipient, o.subject,
+        "SELECT o.id, o.run_id, r.root_run_id, r.team_id, o.tool_call_id, o.channel, o.recipient, o.cc, o.subject,
                 o.body, o.sent_at
          FROM outbox_messages o JOIN runs r ON r.id = o.run_id
          WHERE (?1 IS NULL OR r.team_id = ?1)
@@ -66,6 +68,7 @@ pub async fn list(pool: &SqlitePool, filter: OutboxFilter) -> Result<OutboxList,
                 tool_call_id: decode(&row.tool_call_id)?,
                 channel: row.channel,
                 recipient: row.recipient,
+                cc: serde_json::from_str(&row.cc).map_err(corrupt)?,
                 subject: row.subject,
                 body: row.body,
                 sent_at: decode_time(&row.sent_at)?,
