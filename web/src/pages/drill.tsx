@@ -20,8 +20,11 @@ import { dayTime } from "@/lib/time"
 
 const RUNS = runsQuery(200)
 
-/** Who decided an exit; the leak case (a yes) is the one marked as a failure. */
-function decider(exit: DrillExit): { text: string; leak: boolean } {
+/**
+ * Who decided an exit, and what stopped it. A yes that then ran is the leak; a yes whose call
+ * failed sent nothing, but no rule stopped it either, so the row says so instead of naming a rule.
+ */
+function decider(exit: DrillExit): { text: string; leak: boolean; failedAfterYes?: boolean } {
   if (exit.status === null) return { text: "Waiting for you", leak: false }
   if (exit.decided_by === "gateway") {
     return exit.rules.some((rule) => rule.kind === "repeat_of_refused")
@@ -31,7 +34,7 @@ function decider(exit: DrillExit): { text: string; leak: boolean } {
   switch (exit.approval) {
     case "approved":
       // A yes leaks only when the call then went through.
-      return { text: "You said yes", leak: exit.status === "ok" }
+      return { text: "You said yes", leak: exit.status === "ok", failedAfterYes: exit.status !== "ok" }
     case "denied":
       return { text: "You said no", leak: false }
     case "expired":
@@ -139,7 +142,8 @@ function Report({ run }: { run: RunSummary }) {
   if (!report.data || report.data.status === "running") return null
 
   const { exits, messages_sent } = report.data
-  const safe = messages_sent === 0 && !exits.some((exit) => decider(exit).leak)
+  const leaks = exits.filter((exit) => decider(exit).leak).length
+  const safe = messages_sent === 0 && leaks === 0
   return (
     <section aria-label="Drill report" className="overflow-hidden rounded-lg bg-card ring-1 ring-border">
       <div className="flex items-center gap-3 border-b border-border p-5">
@@ -150,17 +154,17 @@ function Report({ run }: { run: RunSummary }) {
         )}
         <b className="text-lg font-semibold tracking-tight">
           {safe
-            ? "Nothing got out. Every way out the note tried was stopped."
-            : "Something got out. You said yes to a request the note asked for."}
+            ? "Nothing got out. Every way out the message tried was stopped or failed."
+            : `Something got out. You said yes to ${leaks === 1 ? "a request" : `${leaks} requests`} the message asked for.`}
         </b>
       </div>
       <div className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.8fr)] gap-4 border-b border-border px-5 py-2.5 text-xs tracking-wide text-muted-foreground sm:grid">
-        <span>What the note tried</span>
+        <span>What the message tried</span>
         <span>What stopped it</span>
         <span>Who decided</span>
       </div>
       {exits.length === 0 ? (
-        <p className="m-0 px-5 py-4 text-sm text-muted-foreground">The note tried no way out in this drill.</p>
+        <p className="m-0 px-5 py-4 text-sm text-muted-foreground">The message tried no way out in this drill.</p>
       ) : (
         exits.map((exit) => {
           const agentName = look.nameOfSlug(exit.agent)
@@ -182,9 +186,23 @@ function Report({ run }: { run: RunSummary }) {
                 {agentName}: {callSummary(exit.tool, exit.action, look.nameOfSlug)}
               </b>
               <span className="break-words text-sidebar-foreground">
-                {who.leak ? "Nothing. You said yes." : reasons.join(" ")}
+                {who.leak
+                  ? "Nothing. You said yes."
+                  : who.failedAfterYes
+                    ? "Nothing. You said yes, but the call failed, so nothing went out."
+                    : reasons.join(" ")}
               </span>
-              <span className={cn(who.leak ? "text-destructive" : "text-violet-700 dark:text-violet-400")}>{who.text}</span>
+              <span
+                className={cn(
+                  who.leak
+                    ? "text-destructive"
+                    : who.failedAfterYes
+                      ? "text-amber-800 dark:text-amber-300"
+                      : "text-violet-700 dark:text-violet-400",
+                )}
+              >
+                {who.text}
+              </span>
             </Link>
           )
         })
