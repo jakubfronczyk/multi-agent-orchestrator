@@ -101,8 +101,8 @@ function StoppedRows({ calls }: { calls: ToolCallView[] }) {
 }
 
 /**
- * One delivered message. Every send asked first (send_message is never Allow), so a message
- * in the outbox is one you said yes to. Its call, named on the message, opens the sheet.
+ * One delivered message: every send asked first (send_message is never Allow), so a message in
+ * the outbox is one you said yes to. Its call, named on the message, opens the sheet.
  */
 function SentCard({
   message,

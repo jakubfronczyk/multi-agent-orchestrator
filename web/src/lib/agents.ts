@@ -3,9 +3,8 @@ import { agentsQuery } from "@/api/agents"
 import type { AgentRecord } from "@/generated/AgentRecord"
 
 /**
- * Agent lookups from the app-wide agents cache. Ids are global; slugs are unique only within a
- * team, so slug lookups resolve in `teamId`, the team of the record being shown. Without one a
- * slug resolves to nothing and is shown as sent.
+ * Agent lookups from the app-wide agents cache; slugs are unique only within a team, so they
+ * resolve in `teamId`, the team of the record shown. Without one a slug resolves to nothing.
  */
 export function useAgents(teamId?: string) {
   const { data = [] } = useQuery(agentsQuery)

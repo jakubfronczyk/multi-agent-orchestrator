@@ -14,10 +14,9 @@ interface Live<S, V> {
 }
 
 /**
- * A REST snapshot with every later event folded on top: buffered events above its
- * `last_event_id` first, then live ones. Each event applies at most once per snapshot; a new
- * snapshot (a refetch) restarts the fold from it. While the buffer has a hole above the
- * snapshot, it shows unfolded until the hub's resync brings a newer one.
+ * A REST snapshot with every later event folded on top, buffered ones above its `last_event_id`
+ * first, each at most once per snapshot; a refetch restarts the fold. While the buffer has a hole
+ * above the snapshot, it shows unfolded until the hub's resync brings a newer one.
  */
 export function useLiveState<S extends Snapshot, V>(
   snapshot: S | undefined,
