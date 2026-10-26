@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, useLocation } from "react-router"
-import { Inbox } from "lucide-react"
+import { Inbox, Mail, MessageSquare } from "lucide-react"
 import { outboxQuery } from "@/api/outbox"
 import { runsQuery } from "@/api/runs"
 import { toolCallsQuery } from "@/api/tool-calls"
@@ -55,7 +55,7 @@ export function SentPage() {
         {outbox.isPending ? null : outbox.error ? (
           <p className="m-0 text-sm text-destructive">Couldn't load the outbox. {outbox.error.message}</p>
         ) : messages.length > 0 ? (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col rounded-lg bg-card p-1 ring-1 ring-border">
             {messages.map((message) => (
               <SentCard key={message.id} message={message} calls={calls} teamName={team.label(message.team_id)} />
             ))}
@@ -100,9 +100,16 @@ function StoppedRows({ calls }: { calls: ToolCallView[] }) {
   )
 }
 
+/** The body without a leading "Subject: …" line that repeats the message's own subject. */
+function bodyOf(message: OutboxMessage): string {
+  const [first, ...rest] = message.body.split("\n")
+  if (!message.subject || first.trim().replace(/^subject:\s*/i, "") !== message.subject.trim()) return message.body
+  return rest.join("\n").replace(/^\s*\n/, "")
+}
+
 /**
- * One delivered message: every send asked first (send_message is never Allow), so a message in
- * the outbox is one you said yes to. Its call, named on the message, opens the sheet.
+ * One delivered message, collapsed to a line until opened: every send asked first (send_message
+ * is never Allow), so a message in the outbox is one you said yes to. Its call opens the sheet.
  */
 function SentCard({
   message,
@@ -120,43 +127,48 @@ function SentCard({
   const call = calls.find((c) => c.id === message.tool_call_id)
   const agent = call ? look.byId(call.agent_id) : undefined
   const task = runs.data?.runs.find((run) => run.id === message.root_run_id)
+  const body = bodyOf(message)
+  const Icon = message.channel === "email" ? Mail : MessageSquare
   const link = "text-sm text-sidebar-foreground underline decoration-input underline-offset-[3px] hover:text-foreground"
 
   return (
-    <article className="flex flex-col gap-2 rounded-lg bg-card px-5 py-4 ring-1 ring-border">
-      <div className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 sm:grid-cols-[20px_minmax(0,1fr)_auto]">
-        {agent ? <AgentShape icon={agent.icon} colour={agent.colour} size="md" className="mt-0.5" /> : <span />}
-        <div className="min-w-0">
-          <b className="block font-medium break-all">
-            {message.channel === "email" ? "Email" : "Chat message"} to {message.recipient} <TeamTag name={teamName} />
-          </b>
-          <small className="block text-sm text-muted-foreground">
-            {dayTime(message.sent_at)}. You said yes.
-            {task && <> In {(task.title ?? task.task).replace(/\.$/, "")}.</>}
-          </small>
+    <details className="group border-b border-border last:border-b-0">
+      <summary className="flex cursor-pointer list-none items-start gap-3 rounded-md px-3 py-3 hover:bg-accent/60 [&::-webkit-details-marker]:hidden">
+        {agent ? (
+          <AgentShape icon={agent.icon} colour={agent.colour} size="md" className="mt-0.5" />
+        ) : (
+          <Icon className="mt-0.5 size-5 flex-none text-muted-foreground" />
+        )}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex min-w-0 items-baseline gap-3">
+            <b className="min-w-0 flex-1 truncate font-medium">
+              {message.subject ?? (message.channel === "email" ? "Email" : "Chat message")}
+            </b>
+            <small className="flex-none text-xs text-muted-foreground tabular-nums">{dayTime(message.sent_at)}</small>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            <span className="min-w-0 truncate">
+              To {message.recipient}
+              {agent && <>, from {agent.name}</>}
+            </span>
+            <TeamTag name={teamName} />
+          </div>
+          <p className="m-0 truncate text-sm text-muted-foreground/80 group-open:hidden">{body}</p>
         </div>
-        <span className="col-start-2 flex flex-wrap gap-3 sm:col-start-3 sm:justify-end">
+      </summary>
+      <div className="flex flex-col gap-3 pr-3 pb-4 pl-11">
+        <p className="m-0 max-w-[64ch] text-sm break-words whitespace-pre-wrap text-sidebar-foreground">{body}</p>
+        <span className="flex flex-wrap gap-4">
           {call && (
             <Link to={{ pathname: location.pathname, search: sheetSearch(call.id, call.root_run_id) }} className={link}>
               How this happened
             </Link>
           )}
           <Link to={`/tasks/${message.root_run_id}`} className={link}>
-            Open the task
+            Open {task ? `"${(task.title ?? task.task).replace(/\.$/, "")}"` : "the task"}
           </Link>
         </span>
       </div>
-      <div className="flex max-w-[64ch] flex-col gap-1 border-l-2 border-border py-0.5 pl-4 text-sm text-sidebar-foreground">
-        <div className="text-muted-foreground">
-          To <span className="break-all text-sidebar-foreground">{message.recipient}</span>
-        </div>
-        {message.subject && (
-          <div className="text-muted-foreground">
-            Subject <span className="text-sidebar-foreground">{message.subject}</span>
-          </div>
-        )}
-        <p className="m-0 break-words whitespace-pre-wrap">{message.body}</p>
-      </div>
-    </article>
+    </details>
   )
 }
