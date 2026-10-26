@@ -73,6 +73,8 @@ pub async fn set_file_access(
 ) -> Result<StatusCode, ApiError> {
     let team = query::path_id::<TeamId>(&id)?;
     let of = query::path_id::<TeamId>(&of)?;
+    // No file write is between its reach check and its bytes while the grant changes.
+    let _files = state.workspace.exclusive().await;
     teams::set_file_access(&state.pool, team, of, input.access).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -83,6 +85,8 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let team = query::path_id::<TeamId>(&id)?;
+    // No file write into the team's folder is between its reach check and its bytes.
+    let _files = state.workspace.exclusive().await;
     teams::delete(&state.pool, team, || state.engine.has_live_task(team)).await?;
     Ok(StatusCode::NO_CONTENT)
 }

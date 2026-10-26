@@ -456,3 +456,111 @@ async fn a_grant_check_that_fails_is_internal_not_a_refusal(pool: SqlitePool) {
     assert_eq!(finished(&events), [CallStatus::Internal]);
     assert!(cards(&events).is_empty() && tainted(&events).is_empty());
 }
+
+/// `teams/<own slug>/...` is the team's own folder, not a second copy of it.
+#[sqlx::test]
+async fn the_own_slug_path_is_the_own_folder(pool: SqlitePool) {
+    let seeded = Seeded::new(pool).await;
+    let writer = in_team(&seeded, seeded.team, "writer").await;
+    run(
+        &seeded,
+        StartRequest {
+            agent_id: Some(writer),
+            ..request(
+                seeded.team,
+                r#"test:call:file_write:{"path":"teams/access-desk/reports/own.md","content":"mine"}"#,
+            )
+        },
+    )
+    .await;
+    let events = read_as(&seeded, seeded.team, "reports/own.md").await;
+    assert_eq!(finished(&events), [CallStatus::Ok]);
+    assert_eq!(
+        trust_of(&seeded, &seeded.own("reports/own.md")).await,
+        Trust::Trusted
+    );
+}
+
+/// A grant dies with its team: a new team that takes the deleted team's slug is not opened by it.
+#[sqlx::test]
+async fn a_reused_slug_is_not_opened_by_the_deleted_teams_grant(pool: SqlitePool) {
+    let seeded = Seeded::new(pool).await;
+    let team = contracts(&seeded).await;
+    let ops = |name: &str| teams::TeamInput {
+        name: name.to_string(),
+    };
+    let old = teams::create(&seeded.pool, ops("Ops")).await.expect("team");
+    grant(&seeded, team, old.id, FileAccess::Read).await;
+    teams::delete(&seeded.pool, old.id, || false)
+        .await
+        .expect("delete");
+    let new = teams::create(&seeded.pool, ops("Ops")).await.expect("team");
+    assert_eq!(new.slug, old.slug);
+
+    let events = read_as(&seeded, team, "teams/ops/notes.md").await;
+    assert_eq!(refused_by(&events), [Rule::NoAccess]);
+}
+
+/// A grant revoked while the save's card waits: the approved call checks again and fails, and
+/// the target keeps its bytes and label.
+#[sqlx::test]
+async fn a_revoke_while_the_card_waits_stops_the_approved_write(pool: SqlitePool) {
+    let seeded = Seeded::new(pool).await;
+    let team = contracts(&seeded).await;
+    let theirs = "teams/access-desk/reports/shared.md";
+    let writer = in_team(&seeded, seeded.team, "writer").await;
+    run(
+        &seeded,
+        StartRequest {
+            agent_id: Some(writer),
+            ..request(
+                seeded.team,
+                r#"test:call:file_write:{"path":"reports/shared.md","content":"first"}"#,
+            )
+        },
+    )
+    .await;
+    grant(&seeded, team, seeded.team, FileAccess::ReadWrite).await;
+    let upload = seeded
+        .workspace()
+        .store_upload(team, "note.txt", "outside text")
+        .await
+        .expect("upload");
+
+    // A fresh engine whose cards are answered only after the grant is revoked.
+    let engine = seeded.engine_with(std::sync::Arc::new(
+        orchestrator_server::llm::ScriptedProvider::new(),
+    ));
+    let mut cards_rx = seeded.store.subscribe();
+    let (pool, answering, of, me) = (seeded.pool.clone(), engine.clone(), seeded.team, team);
+    tokio::spawn(async move {
+        while let Ok(envelope) = cards_rx.recv().await {
+            if let RunEvent::ApprovalRequested { approval_id, .. } = envelope.event {
+                teams::set_file_access(&pool, me, of, FileAccess::None)
+                    .await
+                    .expect("revoke");
+                answering.answer(approval_id, Answer::Approve { note: None });
+            }
+        }
+    });
+    let mut rx = seeded.store.subscribe();
+    let root = engine
+        .start(StartRequest {
+            agent_id: Some(in_team(&seeded, team, "writer").await),
+            ..request(
+                team,
+                &format!(
+                    r#"test:seq:file_read:{{"path":"{upload}"}}|file_write:{{"path":"{theirs}","content":"tainted"}}"#
+                ),
+            )
+        })
+        .await
+        .expect("start");
+    let events = crate::task_events(&mut rx, root).await;
+    assert_eq!(cards(&events).len(), 1, "the save asked while granted");
+    assert_eq!(finished(&events), [CallStatus::Ok, CallStatus::Failed]);
+    let physical = seeded.own("reports/shared.md");
+    assert_eq!(trust_of(&seeded, &physical).await, Trust::Trusted);
+    let bytes = std::fs::read_to_string(seeded.temp.workspace().join(&physical)).expect("file");
+    assert_eq!(bytes, "first");
+}

@@ -221,7 +221,7 @@ impl Workspace {
         let path = format!("{}/{shown}", team_dir(team)?);
         let _exclusive = self.lock.write().await;
         let target = self.prepare(&path).await?;
-        if tokio::fs::try_exists(&target).await.unwrap_or(true) {
+        if tokio::fs::try_exists(&target).await.unwrap_or(true) || self.case_twin(&path).await? {
             return Err(UploadError::Exists);
         }
         self.record_trust(&path, Trust::Untrusted, None).await?;
@@ -231,18 +231,29 @@ impl Workspace {
         Ok(shown)
     }
 
-    /// Writes or replaces a file for `run` and says whether it replaced one. The row is marked
-    /// untrusted before any byte changes and set to `trust` only after the rename, so a failure
-    /// at any step leaves "untrusted".
-    pub(super) async fn write(
+    /// Writes or replaces a file at `path` of `team`'s view for `run`, and returns the path as
+    /// shown and whether it replaced one. Reach is checked under the exclusive lock, which grant
+    /// changes and team deletes also take, so a revoke cannot land between check and write. The
+    /// row is marked untrusted before any byte changes and set to `trust` only after the rename,
+    /// so a failure at any step leaves "untrusted".
+    pub(super) async fn write_for(
         &self,
+        team: TeamId,
         path: &str,
         text: &str,
         run: RunId,
         trust: Trust,
-    ) -> Result<bool, ToolError> {
+    ) -> Result<(String, bool), ToolError> {
         let run = to_text(&run).map_err(storage_failed)?;
         let _exclusive = self.lock.write().await;
+        let at = self.locate(team, path, Need::Write).await?;
+        if self.case_twin(&at.physical).await? {
+            return Err(ToolError::Failed(format!(
+                "{} differs only in letter case from a file that exists; use the name the file list shows",
+                at.shown
+            )));
+        }
+        let path = at.physical.as_str();
         let target = self.prepare(path).await?;
         let replaced = tokio::fs::try_exists(&target).await.unwrap_or(false);
         self.record_trust(path, Trust::Untrusted, Some(&run))
@@ -251,7 +262,25 @@ impl Workspace {
             .await
             .map_err(|_| cannot_write(path))?;
         self.record_trust(path, trust, Some(&run)).await?;
-        Ok(replaced)
+        Ok((at.shown, replaced))
+    }
+
+    /// Holds every file operation off while a caller changes what a team may reach.
+    pub async fn exclusive(&self) -> tokio::sync::OwnedRwLockWriteGuard<()> {
+        Arc::clone(&self.lock).write_owned().await
+    }
+
+    /// Whether a recorded file's path equals `path` ignoring letter case but not exactly. Such
+    /// a path is the same file on a case-insensitive disk, so writing it is refused.
+    async fn case_twin(&self, path: &str) -> Result<bool, ToolError> {
+        let twins = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM workspace_files WHERE path = ?1 AND path COLLATE BINARY <> ?1",
+            path
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(storage_failed)?;
+        Ok(twins > 0)
     }
 
     /// Resolves the target and creates its directory; directories this call created are

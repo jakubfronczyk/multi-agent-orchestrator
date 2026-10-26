@@ -68,7 +68,7 @@ pub enum FileView {
 }
 
 /// The one user may view any team's files, a deleted team's included. 404 for an unknown team or
-/// a path with nothing there.
+/// a path with nothing there; 422 on `path` for a bad path or a folder not shared with the team.
 pub async fn view(
     State(state): State<AppState>,
     Query(query): Query<FileQuery>,

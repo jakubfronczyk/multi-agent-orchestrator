@@ -185,6 +185,12 @@ impl Tool for FileWrite {
 
     fn check(&self, args: &Value) -> Result<Action, ToolError> {
         let args: WriteArgs = parse_args(args)?;
+        // Letter case is compared for ASCII only, so a saved path stays within it.
+        if !args.path.is_ascii() {
+            return Err(ToolError::InvalidArgs(
+                "path: use ASCII letters, digits and punctuation".to_string(),
+            ));
+        }
         let extension = Path::new(&args.path)
             .extension()
             .and_then(|e| e.to_str())
@@ -206,15 +212,16 @@ impl Tool for FileWrite {
     /// file or the new one, never part of either.
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         let args: WriteArgs = parse_args(&args)?;
-        let at = self
+        let (path, replaced) = self
             .workspace
-            .locate(ctx.team_id, &args.path, Need::Write)
+            .write_for(
+                ctx.team_id,
+                &args.path,
+                &args.content,
+                ctx.run_id,
+                ctx.trust,
+            )
             .await?;
-        let replaced = self
-            .workspace
-            .write(&at.physical, &args.content, ctx.run_id, ctx.trust)
-            .await?;
-        let path = at.shown;
         Ok(ToolOutput {
             content: json!({ "path": path, "bytes": args.content.len(), "replaced": replaced, "trust": ctx.trust }),
             taint: Vec::new(),

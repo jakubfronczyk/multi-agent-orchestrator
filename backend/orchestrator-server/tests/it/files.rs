@@ -313,3 +313,43 @@ async fn an_unknown_stored_trust_reads_as_untrusted(pool: SqlitePool) {
     let (_, trust, _) = workspace.read(&physical).await.expect("view");
     assert_eq!(trust, Trust::Untrusted);
 }
+
+/// A path that differs from a recorded file only in letter case names the same file on a
+/// case-insensitive disk, so a tainted write there must not leave the trusted row in place.
+#[sqlx::test]
+async fn a_case_variant_path_cannot_hide_tainted_bytes_behind_a_trusted_row(pool: SqlitePool) {
+    let app = app(pool.clone()).await;
+    let clean = tool_ctx(&app, "specialist").await;
+    let tainted = ToolCtx {
+        trust: Trust::Untrusted,
+        ..tool_ctx(&app, "specialist").await
+    };
+    let temp = TempDir::new();
+    let workspace = Workspace::new(temp.workspace(), pool);
+    let (read, write) = (FileRead::new(workspace.clone()), FileWrite::new(workspace));
+
+    run(
+        &write,
+        &clean,
+        json!({"path": "reports/shared.md", "content": "first"}),
+    )
+    .await
+    .expect("write");
+    let twin = run(
+        &write,
+        &tainted,
+        json!({"path": "Reports/SHARED.md", "content": "from the inbox"}),
+    )
+    .await;
+    assert!(twin.is_err(), "a case twin of a recorded file is refused");
+    let back = run(&read, &clean, json!({"path": "reports/shared.md"}))
+        .await
+        .expect("read");
+    assert_eq!(
+        (back["content"].clone(), back["trust"].clone()),
+        (json!("first"), json!("trusted"))
+    );
+
+    let non_ascii = json!({"path": "reports/ﬁle.md", "content": "x"});
+    assert!(write.check(&non_ascii).is_err(), "a saved path is ASCII");
+}
