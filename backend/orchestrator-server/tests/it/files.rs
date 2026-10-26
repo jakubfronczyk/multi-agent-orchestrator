@@ -353,3 +353,57 @@ async fn a_case_variant_path_cannot_hide_tainted_bytes_behind_a_trusted_row(pool
     let non_ascii = json!({"path": "reports/ﬁle.md", "content": "x"});
     assert!(write.check(&non_ascii).is_err(), "a saved path is ASCII");
 }
+
+/// `sum` adds a column exactly over the matching rows, per group when grouped, and names the row
+/// of a cell that is not a number.
+#[sqlx::test]
+async fn csv_query_sums_a_column(pool: SqlitePool) {
+    let app = app(pool.clone()).await;
+    let ctx = tool_ctx(&app, "specialist").await;
+    let temp = TempDir::new();
+    let workspace = Workspace::new(temp.workspace(), pool);
+    let (write, csv) = (FileWrite::new(workspace.clone()), CsvQuery::new(workspace));
+    let invoices = "invoice,vendor,amount\nI-1,Acme,1200.00\nI-2,Bolt,16699.00\nI-3,Acme,0.50\n";
+    run(
+        &write,
+        &ctx,
+        json!({"path": "lists/invoices.csv", "content": invoices}),
+    )
+    .await
+    .expect("write");
+
+    let total = run(
+        &csv,
+        &ctx,
+        json!({"path": "lists/invoices.csv", "sum": "amount"}),
+    )
+    .await
+    .expect("sum");
+    assert_eq!(
+        (total["sum"].clone(), total["rows"].clone()),
+        (json!("17899.50"), json!(3))
+    );
+    let acme = run(&csv, &ctx, json!({"path": "lists/invoices.csv", "sum": "amount", "filter": [{"column": "vendor", "op": "eq", "value": "Acme"}]}))
+        .await
+        .expect("sum");
+    assert_eq!(acme["sum"], "1200.50");
+    let grouped = run(
+        &csv,
+        &ctx,
+        json!({"path": "lists/invoices.csv", "sum": "amount", "group_by": "vendor"}),
+    )
+    .await
+    .expect("sum");
+    assert_eq!(
+        grouped["sums"],
+        json!({"Acme": "1200.50", "Bolt": "16699.00"})
+    );
+    let words = run(
+        &csv,
+        &ctx,
+        json!({"path": "lists/invoices.csv", "sum": "vendor"}),
+    )
+    .await
+    .expect_err("not numbers");
+    assert!(words.to_string().contains("row 1"), "{words}");
+}
