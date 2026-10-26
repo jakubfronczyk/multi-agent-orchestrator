@@ -33,8 +33,8 @@ export interface SubmitOptions {
 /** Why an upload was refused, by the status `POST /files` answers with. */
 function uploadError(error: unknown): string {
   if (isApiError(error, 409)) return "Too many uploads already share that name. Rename the file and try again."
-  if (isApiError(error, 413)) return "That file is too big to attach."
-  if (isApiError(error, 415)) return "Agents read text only, so PDFs, images and Office files can't be attached yet."
+  if (isApiError(error, 422) && error.message) return `Couldn't read that file: ${error.message}.`
+  if (isApiError(error, 413)) return error.message ? `Too big to attach: ${error.message}.` : "That file is too big to attach."
   return error instanceof Error ? `Couldn't attach that file. ${error.message}` : "Couldn't attach that file."
 }
 
@@ -99,7 +99,7 @@ export function Composer({
   const inFlight = useRef(false)
   // This composer's uploads by team and file identity: a removed chip's file is still in uploads/, so
   // picking it again reuses the upload instead of a POST that would conflict.
-  const uploads = useRef(new Map<string, UploadResponse>())
+  const uploads = useRef(new Map<string, UploadResponse[]>())
   const client = useQueryClient()
   const canSend = !disabled && !sending && !uploading && value.trim().length > 0
 
@@ -118,8 +118,8 @@ export function Composer({
     }
   }
 
-  const add = (file: UploadResponse) =>
-    setAttachments((current) => (current.some((f) => f.path === file.path) ? current : [...current, file]))
+  const add = (files: UploadResponse[]) =>
+    setAttachments((current) => [...current, ...files.filter((file) => !current.some((f) => f.path === file.path))])
 
   const pick = async (file: File | undefined) => {
     if (!file) return
@@ -134,8 +134,8 @@ export function Composer({
     setUploading(true)
     try {
       const uploaded = await uploadFile(attach, file)
-      uploads.current.set(key, uploaded)
-      if (team.current === attach) add(uploaded)
+      uploads.current.set(key, uploaded.files)
+      if (team.current === attach) add(uploaded.files)
       // The upload is now in the team's folder under uploads/.
       void client.invalidateQueries({ queryKey: ["files"] })
     } catch (error) {
@@ -165,7 +165,7 @@ export function Composer({
                 <Paperclip className="size-3.5 flex-none" />
                 <span className="min-w-0 truncate">{file.path}</span>
                 <span className="rounded-full px-1.5 text-xs text-amber-800 ring-1 ring-current ring-inset dark:text-amber-300">
-                  Untrusted
+                  {file.readable ? "Untrusted" : "Can't be read"}
                 </span>
                 <button
                   type="button"
