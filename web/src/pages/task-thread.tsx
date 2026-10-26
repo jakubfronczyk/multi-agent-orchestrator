@@ -540,7 +540,8 @@ function TurnSection({
       {ending ? (
         <>
           <LeadMessage lead={lead}>{ending}</LeadMessage>
-          {turn.outcome?.kind === "completed" && (
+          {/* The server ends each answer with its record now; only older answers need this one. */}
+          {turn.outcome?.kind === "completed" && !ending.includes("From the record:") && (
             <p className="m-0 pl-8 text-sm text-muted-foreground">{recordedOutcome(tree)}</p>
           )}
         </>
