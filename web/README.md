@@ -1,32 +1,64 @@
-# React + TypeScript + Vite
+# web
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React app for the orchestrator: start tasks, watch them run live, answer approval cards,
+edit teams. Talks only to the backend's `/api`.
 
-Currently, two official plugins are available:
+React 19, Vite 8, TypeScript 6, Tailwind 4, shadcn/Radix, TanStack Query, React Router,
+Oxlint.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Data flow
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```
+                 GET /api/...                       GET /api/events (SSE)
+backend ──────────────────────▶ TanStack Query     ─────────────────────▶ event-hub
+                                  snapshot                                  │ one EventSource,
+                                  + last_event_id                           │ buffer, replay
+                                       │                                    │
+                                       └──────────▶ useLiveState ◀──────────┘
+                                                    fold events newer than the snapshot
+                                                          │
+                                                        pages
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- **Snapshots, then events.** Each REST snapshot carries `last_event_id`; `useLiveState`
+  folds every later event onto it, each once. Queries never go stale by age or window focus
+  (`staleTime: Infinity`); only events invalidate them.
+- **One stream.** `src/events/event-hub.ts` holds the single `EventSource`, buffers recent
+  events, and reconnects with `Last-Event-ID` so the server replays the gap. A gap the
+  buffer cannot cover, or a database reset, triggers a refetch of the snapshots.
+- **Types come from Rust.** `src/generated/` is written by `ts-rs` from the backend's types
+  and never edited by hand. CI fails if it differs from the Rust code.
+
+## Layout
+
+```
+src/
+  main.tsx                 query client, event hub, theme, router
+  app/                     shell, sidebar, routes
+  pages/                   home, tasks, task-thread, needs (approvals), team, notes,
+                           files, sent, activity, drill
+  pages/team/              agent editor, tool rows (allow / ask / deny), file access grants
+  components/              composer, call rows, approval slips, trust pills, dialogs
+  components/ui/           shadcn primitives
+  api/                     one typed fetch module per backend resource
+  events/                  event hub, live-state fold, invalidate-on-event hooks
+  lib/                     thread state and view, custody ("how this happened"), team scope
+  generated/               API types from Rust; do not edit
+eval/                      live and scripted agent eval, see eval/README.md
+```
+
+## Commands
+
+```bash
+pnpm install
+pnpm dev          # Vite on :5173, proxies /api to 127.0.0.1:8787 (start the server first)
+pnpm build        # tsc -b && vite build
+pnpm lint         # oxlint, and typecheck the eval harness
+```
+
+`just up` from the repo root starts the server and this app together. Typecheck with
+`tsc -b`; `tsc -p .` checks nothing, because the root tsconfig only references the others.
+
+The `/api` proxy in `vite.config.ts` flushes SSE headers immediately. Without that, Node
+holds them until the first body write, and the `EventSource` would not open until the 15 s
+keep-alive.
