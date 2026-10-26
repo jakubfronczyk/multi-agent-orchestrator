@@ -1,6 +1,7 @@
 //! `GET /api/files?team_id=&path=`: read-only view of the workspace as that team's agents see it,
 //! through the same mapper, sandbox and lock as the file tools; no trust record means untrusted.
-//! `POST /api/files?team_id=`: one uploaded text file, stored untrusted in the team's `uploads/`.
+//! `POST /api/files?team_id=`: one uploaded text file, any name, stored untrusted in the team's
+//! `uploads/`.
 
 use axum::Json;
 use axum::extract::multipart::MultipartError;
@@ -16,9 +17,7 @@ use super::error::ApiError;
 use super::error::ErrorCode;
 use super::{AppState, query};
 use crate::sqlite::teams;
-use crate::tools::workspace::{
-    EntryKind, FILE_BYTES, Need, TEXT_EXTENSIONS, UploadError, check_upload_name,
-};
+use crate::tools::workspace::{EntryKind, FILE_BYTES, Need, UploadError};
 
 const UPLOAD_FIELD: &str = "file";
 
@@ -127,9 +126,9 @@ pub struct UploadResponse {
     pub trust: Trust,
 }
 
-/// 201 with the stored path. 422 for a missing field, a bad name or no `team_id`, 404 for an
-/// unknown or deleted team, 409 when the name is taken, 413 over 256 KB, 415 for anything but
-/// UTF-8 .csv, .md, .txt or .json, 500 when the disk fails.
+/// 201 with the stored path, under the cleaned name or the next free number. 422 for a missing
+/// field or no `team_id`, 404 for an unknown or deleted team, 409 when every numbered name is
+/// taken, 413 over 256 KB, 415 for a file that is not text, 500 when the disk fails.
 pub async fn upload(
     State(state): State<AppState>,
     Query(query): Query<UploadQuery>,
@@ -145,14 +144,8 @@ pub async fn upload(
         .map_err(multipart_error)?
         .filter(|field| field.name() == Some(UPLOAD_FIELD))
         .ok_or_else(|| ApiError::invalid(UPLOAD_FIELD, "send one field named file"))?;
+    // Any name is accepted; the workspace cleans it and numbers a taken one.
     let name = field.file_name().unwrap_or_default().to_string();
-    check_upload_name(&name).map_err(|error| tool_error(UPLOAD_FIELD, error))?;
-    let extension = name
-        .rsplit_once('.')
-        .map(|(_, extension)| extension.to_ascii_lowercase());
-    if !extension.is_some_and(|e| TEXT_EXTENSIONS.contains(&e.as_str())) {
-        return Err(unsupported());
-    }
 
     let mut bytes = Vec::new();
     while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
@@ -170,14 +163,20 @@ pub async fn upload(
     {
         return Err(ApiError::invalid(UPLOAD_FIELD, "send one field named file"));
     }
-    let text = String::from_utf8(bytes).map_err(|_| unsupported())?;
+    // Agents read text only: a file that is not UTF-8, or holds a NUL byte, is binary.
+    let text = String::from_utf8(bytes)
+        .ok()
+        .filter(|text| !text.contains('\0'))
+        .ok_or_else(unsupported)?;
 
     let path = state
         .workspace
         .store_upload(team, &name, &text)
         .await
         .map_err(|error| match error {
-            UploadError::Exists => ApiError::conflict("a file with this name was already uploaded"),
+            UploadError::Exists => {
+                ApiError::conflict("too many uploads share this name; rename the file")
+            }
             UploadError::Tool(ToolError::Failed(message)) => {
                 tracing::error!(%message, "upload could not be written");
                 ApiError::internal()
@@ -209,7 +208,7 @@ fn unsupported() -> ApiError {
     ApiError::new(
         StatusCode::UNSUPPORTED_MEDIA_TYPE,
         ErrorCode::InvalidInput,
-        "only UTF-8 text files ending in .csv, .md, .txt or .json".to_string(),
+        "agents read text only: PDFs, images and Office files can't be attached".to_string(),
         Some(UPLOAD_FIELD.to_string()),
     )
 }

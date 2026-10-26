@@ -4,7 +4,7 @@
 use orchestrator_core::engine::StartRequest;
 use orchestrator_core::policy::TaintSource;
 use orchestrator_server::tools::workspace::FILE_BYTES;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
 use crate::{Seeded, TempDir, agent_id, id_text, request, tainted, task_events};
@@ -77,56 +77,57 @@ async fn an_upload_is_stored_untrusted_under_uploads(pool: SqlitePool) {
     assert_eq!(view["trust"], "untrusted");
     assert!(view["written_by_root_run_id"].is_null());
 
-    let (status, _) = upload(&base, body("file", "notes.md", b"replaced")).await;
-    assert_eq!(status, 409, "an upload never replaces one");
+    let (status, again) = upload(&base, body("file", "notes.md", b"replaced")).await;
+    assert_eq!(
+        (status, again["path"].clone()),
+        (201, json!("uploads/notes-2.md")),
+        "a taken name gets a number"
+    );
     let kept =
         std::fs::read_to_string(served.temp.workspace().join(served.own("uploads/notes.md")))
             .expect("stored");
-    assert_eq!(kept, "# Notes\n");
+    assert_eq!(kept, "# Notes\n", "an upload never replaces one");
 }
 
+/// Any name is cleaned rather than refused; only binary or oversized files are refused, before
+/// anything is written.
 #[sqlx::test]
-async fn bad_uploads_are_refused_before_anything_is_written(pool: SqlitePool) {
+async fn any_name_is_cleaned_and_only_binary_or_big_files_are_refused(pool: SqlitePool) {
     let (served, base) = served(pool).await;
-    for name in [
-        "../x.md",
-        "a/b.md",
-        ".env",
-        "",
-        "x y.md",
-        "a\\b.md",
-        &format!("{}.md", "a".repeat(98)),
+    for (raw, stored) in [
+        ("../x.md", "uploads/x.md"),
+        ("Raport Q3 (final).CSV", "uploads/Raport-Q3-final.CSV"),
+        ("data.tsv", "uploads/data.tsv"),
+        (".env", "uploads/env"),
     ] {
-        let (status, json) = upload(&base, body("file", name, b"x")).await;
-        assert_eq!(status, 422, "{name:?}: {json}");
-        assert_eq!(json["error"]["field"], "file", "{name:?}");
+        let (status, json) = upload(&base, body("file", raw, b"x")).await;
+        assert_eq!(
+            (status, json["path"].clone()),
+            (201, json!(stored)),
+            "{raw:?}"
+        );
     }
-    let (status, _) = upload(&base, body("other", "x.md", b"x")).await;
-    assert_eq!(status, 422, "the field must be named file");
+    assert!(
+        !served.temp.workspace().join("x.md").exists(),
+        "nothing outside the folder"
+    );
 
+    let (status, _) = upload(&base, body("other", "y.md", b"x")).await;
+    assert_eq!(status, 422, "the field must be named file");
     let big = vec![b'a'; FILE_BYTES + 1];
     let (status, _) = upload(&base, body("file", "big.txt", &big)).await;
     assert_eq!(status, 413, "one byte over the read cap");
     let (status, _) = upload(&base, body("file", "bin.txt", &[0xff, 0xfe, 0x00])).await;
     assert_eq!(status, 415, "not UTF-8");
-    let (status, _) = upload(&base, body("file", "image.png", b"text")).await;
-    assert_eq!(status, 415, "not a text extension");
-
-    assert!(!served.temp.workspace().join(served.own("x.md")).exists());
-    let names: Vec<String> = std::fs::read_dir(served.temp.workspace().join(served.own("uploads")))
-        .map(|dir| {
-            dir.filter_map(Result::ok)
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default();
-    assert!(names.is_empty(), "nothing was stored: {names:?}");
-    let rows =
-        sqlx::query_scalar!("SELECT COUNT(*) FROM workspace_files WHERE path LIKE '%uploads/%'")
-            .fetch_one(&served.pool)
-            .await
-            .expect("count");
-    assert_eq!(rows, 0);
+    let (status, _) = upload(&base, body("file", "image.png", b"PNG\0\0")).await;
+    assert_eq!(status, 415, "binary");
+    for refused in ["y.md", "big.txt", "bin.txt", "image.png"] {
+        let path = served
+            .temp
+            .workspace()
+            .join(served.own(&format!("uploads/{refused}")));
+        assert!(!path.exists(), "{refused} was stored");
+    }
 }
 
 #[cfg(unix)]

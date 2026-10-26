@@ -34,33 +34,57 @@ pub const TEAMS_DIR: &str = "teams";
 /// What an agent calls the shared reference folder.
 const DATA_DIR: &str = "data";
 const UPLOAD_NAME_CHARS: usize = 100;
+/// How many numbered names an upload tries before it is refused as taken.
+const UPLOAD_NUMBERS: u32 = 99;
 const LIST_LIMIT: usize = 500;
 
 /// Why an upload was not stored.
 #[derive(Debug, thiserror::Error)]
 pub enum UploadError {
-    #[error("a file with this name was already uploaded")]
+    #[error("every numbered name for this upload is taken")]
     Exists,
     #[error(transparent)]
     Tool(#[from] ToolError),
 }
 
-/// A bare file name of ASCII letters, digits, `.`, `_` and `-`, at most 100 characters, not
-/// starting with a dot; so it names one file directly inside `uploads/`.
-pub fn check_upload_name(name: &str) -> Result<(), ToolError> {
-    let valid = !name.is_empty()
-        && name.len() <= UPLOAD_NAME_CHARS
-        && !name.starts_with('.')
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-    if valid {
-        Ok(())
-    } else {
-        Err(ToolError::InvalidArgs(
-            "file: the name must be up to 100 letters, digits, '.', '_' or '-', not starting with '.'"
-                .to_string(),
-        ))
+/// A browser's file name as a safe one: its last path part, ASCII letters, digits, `.`, `_` and
+/// `-` kept, every other run of characters one `-`, at most 100 characters with the extension
+/// kept. Saved names stay ASCII because trust rows compare names ignoring ASCII case only.
+pub fn upload_name(raw: &str) -> String {
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or_default();
+    let mut clean = String::new();
+    for c in base.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+            clean.push(c);
+        } else if !clean.ends_with('-') {
+            clean.push('-');
+        }
+    }
+    let clean = clean.replace("-.", ".");
+    let clean = clean.trim_start_matches(['.', '-']).trim_end_matches('-');
+    let (stem, extension) = match clean.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => (stem, Some(extension)),
+        _ => (clean, None),
+    };
+    let stem = if stem.is_empty() { "upload" } else { stem };
+    let room = UPLOAD_NAME_CHARS - extension.map_or(0, |e| e.len().min(20) + 1);
+    let stem: String = stem.chars().take(room).collect();
+    match extension {
+        Some(extension) if !extension.is_empty() => {
+            format!("{stem}.{}", &extension[..extension.len().min(20)])
+        }
+        _ => stem,
+    }
+}
+
+/// `report.csv`, then `report-2.csv`, `report-3.csv`, ...
+fn numbered(name: &str, n: u32) -> String {
+    if n == 1 {
+        return name.to_string();
+    }
+    match name.rsplit_once('.') {
+        Some((stem, extension)) => format!("{stem}-{n}.{extension}"),
+        None => format!("{name}-{n}"),
     }
 }
 
@@ -207,28 +231,35 @@ impl Workspace {
         Ok((text, self.trust_of(path).await?))
     }
 
-    /// Saves an upload in `team`'s folder and returns its path as the team's agents name it,
-    /// `uploads/<name>`; an existing upload is never replaced. The row is recorded untrusted,
-    /// with no writing run, before any byte is written.
+    /// Saves an upload in `team`'s folder under its cleaned name and returns its path as the
+    /// team's agents name it, `uploads/<name>`. A taken name gets the next free number; an
+    /// existing upload is never replaced. The row is recorded untrusted, with no writing run,
+    /// before any byte is written.
     pub async fn store_upload(
         &self,
         team: TeamId,
         name: &str,
         text: &str,
     ) -> Result<String, UploadError> {
-        check_upload_name(name)?;
-        let shown = format!("{UPLOADS_DIR}/{name}");
-        let path = format!("{}/{shown}", team_dir(team)?);
+        let name = upload_name(name);
         let _exclusive = self.lock.write().await;
-        let target = self.prepare(&path).await?;
-        if tokio::fs::try_exists(&target).await.unwrap_or(true) || self.case_twin(&path).await? {
-            return Err(UploadError::Exists);
+        for n in 1..=UPLOAD_NUMBERS {
+            let shown = format!("{UPLOADS_DIR}/{}", numbered(&name, n));
+            let path = format!("{}/{shown}", team_dir(team)?);
+            let target = self.prepare(&path).await?;
+            if tokio::fs::try_exists(&target).await.unwrap_or(true)
+                || self.case_twin(&path).await?
+                || self.trust_row(&path).await?
+            {
+                continue;
+            }
+            self.record_trust(&path, Trust::Untrusted, None).await?;
+            write_atomic(&target, text)
+                .await
+                .map_err(|_| cannot_write(&path))?;
+            return Ok(shown);
         }
-        self.record_trust(&path, Trust::Untrusted, None).await?;
-        write_atomic(&target, text)
-            .await
-            .map_err(|_| cannot_write(&path))?;
-        Ok(shown)
+        Err(UploadError::Exists)
     }
 
     /// Writes or replaces a file at `path` of `team`'s view for `run`, and returns the path as
@@ -268,6 +299,15 @@ impl Workspace {
     /// Holds every file operation off while a caller changes what a team may reach.
     pub async fn exclusive(&self) -> tokio::sync::OwnedRwLockWriteGuard<()> {
         Arc::clone(&self.lock).write_owned().await
+    }
+
+    /// Whether `path` has a trust row, in any letter case.
+    async fn trust_row(&self, path: &str) -> Result<bool, ToolError> {
+        let rows = sqlx::query_scalar!("SELECT COUNT(*) FROM workspace_files WHERE path = ?", path)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(storage_failed)?;
+        Ok(rows > 0)
     }
 
     /// Whether a recorded file's path equals `path` ignoring letter case but not exactly. Such
@@ -678,4 +718,28 @@ pub(super) fn display(path: &Path) -> String {
         .map(|part| part.as_os_str().to_string_lossy())
         .collect::<Vec<_>>()
         .join("/")
+}
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+
+    #[test]
+    fn any_name_becomes_a_safe_one() {
+        for (raw, clean) in [
+            ("report.csv", "report.csv"),
+            ("Raport Q3 (final).CSV", "Raport-Q3-final.CSV"),
+            ("../../etc/passwd", "passwd"),
+            ("C:\\Users\\me\\notes.md", "notes.md"),
+            (".env", "env"),
+            ("Zespół łódź.txt", "Zesp-d.txt"),
+            ("   ", "upload"),
+            ("no-extension", "no-extension"),
+        ] {
+            assert_eq!(upload_name(raw), clean, "{raw:?}");
+        }
+        assert!(upload_name(&format!("{}.csv", "a".repeat(300))).len() <= UPLOAD_NAME_CHARS);
+        assert_eq!(numbered("report.csv", 2), "report-2.csv");
+        assert_eq!(numbered("notes", 3), "notes-3");
+    }
 }

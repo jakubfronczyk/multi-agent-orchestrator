@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT COUNT(*) FROM workspace_files WHERE path LIKE '%uploads/%'",
+  "query": "SELECT COUNT(*) FROM workspace_files WHERE path = ?",
   "describe": {
     "columns": [
       {
@@ -11,11 +11,11 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false
     ]
   },
-  "hash": "19940c79627cf9177bbf1053496cee11720501c5de0ffa1e33913fe12f14f5ca"
+  "hash": "f63eabe3d305ee10ac88e262d7fef739c33653ab03d3fd651c4db756adbccfb0"
 }
