@@ -11,6 +11,23 @@ setup:
 dev:
     cargo run -p orchestrator-server
 
+# run the backend and the web app; Ctrl-C or either one exiting stops both
+up:
+    #!/usr/bin/env bash
+    # background jobs of a script ignore SIGINT, so the trap stops them
+    trap 'trap - INT TERM EXIT; kill 0' INT TERM EXIT
+    just dev & server=$!
+    just web & web=$!
+    # macOS ships bash 3.2, which has no `wait -n`
+    while kill -0 $server 2>/dev/null && kill -0 $web 2>/dev/null; do sleep 1; done
+
+# delete the app database and workspace together; refuses while the server holds them
+[working-directory('backend')]
+reset:
+    @if lsof -nP -iTCP:8787 -sTCP:LISTEN >/dev/null; then echo "the server is running on :8787; stop it first" >&2; exit 1; fi
+    rm -f var/orchestrator.db var/orchestrator.db-wal var/orchestrator.db-shm
+    rm -rf var/workspace
+
 # run the web app
 [working-directory('web')]
 web:
