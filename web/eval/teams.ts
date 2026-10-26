@@ -1,6 +1,7 @@
 import type { AgentInput } from "../src/generated/AgentInput.ts"
 import type { AgentRecord } from "../src/generated/AgentRecord.ts"
 import type { Decision } from "../src/generated/Decision.ts"
+import type { ReasoningEffort } from "../src/generated/ReasoningEffort.ts"
 import type { ToolName } from "../src/generated/ToolName.ts"
 import { api } from "./api.ts"
 import { SEEDED_TEAM } from "./fixtures.ts"
@@ -131,7 +132,7 @@ export async function loadSeeded(): Promise<Seeded> {
  * A new team per task, so notes and files of one task never reach another. Specialists are created
  * before the Lead is replaced, since the server refuses delegate targets that do not exist yet.
  */
-export async function createTeam(plan: TeamPlan, seeded: Seeded, name: string): Promise<ReadyTeam> {
+export async function createTeam(plan: TeamPlan, seeded: Seeded, name: string, effort?: ReasoningEffort): Promise<ReadyTeam> {
   const team = await api.createTeam(name)
   // The server gives a new team's Lead its default prompt; a domain team keeps it, so the eval
   // never runs on a stale copy of that text.
@@ -139,7 +140,8 @@ export async function createTeam(plan: TeamPlan, seeded: Seeded, name: string): 
   let writerId: string | null = null
   let writerReadsInbox = false
   const agents = plan.build(seeded).sort((a, b) => Number(a.role === "lead") - Number(b.role === "lead"))
-  for (const agent of agents) {
+  // `effort` sets every agent's reasoning effort, to compare a run against the seeded settings.
+  for (const agent of effort ? agents.map((a) => ({ ...a, reasoning_effort: effort })) : agents) {
     if (agent.role === "lead") {
       const prompt = plan.job ? { system_prompt: `${plan.job} ${defaultPrompt}` } : {}
       await api.replaceAgent(team.lead_agent_id, { ...agent, ...prompt, team_id: team.id })

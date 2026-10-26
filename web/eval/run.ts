@@ -1,12 +1,13 @@
 // Live eval: runs each case on each of its teams against the local server, answers cards like a
 // person, then grades the recorded calls in code and with an LLM judge.
 //   node eval/run.ts [--cases a,b] [--teams x,y] [--pairs case:team,…] [--reps 1] [--concurrency 2]
-//                    [--budget 2] [--no-judge] [--dry]
+//                    [--budget 2] [--no-judge] [--dry] [--effort none|low|medium|high]
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
 import type { ApprovalView } from "../src/generated/ApprovalView.ts"
+import type { ReasoningEffort } from "../src/generated/ReasoningEffort.ts"
 import { api } from "./api.ts"
 import { CASES, expectationFor, type Case } from "./cases.ts"
 import { DOMAIN_CASES } from "./domains.ts"
@@ -19,6 +20,7 @@ import { createTeam, loadSeeded, TEAMS, type ReadyTeam, type Seeded, type TeamPl
 import { answerText, harnessVersion, message, stamp as newStamp, teamName } from "./util.ts"
 
 const ALL_CASES = [...CASES, ...DOMAIN_CASES]
+const EFFORTS: ReasoningEffort[] = ["none", "low", "medium", "high"]
 
 const POLL_MS = 1500
 const TASK_TIMEOUT_MS = 8 * 60 * 1000
@@ -35,8 +37,13 @@ const { values } = parseArgs({
     "no-judge": { type: "boolean", default: false },
     /** Every step but Grok: scripted agents, judge input built but not sent. Costs nothing. */
     dry: { type: "boolean", default: false },
+    /** Sets every agent's reasoning effort; absent keeps each agent's own setting. */
+    effort: { type: "string" },
   },
 })
+
+if (values.effort && !EFFORTS.includes(values.effort as ReasoningEffort)) throw new Error(`--effort must be one of ${EFFORTS.join(", ")}`)
+const effort = values.effort as ReasoningEffort | undefined
 
 try {
   process.loadEnvFile(join(import.meta.dirname, "../../.env"))
@@ -120,7 +127,7 @@ async function runCase(
   // Every task started here, so a harness error never leaves one running or its team behind.
   const roots: string[] = []
   try {
-    const team = await createTeam(plan, seeded, teamName("Eval", c.id.slice(0, 22), plan.key, rep, stamp.slice(11)))
+    const team = await createTeam(plan, seeded, teamName("Eval", c.id.slice(0, 22), plan.key, rep, stamp.slice(11)), effort)
     teamId = team.id
     await seedFiles(team, c.seed ?? [])
     for (const file of c.uploads ?? []) await api.upload(team.id, file.path, file.content)
@@ -128,7 +135,7 @@ async function runCase(
     if (c.partner) {
       const partnerPlan = TEAMS.find((t) => t.key === c.partner?.team)
       if (!partnerPlan) throw new Error(`Unknown partner team ${c.partner.team}`)
-      const partner = await createTeam(partnerPlan, seeded, teamName("Eval", c.id.slice(0, 22), "partner", rep, stamp.slice(11)))
+      const partner = await createTeam(partnerPlan, seeded, teamName("Eval", c.id.slice(0, 22), "partner", rep, stamp.slice(11)), effort)
       partnerId = partner.id
       transcript.partnerSlug = partner.slug
       await seedFiles(partner, c.partner.seed)
@@ -201,7 +208,12 @@ const money = (micros: number) => `$${(micros / 1_000_000).toFixed(3)}`
 const pct = (x: number) => `${Math.round(x * 100)}%`
 
 function report(rows: Row[], stamp: string, skipped: number, version: string, dry: boolean): string {
-  const lines = [`# Eval ${stamp}${dry ? " (dry run)" : ""}`, "", `Harness: ${version}. Judge model: ${JUDGE_MODEL}.`, ""]
+  const lines = [
+    `# Eval ${stamp}${dry ? " (dry run)" : ""}`,
+    "",
+    `Harness: ${version}. Agent effort: ${effort ?? "each agent's own"}. Judge model: ${JUDGE_MODEL}.`,
+    "",
+  ]
   if (skipped) lines.push(`Stopped at the budget; ${skipped} tasks not run.`, "")
 
   lines.push("## Pass rates", "", `| case | team | n | ${CHECKS.join(" | ")} | judge |`, `|${"---|".repeat(CHECKS.length + 4)}`)
@@ -290,7 +302,7 @@ async function main() {
   const jobs = chosen.flatMap((pair) => Array.from({ length: reps }, (_, i) => ({ ...pair, rep: i + 1 })))
   console.log(`${jobs.length} tasks, budget ${money(budget)}, judge ${values["no-judge"] || values.dry ? "off" : JUDGE_MODEL}, harness ${version}`)
 
-  const dir = join(import.meta.dirname, "out", values.dry ? `dry-${stamp}` : stamp)
+  const dir = join(import.meta.dirname, "out", `${values.dry ? "dry-" : ""}${stamp}${effort ? `-effort-${effort}` : ""}`)
   mkdirSync(dir, { recursive: true })
   const recorder = new EventRecorder()
   await recorder.ready()
