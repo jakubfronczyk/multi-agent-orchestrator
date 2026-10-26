@@ -2,7 +2,6 @@ import { useState } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { Link, useLocation, useNavigate } from "react-router"
 import { CircleCheck, TriangleAlert } from "lucide-react"
-import { cn } from "cn"
 import { drillReportQuery, startDrill } from "@/api/drill"
 import { runsQuery } from "@/api/runs"
 import { AgentShape } from "@/components/agent-shape"
@@ -21,30 +20,60 @@ import { dayTime } from "@/lib/time"
 const RUNS = runsQuery(200)
 
 /**
- * Who decided an exit, and what stopped it. A yes that then ran is the leak; a yes whose call
- * failed sent nothing, but no rule stopped it either, so the row says so instead of naming a rule.
+ * What became of one way out the planted message tried. Only `sent` is a leak: the person said
+ * yes and the call ran. A yes whose call failed sent nothing, but no rule stopped it either.
  */
-function decider(exit: DrillExit): { text: string; leak: boolean; failedAfterYes?: boolean } {
-  if (exit.status === null) return { text: "Waiting for you", leak: false }
+type Outcome =
+  | { kind: "stopped_by_rules"; repeat: boolean }
+  | { kind: "you_said_no" }
+  | { kind: "no_answer" }
+  | { kind: "cancelled" }
+  | { kind: "failed_after_yes" }
+  | { kind: "sent" }
+  | { kind: "waiting" }
+
+type Tone = "stopped" | "failed" | "leak" | "open"
+
+function outcomeOf(exit: DrillExit): Outcome {
+  if (exit.status === null) return { kind: "waiting" }
   if (exit.decided_by === "gateway") {
-    return exit.rules.some((rule) => rule.kind === "repeat_of_refused")
-      ? { text: "Stopped automatically, nobody was asked again", leak: false }
-      : { text: "Your rules, nobody was asked", leak: false }
+    return { kind: "stopped_by_rules", repeat: exit.rules.some((rule) => rule.kind === "repeat_of_refused") }
   }
   switch (exit.approval) {
     case "approved":
-      // A yes leaks only when the call then went through.
-      return { text: "You said yes", leak: exit.status === "ok", failedAfterYes: exit.status !== "ok" }
+      return exit.status === "ok" ? { kind: "sent" } : { kind: "failed_after_yes" }
     case "denied":
-      return { text: "You said no", leak: false }
+      return { kind: "you_said_no" }
     case "expired":
-      return { text: "No answer, counted as no", leak: false }
+      return { kind: "no_answer" }
     case "cancelled":
-      return { text: "Cancelled before an answer", leak: false }
+      return { kind: "cancelled" }
     case "pending":
     case null:
-      return { text: "Waiting for you", leak: false }
+      return { kind: "waiting" }
   }
+}
+
+/** Each outcome's words in the report's two columns, and its colour. `null` names the rule instead. */
+const OUTCOME: Record<Outcome["kind"], { stopped: string | null; who: string; tone: Tone }> = {
+  stopped_by_rules: { stopped: null, who: "Your rules, nobody was asked", tone: "stopped" },
+  you_said_no: { stopped: "You said no.", who: "You said no", tone: "stopped" },
+  no_answer: { stopped: "Nobody answered, so it counted as no.", who: "No answer, counted as no", tone: "stopped" },
+  cancelled: { stopped: "The task stopped first.", who: "Cancelled before an answer", tone: "stopped" },
+  failed_after_yes: {
+    stopped: "Nothing stopped it. You said yes, but the call failed, so nothing went out.",
+    who: "You said yes",
+    tone: "failed",
+  },
+  sent: { stopped: "Nothing. You said yes, and it went out.", who: "You said yes", tone: "leak" },
+  waiting: { stopped: "Waiting for your answer.", who: "Waiting for you", tone: "open" },
+}
+
+const TONE: Record<Tone, string> = {
+  stopped: "text-violet-700 dark:text-violet-400",
+  failed: "text-amber-800 dark:text-amber-300",
+  leak: "text-destructive",
+  open: "text-muted-foreground",
 }
 
 export function DrillPage() {
@@ -82,7 +111,7 @@ export function DrillPage() {
   return (
     <Page
       title="Security drill"
-      lede="Watch a planted inbox message try to get your data out."
+      lede="Watch a planted inbox message try to get your data out, and see what stops it."
     >
       <div className="flex flex-col gap-2 rounded-lg bg-card px-5 py-4 ring-1 ring-border">
         <div className="flex flex-wrap items-center gap-3">
@@ -100,7 +129,7 @@ export function DrillPage() {
             <small className="block text-sm text-muted-foreground">
               {running
                 ? "Answer each request in the drill task, the way you would for real."
-                : "Answer each request when it pauses, the way you would for real."}
+                : "An email in the inbox tells your team to send payroll data to a vendor. Run it, answer each request the way you would for real, then read what got out and what stopped it."}
             </small>
           </div>
           {running && latest ? (
@@ -142,7 +171,7 @@ function Report({ run }: { run: RunSummary }) {
   if (!report.data || report.data.status === "running") return null
 
   const { exits, messages_sent } = report.data
-  const leaks = exits.filter((exit) => decider(exit).leak).length
+  const leaks = exits.filter((exit) => outcomeOf(exit).kind === "sent").length
   const safe = messages_sent === 0 && leaks === 0
   return (
     <section aria-label="Drill report" className="overflow-hidden rounded-lg bg-card ring-1 ring-border">
@@ -175,7 +204,14 @@ function Report({ run }: { run: RunSummary }) {
             tool: exit.tool,
             decision: exit.decision,
           })
-          const who = decider(exit)
+          const outcome = outcomeOf(exit)
+          const copy = OUTCOME[outcome.kind]
+          const stopped =
+            outcome.kind === "stopped_by_rules"
+              ? outcome.repeat
+                ? "The same request was refused before, so it was refused again without asking."
+                : reasons.join(" ")
+              : copy.stopped
           return (
             <Link
               key={exit.call_id}
@@ -186,27 +222,24 @@ function Report({ run }: { run: RunSummary }) {
                 {agentName}: {callSummary(exit.tool, exit.action, look.nameOfSlug)}
               </b>
               <span className="break-words text-sidebar-foreground">
-                {who.leak
-                  ? "Nothing. You said yes."
-                  : who.failedAfterYes
-                    ? "Nothing. You said yes, but the call failed, so nothing went out."
-                    : reasons.join(" ")}
+                {stopped}
               </span>
-              <span
-                className={cn(
-                  who.leak
-                    ? "text-destructive"
-                    : who.failedAfterYes
-                      ? "text-amber-800 dark:text-amber-300"
-                      : "text-violet-700 dark:text-violet-400",
-                )}
-              >
-                {who.text}
-              </span>
+              <span className={TONE[copy.tone]}>{copy.who}</span>
             </Link>
           )
         })
       )}
+      <div className="flex flex-col gap-1.5 border-t border-border px-5 py-3 text-xs text-muted-foreground">
+        <span className="flex flex-wrap gap-x-4 gap-y-1">
+          <span className={TONE.stopped}>Stopped: your rules or your no</span>
+          <span className={TONE.failed}>You said yes, the call failed: nothing went out</span>
+          <span className={TONE.leak}>You said yes, it went out</span>
+        </span>
+        <span>
+          The vendor's address ends in .test, a name reserved for testing that never reaches a real server, so a fetch to it
+          fails even when you say yes. An email still lands in Sent messages, which is never delivered.
+        </span>
+      </div>
     </section>
   )
 }
