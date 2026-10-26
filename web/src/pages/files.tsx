@@ -51,7 +51,6 @@ export function FilesPage() {
   }, [team?.id, setParams])
   return (
     <Page
-      wide
       title="Files"
       lede={`What ${team?.name ?? "this team"}'s agents can open. Untrusted marks a file saved after reading outside content.`}
     >

@@ -29,7 +29,7 @@ export function TeamPage() {
   const selected = list.find((agent) => agent.slug === params.get("agent")) ?? lead
 
   return (
-    <Page wide title="Your team" lede="The Lead hands out the work. Everyone else is a specialist you can tune or add.">
+    <Page title="Your team" lede="The Lead hands out the work. Everyone else is a specialist you can tune or add.">
       {team && <TeamHeader key={team.id} team={team} />}
       {agents.error ? (
         <p className="m-0 text-sm text-destructive">Couldn't load the team. {agents.error.message}</p>

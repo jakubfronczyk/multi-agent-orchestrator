@@ -1,18 +1,15 @@
 import { useEffect, useRef, type ReactNode } from "react"
 import { useLocation } from "react-router"
-import { cn } from "cn"
 import { useDocumentTitle } from "@/lib/use-document-title"
 
-/** The design's centred page column: 720px, or 880px when `wide`; 16px gutters on phones. */
+/** The design's centred page column: 880px, with 16px gutters on phones. */
 export function Page({
   title,
   lede,
-  wide,
   children,
 }: {
   title: string
   lede?: ReactNode
-  wide?: boolean
   children?: ReactNode
 }) {
   useDocumentTitle(title)
@@ -25,12 +22,7 @@ export function Page({
     if (!document.querySelector("main")?.contains(document.activeElement)) heading.current?.focus()
   }, [location.key])
   return (
-    <div
-      className={cn(
-        "mx-auto flex w-full flex-col gap-6 px-4 pt-6 pb-16 md:px-6 md:pt-10",
-        wide ? "max-w-[880px]" : "max-w-[720px]",
-      )}
-    >
+    <div className="mx-auto flex w-full max-w-[880px] flex-col gap-6 px-4 pt-6 pb-16 md:px-6 md:pt-10">
       <header>
         <h1 ref={heading} tabIndex={-1} className="m-0 outline-none text-[26px] leading-tight font-medium tracking-tight text-balance md:text-3xl">
           {title}
