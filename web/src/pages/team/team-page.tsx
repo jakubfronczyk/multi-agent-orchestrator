@@ -30,7 +30,7 @@ export function TeamPage() {
 
   return (
     <Page title="Your team" lede="The Lead hands out the work. Everyone else is a specialist you can tune or add.">
-      {team && <TeamHeader key={team.id} team={team} />}
+      {team && <TeamHeader key={`header-${team.id}`} team={team} />}
       {agents.error ? (
         <p className="m-0 text-sm text-destructive">Couldn't load the team. {agents.error.message}</p>
       ) : (
@@ -60,7 +60,7 @@ export function TeamPage() {
           ) : null}
         </div>
       )}
-      {team && <FileAccessPanel key={team.id} team={team} />}
+      {team && <FileAccessPanel key={`files-${team.id}`} team={team} />}
     </Page>
   )
 }
