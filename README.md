@@ -7,6 +7,7 @@ shows how the call came to be. Rust (axum, SQLite), React.
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): invariants, decisions and their costs, known limits
 - [`docs/PRODUCTION.md`](docs/PRODUCTION.md): from one local process to multi-node AWS
+- [`docs/SECURITY-DRILL.md`](docs/SECURITY-DRILL.md): a compromised agent tries four ways out; what stops each
 - [`docs/adr/`](docs/adr/), [`GLOSSARY.md`](GLOSSARY.md)
 
 ---
