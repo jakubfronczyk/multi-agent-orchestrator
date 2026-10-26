@@ -23,9 +23,10 @@ export function FilterPills<K extends string>({
           key={key}
           type="button"
           aria-pressed={value === key}
+          title={text}
           onClick={() => onChange(key)}
           className={cn(
-            "h-8 rounded-full px-3 text-sm",
+            "h-8 max-w-[24ch] truncate rounded-full px-3 text-sm",
             value === key
               ? "bg-primary text-primary-foreground"
               : "text-sidebar-foreground ring-1 ring-border ring-inset hover:text-foreground hover:ring-input",

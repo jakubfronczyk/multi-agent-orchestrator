@@ -1,11 +1,13 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useSearchParams } from "react-router"
+import { Ellipsis, Pencil, Trash2 } from "lucide-react"
 import { agentsQuery } from "@/api/agents"
 import { runsQuery } from "@/api/runs"
 import { deleteTeam, refetchTeams, renameTeam } from "@/api/teams"
 import { Page } from "@/components/page"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import type { TeamView } from "@/generated/TeamView"
 import { isApiError } from "@/lib/api"
 import { useSelectedTeam } from "@/lib/selected-team"
@@ -75,11 +77,11 @@ function TeamHeader({ team }: { team: TeamView }) {
     setError(null)
     setBlocker(null)
   }
-  const renameButton = useRef<HTMLButtonElement>(null)
-  // The form unmounts on save or cancel; focus goes back to the button that opened it.
+  const menuButton = useRef<HTMLButtonElement>(null)
+  // The form unmounts on save or cancel; focus goes back to the menu that opened it.
   const closeForm = () => {
     setMode("view")
-    requestAnimationFrame(() => renameButton.current?.focus())
+    requestAnimationFrame(() => menuButton.current?.focus())
   }
   const refresh = () => refetchTeams(client)
   const rename = useMutation({
@@ -134,36 +136,42 @@ function TeamHeader({ team }: { team: TeamView }) {
           </Button>
         </form>
       ) : (
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="m-0 min-w-0 text-xl font-semibold tracking-tight break-words">{team.name}</h2>
-          <span className="text-sm text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-3">
+          <h2 title={team.name} className="m-0 min-w-0 truncate text-xl font-semibold tracking-tight">
+            {team.name}
+          </h2>
+          <span className="flex-none text-sm text-muted-foreground">
             {team.agent_count} {team.agent_count === 1 ? "agent" : "agents"}
           </span>
-          <span className="ml-auto flex gap-1">
-            <Button
-              ref={renameButton}
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                clearError()
-                setName(team.name)
-                setMode("rename")
-              }}
-            >
-              Rename
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-destructive"
-              onClick={() => {
-                clearError()
-                setMode("delete")
-              }}
-            >
-              Delete team
-            </Button>
-          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button ref={menuButton} size="icon-sm" variant="ghost" aria-label="Team actions" className="ml-auto flex-none">
+                <Ellipsis />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem
+                onSelect={() => {
+                  clearError()
+                  setName(team.name)
+                  setMode("rename")
+                }}
+              >
+                <Pencil />
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => {
+                  clearError()
+                  setMode("delete")
+                }}
+              >
+                <Trash2 />
+                Delete team
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
       {mode === "delete" && (
