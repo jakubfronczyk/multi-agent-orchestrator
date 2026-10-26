@@ -20,11 +20,11 @@ use uuid::Uuid;
 
 use super::{is_trusted, spec, storage_failed};
 use crate::sqlite::begin_write;
-use crate::sqlite::text::{escape_like, from_text, timestamp, to_text};
+use crate::sqlite::text::{from_text, timestamp, to_text};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 const CONTENT_BYTES: usize = 16 * 1024;
-const SEARCH_LIMIT: i64 = 20;
+const SEARCH_LIMIT: usize = 20;
 /// Search shows the start of each note; memory_read returns the whole note.
 const SEARCH_NOTE_CHARS: usize = 1000;
 
@@ -59,7 +59,8 @@ enum SearchScope {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SearchArgs {
-    /// Words to find in keys and contents, matched literally.
+    /// Words to find in keys and contents. A note matching any word is returned, those matching
+    /// the most words first; `OR`, `AND`, quotes and punctuation are ignored.
     query: String,
     /// `private` for your notes, `shared` for the team's, `all` for both.
     scope: SearchScope,
@@ -221,7 +222,7 @@ impl Tool for MemorySearch {
             SearchScope::Shared => (false, true),
             SearchScope::All => (true, true),
         };
-        let pattern = format!("%{}%", escape_like(&args.query));
+        let words = search_words(&args.query);
         let private_scope = to_text(&MemoryScope::Private).map_err(storage_failed)?;
         let shared_scope = to_text(&MemoryScope::Shared).map_err(storage_failed)?;
         let caller = to_text(&ctx.agent_id).map_err(storage_failed)?;
@@ -230,19 +231,15 @@ impl Tool for MemorySearch {
         let rows = sqlx::query!(
             r#"SELECT e.scope, e.key, e.content, e.trust, a.slug AS "author!"
                FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id
-               WHERE (e.key LIKE ?1 ESCAPE '\' OR e.content LIKE ?1 ESCAPE '\')
-                 AND ((?2 AND e.scope = ?3) OR (?4 AND e.scope = ?5 AND e.owner_agent_id = ?6))
-                 AND (NOT ?8 OR e.trust = ?9)
-                 AND e.team_id = ?10
-               ORDER BY e.updated_at DESC
-               LIMIT ?7"#,
-            pattern,
+               WHERE ((?1 AND e.scope = ?2) OR (?3 AND e.scope = ?4 AND e.owner_agent_id = ?5))
+                 AND (NOT ?6 OR e.trust = ?7)
+                 AND e.team_id = ?8
+               ORDER BY e.updated_at DESC"#,
             shared,
             shared_scope,
             private,
             private_scope,
             caller,
-            SEARCH_LIMIT,
             trusted_only,
             trusted,
             team
@@ -250,9 +247,16 @@ impl Tool for MemorySearch {
         .fetch_all(&self.pool)
         .await
         .map_err(storage_failed)?;
+        // Most words matched first; the stable sort keeps the newest first among equals.
+        let mut ranked: Vec<_> = rows
+            .into_iter()
+            .map(|row| (matched(&words, &row.key, &row.content), row))
+            .filter(|(hits, _)| *hits > 0)
+            .collect();
+        ranked.sort_by_key(|(hits, _)| std::cmp::Reverse(*hits));
         let mut taint = Vec::new();
-        let mut notes = Vec::with_capacity(rows.len());
-        for row in rows {
+        let mut notes = Vec::with_capacity(SEARCH_LIMIT);
+        for (_, row) in ranked.into_iter().take(SEARCH_LIMIT) {
             // One source per untrusted note returned; trusted notes add none.
             if !is_trusted(Some(&row.trust)) {
                 let scope = from_text(&row.scope).map_err(storage_failed)?;
@@ -392,5 +396,50 @@ impl Tool for MemoryWrite {
             content: json!({ "key": key, "version": version, "trust": trust }),
             taint: Vec::new(),
         })
+    }
+}
+
+/// The query's distinct words, lowercased; connectives and one-letter words are dropped. A
+/// query with no such word is searched as one phrase.
+fn search_words(query: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    for word in query
+        .split(|c: char| !c.is_alphanumeric())
+        .map(str::to_lowercase)
+    {
+        if word.chars().count() > 1
+            && !["or", "and", "not"].contains(&word.as_str())
+            && !words.contains(&word)
+        {
+            words.push(word);
+        }
+    }
+    if words.is_empty() {
+        words.push(query.trim().to_lowercase());
+    }
+    words
+}
+
+/// How many of `words` appear in the key or the content, ignoring case.
+fn matched(words: &[String], key: &str, content: &str) -> usize {
+    let text = format!("{key}\n{content}").to_lowercase();
+    words
+        .iter()
+        .filter(|word| text.contains(word.as_str()))
+        .count()
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    #[test]
+    fn a_search_engine_query_finds_a_note_by_any_word() {
+        let words = search_words(r#"invoices OR "big invoices" OR CFO OR 5k"#);
+        assert_eq!(words, ["invoices", "big", "cfo", "5k"]);
+        let note = "anything over 5k goes to marta lis now, she's the new cfo.";
+        assert_eq!(matched(&words, "cfo_approval", note), 2);
+        assert_eq!(matched(&words, "lunch", "pizza on friday"), 0);
+        assert_eq!(search_words("OR"), ["or"]);
     }
 }

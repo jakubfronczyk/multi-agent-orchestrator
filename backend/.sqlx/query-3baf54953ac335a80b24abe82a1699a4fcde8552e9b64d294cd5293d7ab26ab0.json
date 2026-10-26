@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT e.scope, e.key, e.content, e.trust, a.slug AS \"author!\"\n               FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id\n               WHERE (e.key LIKE ?1 ESCAPE '\\' OR e.content LIKE ?1 ESCAPE '\\')\n                 AND ((?2 AND e.scope = ?3) OR (?4 AND e.scope = ?5 AND e.owner_agent_id = ?6))\n                 AND (NOT ?8 OR e.trust = ?9)\n                 AND e.team_id = ?10\n               ORDER BY e.updated_at DESC\n               LIMIT ?7",
+  "query": "SELECT e.scope, e.key, e.content, e.trust, a.slug AS \"author!\"\n               FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id\n               WHERE ((?1 AND e.scope = ?2) OR (?3 AND e.scope = ?4 AND e.owner_agent_id = ?5))\n                 AND (NOT ?6 OR e.trust = ?7)\n                 AND e.team_id = ?8\n               ORDER BY e.updated_at DESC",
   "describe": {
     "columns": [
       {
@@ -60,7 +60,7 @@
       }
     ],
     "parameters": {
-      "Right": 10
+      "Right": 8
     },
     "nullable": [
       false,
@@ -70,5 +70,5 @@
       false
     ]
   },
-  "hash": "7cfc24578eed12667aeea23a60fa3c7dace4fc584102deeab12c37e43ae1b749"
+  "hash": "3baf54953ac335a80b24abe82a1699a4fcde8552e9b64d294cd5293d7ab26ab0"
 }

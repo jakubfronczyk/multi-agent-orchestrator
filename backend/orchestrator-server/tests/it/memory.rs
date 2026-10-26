@@ -379,3 +379,33 @@ async fn shared_notes_stay_with_their_team(pool: SqlitePool) {
     assert_eq!(listed.entries[0].root_run_id, a_writer.root_run_id);
     assert!(listed.last_event_id.is_some());
 }
+
+/// A query written like a search engine's finds a note by any of its words, best match first.
+#[sqlx::test]
+async fn a_search_finds_a_note_by_any_word_of_the_query(pool: SqlitePool) {
+    let app = app(pool.clone()).await;
+    let (search, write) = (MemorySearch::new(pool.clone()), MemoryWrite::new(pool));
+    let ctx = ctx_for(&app, "helper").await;
+    let cfo = json!({"scope": "shared", "key": "cfo_approval", "content": "anything over 5k goes to marta lis now, she's the new cfo."});
+    call(&write, &ctx, cfo).await;
+    let lunch = json!({"scope": "shared", "key": "lunch", "content": "pizza on friday, invoices are boring"});
+    call(&write, &ctx, lunch).await;
+
+    let query =
+        json!({"scope": "shared", "query": "cfo OR marta OR approval OR 5k OR \"big invoices\""});
+    let found = call(&search, &ctx, query).await;
+    let keys: Vec<&str> = found["notes"]
+        .as_array()
+        .expect("notes")
+        .iter()
+        .filter_map(|n| n["key"].as_str())
+        .collect();
+    assert_eq!(keys, ["cfo_approval", "lunch"], "most words matched first");
+    let none = call(
+        &search,
+        &ctx,
+        json!({"scope": "shared", "query": "payroll"}),
+    )
+    .await;
+    assert_eq!(none["notes"], json!([]));
+}
