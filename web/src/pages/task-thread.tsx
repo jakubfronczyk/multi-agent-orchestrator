@@ -138,7 +138,7 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
     if (!cancel.isPending) cancel.mutate()
   }
 
-  /** `busy` is the 409 text: a typed follow-up keeps its text, a chip has none. */
+  /** `busy` is the text for the "still running" 409: a typed follow-up keeps its text, a chip has none. */
   const sendFollowUp = async (
     body: { text: string; scenario?: string; draft_only?: boolean },
     busy = "The task is still running. Your text is kept; send it once it finishes.",
@@ -148,11 +148,13 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
       return true
     } catch (error) {
       setNotice(
-        isApiError(error, 409) && error.message.includes("team was deleted")
-          ? "This task's team was deleted, so it takes no follow-up."
-          : isApiError(error, 409)
-            ? busy
-            : `Couldn't send the follow-up. ${error instanceof Error ? error.message : ""}`,
+        !isApiError(error, 409)
+          ? `Couldn't send the follow-up. ${error instanceof Error ? error.message : ""}`
+          : error.message.includes("team was deleted")
+            ? "This task's team was deleted, so it takes no follow-up."
+            : error.message.includes("still running")
+              ? busy
+              : `Couldn't send the follow-up: ${error.message}.`,
       )
       return false
     }
