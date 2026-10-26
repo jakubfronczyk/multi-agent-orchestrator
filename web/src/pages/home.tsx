@@ -143,8 +143,7 @@ export function HomePage() {
           )}
         </Composer>
         <p className="m-0 text-center text-sm text-muted-foreground">
-          {lead?.name ?? "Lead"} plans it and hands it out. Your team asks you before sending, before opening a site not on your list,
-          and before saving a file once a task has read outside content.
+          {lead?.name ?? "Lead"} plans it and hands it out, and asks you before anything risky.
           {health.data && (
             <>
               {" "}

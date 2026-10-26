@@ -32,7 +32,7 @@ export function FileAccessPanel({ team }: { team: TeamView }) {
           <li className="py-3 text-sm text-destructive">Couldn't load file access. {list.error.message}</li>
         ) : list.data && others.length === 0 ? (
           <li className="py-3 text-sm text-muted-foreground">
-            No other team yet. Add one with New team in the team menu to share a folder.
+            No other team yet. Add one with New team in the team menu to open a folder to it.
           </li>
         ) : (
           others.map((other) => <AccessRow key={other.team_id} team={team} other={other} />)

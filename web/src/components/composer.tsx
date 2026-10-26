@@ -15,7 +15,7 @@ import type { UploadResponse } from "@/generated/UploadResponse"
 import { isApiError } from "@/lib/api"
 
 const MODES = {
-  ask: { name: "Ask first", icon: Shield, detail: "Follows your team's settings" },
+  ask: { name: "Team settings", icon: Shield, detail: "Follows your team's settings: an action set to Allow runs without asking" },
   draft: {
     name: "Draft only",
     icon: Eye,

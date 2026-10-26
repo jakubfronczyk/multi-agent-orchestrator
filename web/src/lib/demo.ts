@@ -69,5 +69,5 @@ export interface DemoStart {
 }
 
 export const DEMO_STARTS: DemoStart[] = [
-  { id: "drill", label: "Security drill", detail: "A vendor note tries to get your notes out", slugs: ["reader", "messenger"] },
+  { id: "drill", label: "Security drill", detail: "A vendor email tries to get your notes out", slugs: ["reader", "messenger"] },
 ]

@@ -17,10 +17,15 @@ import { setNewTeamOpen } from "@/lib/new-team"
 import { selectTeam, useSelectedTeam, useTeamNames } from "@/lib/selected-team"
 
 /** The selected team above the navigation: switch, open the new team dialog, or open a deleted team's tasks or notes. */
+/** How many deleted teams the menu lists, newest first. */
+const DELETED_SHOWN = 5
+
 export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
   const { team, teams } = useSelectedTeam()
   const { teams: all } = useTeamNames()
   const deleted = all.filter((t) => t.deleted_at !== null)
+  // The menu keeps the most recently deleted few; the rest stay reachable from Tasks and Notes.
+  const recent = [...deleted].sort((a, b) => (b.deleted_at ?? "").localeCompare(a.deleted_at ?? "")).slice(0, DELETED_SHOWN)
   const navigate = useNavigate()
 
   if (!team) return null
@@ -55,8 +60,12 @@ export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
           {deleted.length > 0 && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs text-muted-foreground">Deleted teams, read-only</DropdownMenuLabel>
-              {deleted.map((t) => (
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                {deleted.length > DELETED_SHOWN
+                  ? `Deleted teams, read-only: latest ${DELETED_SHOWN} of ${deleted.length}`
+                  : "Deleted teams, read-only"}
+              </DropdownMenuLabel>
+              {recent.map((t) => (
                 <DropdownMenuSub key={t.id}>
                   <DropdownMenuSubTrigger className="min-w-0">
                     <span className="truncate text-sidebar-foreground">{t.name}</span>

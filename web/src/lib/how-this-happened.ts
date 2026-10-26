@@ -104,7 +104,7 @@ export function explainApproval(
       quoted: true,
     })
     if (sources.length > 0) {
-      hops.at(-1)!.note = `This handoff carried outside content: ${listText(sources.map(sourceLabel))}.`
+      hops.at(-1)!.note = `This hand-off carried outside content: ${listText(sources.map(sourceLabel))}.`
     }
   }
 
@@ -181,7 +181,7 @@ export function explainCall(call: ToolCallView, detail: RunDetail, tools: ToolLi
         lines: [run.task],
         note:
           run.task_sources.length > 0
-            ? `This handoff carried outside content: ${listText(run.task_sources.map(sourceLabel))}.`
+            ? `This hand-off carried outside content: ${listText(run.task_sources.map(sourceLabel))}.`
             : undefined,
         agent: caller,
         quoted: true,

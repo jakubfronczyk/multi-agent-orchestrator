@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { NavLink } from "react-router"
-import { CircleHelp, Clock, Folder, Inbox, List, NotebookText, Plus, Send, Users, type LucideIcon } from "lucide-react"
+import { CircleHelp, Clock, Crosshair, Folder, Inbox, List, NotebookText, Plus, Send, Users, type LucideIcon } from "lucide-react"
 import { cn } from "cn"
 import { approvalsQuery } from "@/api/approvals"
 import { agentsQuery } from "@/api/agents"
@@ -14,7 +14,7 @@ import { useInvalidateOn } from "@/events/use-invalidate-on"
 import type { EventEnvelope } from "@/generated/EventEnvelope"
 import type { RunSummary } from "@/generated/RunSummary"
 import { isMac } from "@/lib/platform"
-import { useTeamNames } from "@/lib/selected-team"
+import { useSelectedTeam, useTeamNames } from "@/lib/selected-team"
 import { setWelcomeOpen } from "@/lib/welcome"
 import { Appearance } from "./appearance"
 
@@ -26,6 +26,7 @@ const NAV: [string, LucideIcon, string][] = [
   ["/files", Folder, "Files"],
   ["/sent", Send, "Sent messages"],
   ["/activity", Clock, "Activity"],
+  ["/drill", Crosshair, "Security drill"],
 ]
 
 const CONNECTION: Record<Exclude<HubStatus, "open">, string> = {
@@ -96,9 +97,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     (event) => event.type === "approval_requested" || event.type === "approval_resolved" || turnFinished(event),
   )
 
+  const { team } = useSelectedTeam()
   const list = runs.data?.runs ?? []
+  // Running shows every team's work; the history below follows the selected team, as Tasks does.
   const running = list.filter((run) => run.status === "running")
-  const { today, week } = historyGroups(list)
+  const { today, week } = historyGroups(list.filter((run) => run.team_id === team?.id))
   const count = pending.data?.approvals.length ?? 0
 
   const taskRow = (run: RunSummary, live: boolean) => {

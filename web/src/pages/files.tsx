@@ -234,6 +234,11 @@ function FileRow({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mode, setMode] = useState<"view" | "edit" | "delete" | "trust">("view")
+  const pencil = useRef<HTMLButtonElement>(null)
+  const closeEditor = () => {
+    setMode("view")
+    requestAnimationFrame(() => pencil.current?.focus())
+  }
   const [draft, setDraft] = useState("")
   // The `updated_at` the person saw when they opened an action; every change names it.
   const [seen, setSeen] = useState<string | null>(null)
@@ -340,7 +345,14 @@ function FileRow({
       </button>
       {editable && (
         <>
-          <button type="button" aria-label={`Edit ${entry.name}`} title="Edit" onClick={() => begin("edit")} className={icon}>
+          <button
+            ref={pencil}
+            type="button"
+            aria-label={`Edit ${entry.name}`}
+            title="Edit"
+            onClick={() => begin("edit")}
+            className={icon}
+          >
             <Pencil className="size-4" />
           </button>
           {entry.trust === "untrusted" && (
@@ -362,6 +374,9 @@ function FileRow({
       {mode === "edit" && (
         <form
           className="flex basis-full flex-col gap-2 py-2 pl-7"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") closeEditor()
+          }}
           onSubmit={(event) => {
             event.preventDefault()
             if (!save.isPending) save.mutate()
@@ -384,7 +399,7 @@ function FileRow({
             <Button type="submit" size="sm" disabled={save.isPending}>
               Save
             </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setMode("view")}>
+            <Button type="button" size="sm" variant="ghost" onClick={closeEditor}>
               Cancel
             </Button>
           </div>

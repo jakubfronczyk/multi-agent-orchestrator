@@ -131,7 +131,7 @@ export function CommonFields({
           {efforts.length > 0
             ? "Higher effort thinks longer and costs more."
             : "This model answers without thinking first, so effort isn't used."}{" "}
-          Max steps is how many turns it gets before it has to answer; it is fixed per agent.
+          Max steps is how many model steps it gets before it must answer.
         </p>
       </div>
     </>

@@ -11,7 +11,7 @@ import { selectTeam } from "@/lib/selected-team"
 
 const GETS: [typeof Users, string, string][] = [
   [Users, "A Lead", "Plans each task. You add the teammates it hands work to."],
-  [Folder, "A folder", "Closed to other teams unless you allow it."],
+  [Folder, "A folder", "Other teams' agents open it only if you grant them access."],
   [NotebookText, "Notes and history", "What it learns and every task it ran."],
 ]
 

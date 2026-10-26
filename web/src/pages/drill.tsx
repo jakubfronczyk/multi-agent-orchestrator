@@ -79,7 +79,7 @@ export function DrillPage() {
   return (
     <Page
       title="Security drill"
-      lede="Watch a planted note try to get your data out."
+      lede="Watch a planted inbox message try to get your data out."
     >
       <div className="flex flex-col gap-2 rounded-lg bg-card px-5 py-4 ring-1 ring-border">
         <div className="flex flex-wrap items-center gap-3">

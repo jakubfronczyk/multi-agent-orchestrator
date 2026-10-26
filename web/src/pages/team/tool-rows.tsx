@@ -75,7 +75,7 @@ function ToolRow({
         {TOOL_LABEL[name] ?? tool.name}
         <small className="block text-sm text-muted-foreground">
           {TOOL_DETAIL[name] ?? tool.description}
-          {role === "lead" && tool.lead === "trusted_only" && " Trusted notes only. Untrusted notes are invisible to Lead."}
+          {role === "lead" && tool.lead === "trusted_only" && ". Trusted notes only: untrusted notes are invisible to the Lead."}
         </small>
       </span>
       <div role="group" aria-label={TOOL_LABEL[name]} className="grid max-w-full auto-cols-fr grid-flow-col gap-0.5 rounded-md bg-muted p-0.5">

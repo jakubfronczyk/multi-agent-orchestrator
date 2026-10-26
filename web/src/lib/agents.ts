@@ -12,6 +12,7 @@ export function useAgents(teamId?: string) {
   const bySlug = (slug: string): AgentRecord | undefined =>
     teamId === undefined ? undefined : data.find((agent) => agent.team_id === teamId && agent.slug === slug)
   // A slug the team no longer has is shown as sent.
-  const nameOfSlug = (slug: string) => bySlug(slug)?.name ?? slug
+  // An agent of a deleted team is not in the live list; its slug, capitalised, reads as a name.
+  const nameOfSlug = (slug: string) => bySlug(slug)?.name ?? slug.charAt(0).toUpperCase() + slug.slice(1)
   return { agents: data, byId, bySlug, nameOfSlug }
 }
