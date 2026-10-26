@@ -10,11 +10,15 @@ import { TrustPill } from "@/components/trust-pill"
 import { useInvalidateOnToolFinished } from "@/events/use-invalidate-on-tool"
 import type { FileEntryView } from "@/generated/FileEntryView"
 import type { FileView } from "@/generated/FileView"
+import type { TeamId } from "@/generated/TeamId"
 import { isApiError } from "@/lib/api"
-import { useTeamNames } from "@/lib/selected-team"
+import { useSelectedTeam, useTeamNames } from "@/lib/selected-team"
 
 // A file list has no `last_event_id`, so a folder refetches whenever it is shown again.
-const folderQuery = (path: string) => ({ ...fileQuery(path), refetchOnMount: "always" as const })
+const folderQuery = (team: TeamId, path: string) => ({ ...fileQuery(team, path), refetchOnMount: "always" as const })
+
+/** An upload sits in a team's `uploads/`: this team's own, or one under `teams/<slug>/`. */
+const isUpload = (path: string) => /^(teams\/[^/]+\/)?uploads\//.test(path)
 
 const entriesOf = (view: FileView | undefined): FileEntryView[] => (view?.kind === "dir" ? view.entries : [])
 
@@ -30,10 +34,23 @@ function size(bytes: number): string {
 }
 
 export function FilesPage() {
+  const { team } = useSelectedTeam()
+  return (
+    <Page
+      wide
+      title="Files"
+      lede={`What ${team?.name ?? "this team"}'s agents can open: their own folder, data/ (shared reference every team reads and no agent can change), and teams/ for any folder another team lets them open. Every file carries a trust label: a file saved after reading outside content stays untrusted, and the label follows it into any task that reads it.`}
+    >
+      {team && <Workspace key={team.id} team={team.id} />}
+    </Page>
+  )
+}
+
+function Workspace({ team }: { team: TeamId }) {
   const [params, setParams] = useSearchParams()
-  const root = useQuery(folderQuery("."))
+  const root = useQuery(folderQuery(team, "."))
   const topDirs = sorted(entriesOf(root.data)).filter((entry) => entry.kind === "dir")
-  const topLists = useQueries({ queries: topDirs.map((dir) => folderQuery(dir.path)) })
+  const topLists = useQueries({ queries: topDirs.map((dir) => folderQuery(team, dir.path)) })
 
   useInvalidateOnToolFinished(["files"], "file_write")
 
@@ -45,42 +62,40 @@ export function FilesPage() {
   const select = (path: string) => setParams({ path }, { replace: true })
 
   return (
-    <Page
-      wide
-      title="Files"
-      lede="Every team reads and writes these files. Every file carries a trust label: a file saved after reading outside content stays untrusted for every team, and the label follows it into any task that reads it."
-    >
+    <>
       <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
         <div className="rounded-lg bg-card px-1 pt-1 pb-2 ring-1 ring-border">
           {root.error ? (
             <p className="m-0 p-3 text-sm text-destructive">Couldn't load the files. {root.error.message}</p>
           ) : root.data && entriesOf(root.data).length === 0 ? (
-            <p className="m-0 p-3 text-sm text-muted-foreground">The workspace is empty.</p>
+            <p className="m-0 p-3 text-sm text-muted-foreground">This team's folder is empty.</p>
           ) : (
             sorted(entriesOf(root.data)).map((entry) => (
-              <TreeEntry key={entry.path} entry={entry} depth={0} selected={selected} onSelect={select} startOpen />
+              <TreeEntry key={entry.path} team={team} entry={entry} depth={0} selected={selected} onSelect={select} startOpen />
             ))
           )}
         </div>
         <div className="rounded-lg bg-card ring-1 ring-border">
           {selected ? (
-            <Preview path={selected} />
+            <Preview team={team} path={selected} />
           ) : (
             <p className="m-0 p-5 text-sm text-muted-foreground">Pick a file to see it here.</p>
           )}
         </div>
       </div>
-    </Page>
+    </>
   )
 }
 
 function TreeEntry({
+  team,
   entry,
   depth,
   selected,
   onSelect,
   startOpen = false,
 }: {
+  team: TeamId
   entry: FileEntryView
   depth: number
   selected: string | null
@@ -91,7 +106,11 @@ function TreeEntry({
   const isDir = entry.kind === "dir"
   // Folders load when opened; a deep link keeps every folder above the file open.
   const expanded = isDir && (open || (selected?.startsWith(`${entry.path}/`) ?? false))
-  const list = useQuery({ ...folderQuery(entry.path), enabled: expanded })
+  const list = useQuery({ ...folderQuery(team, entry.path), enabled: expanded })
+  const names = useTeamNames()
+  // A granted folder is named by its team's slug; the team's name reads better.
+  const owner = /^teams\/[^/]+$/.test(entry.path) ? names.teams.find((t) => t.deleted_at === null && `teams/${t.slug}` === entry.path) : undefined
+  const label = owner ? `${owner.name} (${entry.name}/)` : entry.path === "data" ? "data/ (shared, read only)" : `${entry.name}/`
   const pad = { paddingLeft: `${12 + depth * 16}px` }
 
   if (!isDir) {
@@ -123,7 +142,7 @@ function TreeEntry({
       >
         <ChevronRight className={cn("size-4 flex-none transition-transform", expanded && "rotate-90")} />
         <Folder className="size-4 flex-none" />
-        <span className="min-w-0 flex-1 truncate">{entry.name}/</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
         <TrustPill trust={entry.trust} />
       </button>
       {expanded &&
@@ -133,16 +152,16 @@ function TreeEntry({
           </p>
         ) : (
           sorted(entriesOf(list.data)).map((child) => (
-            <TreeEntry key={child.path} entry={child} depth={depth + 1} selected={selected} onSelect={onSelect} />
+            <TreeEntry key={child.path} team={team} entry={child} depth={depth + 1} selected={selected} onSelect={onSelect} />
           ))
         ))}
     </div>
   )
 }
 
-function Preview({ path }: { path: string }) {
-  const file = useQuery({ ...fileQuery(path), refetchOnMount: "always" })
-  const parent = useQuery(folderQuery(parentOf(path)))
+function Preview({ team, path }: { team: TeamId; path: string }) {
+  const file = useQuery({ ...fileQuery(team, path), refetchOnMount: "always" })
+  const parent = useQuery(folderQuery(team, parentOf(path)))
   const runs = useQuery(runsQuery())
   const names = useTeamNames()
   const entry = entriesOf(parent.data).find((e) => e.path === path)
@@ -162,7 +181,7 @@ function Preview({ path }: { path: string }) {
     return <p className="m-0 p-5 text-sm text-muted-foreground">{path}/ is a folder. Pick a file inside it.</p>
   }
   const view = file.data
-  const upload = view.path.startsWith("uploads/")
+  const upload = isUpload(view.path)
   const writer = view.written_by_root_run_id
   const task = writer ? runs.data?.runs.find((run) => run.id === writer) : undefined
   const why = upload

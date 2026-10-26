@@ -143,7 +143,7 @@ export function HomePage() {
           sending={start.isPending}
           disabled={!team}
           modePicker
-          attach
+          attach={team?.id}
           menuBelow
           autoFocus
         >

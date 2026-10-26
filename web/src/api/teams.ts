@@ -1,4 +1,6 @@
 import { type QueryClient, queryOptions } from "@tanstack/react-query"
+import type { FileAccess } from "@/generated/FileAccess"
+import type { FileAccessList } from "@/generated/FileAccessList"
 import type { TeamId } from "@/generated/TeamId"
 import type { TeamInput } from "@/generated/TeamInput"
 import type { TeamList } from "@/generated/TeamList"
@@ -19,6 +21,17 @@ export const refetchTeams = (client: QueryClient) =>
 export const createTeam = (input: TeamInput) => postJson<TeamView>("/teams", input)
 
 export const renameTeam = (id: TeamId, input: TeamInput) => putJson<TeamView>(`/teams/${id}`, input)
+
+/** Every other live team and how much of its folder `team`'s agents may open. */
+export const fileAccessQuery = (team: TeamId) =>
+  queryOptions({
+    queryKey: ["teams", "file-access", team],
+    queryFn: () => getJson<FileAccessList>(`/teams/${team}/file-access`),
+  })
+
+/** Applies at a running task's next file call; `none` removes the grant. */
+export const setFileAccess = (team: TeamId, of: TeamId, access: FileAccess) =>
+  putJson<void>(`/teams/${team}/file-access/${of}`, { access })
 
 /** 409 while a task of the team is live, or when it is the last team. */
 export const deleteTeam = (id: TeamId) => deleteRequest(`/teams/${id}`)

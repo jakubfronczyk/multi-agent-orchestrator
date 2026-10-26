@@ -132,6 +132,8 @@ export function ruleText(rule: Rule, ctx: RuleContext): string {
       return `${tool} reaches people outside, so it can only be Ask me or Deny.`
     case "draft_only":
       return "This turn is draft only: saving, notes, sending and opening websites are refused without asking you."
+    case "no_access":
+      return "That path is outside what this team can open: another team's folder needs your permission on Your team, and data/ is read only."
     default:
       return unreachable(rule)
   }
@@ -182,6 +184,9 @@ function statusDecision(status: CallStatus, call: ToolCallView, earlier: ToolCal
           return "Stopped automatically. Your rules already refused this exact request."
         }
         return "Stopped automatically, without asking anyone."
+      }
+      if (call.rules.some((rule) => rule.kind === "no_access")) {
+        return "Stopped automatically: this team can't open that path. Nobody was asked."
       }
       return "Your rules. Nobody was asked, because no answer could allow it."
     case "not_offered":

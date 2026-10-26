@@ -10,6 +10,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import type { TeamId } from "@/generated/TeamId"
 import type { UploadResponse } from "@/generated/UploadResponse"
 import { isApiError } from "@/lib/api"
 
@@ -71,7 +72,8 @@ export function Composer({
   sending?: boolean
   action?: "send" | "stop"
   modePicker?: boolean
-  attach?: boolean
+  /** The team an attached file is uploaded to; unset hides attaching. */
+  attach?: TeamId
   /** Opens the mode menu downwards, for a composer near the top of the page. */
   menuBelow?: boolean
   autoFocus?: boolean
@@ -80,12 +82,18 @@ export function Composer({
 }) {
   const [mode, setMode] = useState<Mode>("ask")
   const [attachments, setAttachments] = useState<UploadResponse[]>([])
+  // An upload's path names a file in one team's folder, so another team drops the chips.
+  const [attachedTo, setAttachedTo] = useState(attach)
+  if (attachedTo !== attach) {
+    setAttachedTo(attach)
+    setAttachments([])
+  }
   const [attachError, setAttachError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   // Set synchronously, so a second Enter in the same frame finds it before `sending` updates.
   const inFlight = useRef(false)
-  // This composer's uploads by file identity: a removed chip's file is still in uploads/, so
+  // This composer's uploads by team and file identity: a removed chip's file is still in uploads/, so
   // picking it again reuses the upload instead of a POST that would conflict.
   const uploads = useRef(new Map<string, UploadResponse>())
   const client = useQueryClient()
@@ -112,7 +120,8 @@ export function Composer({
   const pick = async (file: File | undefined) => {
     if (!file) return
     setAttachError(null)
-    const key = `${file.name}:${file.size}:${file.lastModified}`
+    if (!attach) return
+    const key = `${attach}:${file.name}:${file.size}:${file.lastModified}`
     const earlier = uploads.current.get(key)
     if (earlier) {
       add(earlier)
@@ -120,10 +129,10 @@ export function Composer({
     }
     setUploading(true)
     try {
-      const uploaded = await uploadFile(file)
+      const uploaded = await uploadFile(attach, file)
       uploads.current.set(key, uploaded)
       add(uploaded)
-      // The upload is now in the workspace under uploads/.
+      // The upload is now in the team's folder under uploads/.
       void client.invalidateQueries({ queryKey: ["files"] })
     } catch (error) {
       setAttachError(uploadError(error))

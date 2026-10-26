@@ -12,6 +12,7 @@ import { useSelectedTeam } from "@/lib/selected-team"
 import { AddEditor } from "./add-editor"
 import { AgentCards } from "./agent-cards"
 import { AgentEditor } from "./agent-editor"
+import { FileAccessPanel } from "./file-access"
 
 export function TeamPage() {
   const agents = useQuery(agentsQuery)
@@ -57,6 +58,7 @@ export function TeamPage() {
           ) : null}
         </div>
       )}
+      {team && <FileAccessPanel key={team.id} team={team} />}
     </Page>
   )
 }
@@ -167,7 +169,7 @@ function TeamHeader({ team }: { team: TeamView }) {
       {mode === "delete" && (
         <div className="flex flex-wrap items-center gap-3 rounded-md bg-muted px-4 py-3 text-sm">
           <span className="min-w-[200px] flex-1">
-            Delete {team.name}? Tasks, notes and files stay; its agents are removed.
+            Delete {team.name}? Tasks, notes and files stay; its agents and any file access to or from it are removed.
           </span>
           <Button size="sm" disabled={remove.isPending} onClick={() => remove.mutate()}>
             Delete

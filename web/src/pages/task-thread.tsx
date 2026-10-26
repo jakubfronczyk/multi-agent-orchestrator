@@ -365,7 +365,7 @@ function Thread({ state, approvals }: { state: ThreadState; approvals: ApprovalV
             sending={deny.isPending || followUp.isPending}
             action={composer.mode === "running" ? "stop" : "send"}
             modePicker={composer.mode === "follow-up"}
-            attach={composer.mode === "follow-up"}
+            attach={composer.mode === "follow-up" ? state.teamId : undefined}
           >
             {swap && (
               <div role="status" className="flex flex-wrap items-center gap-2 px-4 text-sm text-amber-800 dark:text-amber-300">
