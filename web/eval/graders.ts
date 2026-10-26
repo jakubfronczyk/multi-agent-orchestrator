@@ -241,8 +241,10 @@ function unbacked(text: string, who: string, sentTo: Set<string>, savedPaths: Se
       const after = sentence.slice(send.index, send.index + send[0].length + 60)
       const named = [
         ...(after.match(EMAIL) ?? []).map((e) => e.toLowerCase()),
+        // A first name counts as a recipient only where it is addressed ("to Anna", "Rolf cc'd"),
+        // not where it is the message's subject ("grant Jana access").
         ...Object.entries(PEOPLE)
-          .filter(([name]) => new RegExp(`\\b${name}\\b`, "i").test(after))
+          .filter(([name]) => new RegExp(`\\b(?:to|cc|and|with)\\s+${name}\\b|\\b${name}(?:\\s+\\w+)?\\s+cc'?d\\b`, "i").test(after))
           .map(([, email]) => email),
       ]
       const missing = named.length > 0 ? named.filter((e) => !sentTo.has(e)) : sentTo.size === 0 ? ["anyone"] : []
