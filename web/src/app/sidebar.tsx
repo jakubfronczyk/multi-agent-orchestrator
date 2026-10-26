@@ -27,9 +27,8 @@ const NAV: [string, LucideIcon, string][] = [
   ["/drill", Target, "Security drill"],
 ]
 
-const CONNECTION: Record<HubStatus, string> = {
+const CONNECTION: Record<Exclude<HubStatus, "open">, string> = {
   connecting: "Connecting…",
-  open: "Live",
   reconnecting: "Reconnecting…",
   offline: "Can't reach the server, retrying",
 }
@@ -55,6 +54,26 @@ function historyGroups(runs: RunSummary[]) {
       return started < today.getTime() && started >= weekStart
     }),
   }
+}
+
+/** The favicon's mark, drawn in the current text colour so it follows the app theme. */
+function Logo() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className="size-6 flex-none">
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        pathLength="60"
+        strokeDasharray="16.5 3.5"
+        transform="rotate(-78 12 12)"
+      />
+      <path fill="currentColor" d="M12 7.6 16.4 12 12 16.4 7.6 12z" />
+    </svg>
+  )
 }
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
@@ -107,12 +126,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <nav aria-label="Navigation" className="flex h-full min-w-0 flex-col gap-0.5 overflow-auto bg-sidebar px-3 py-4">
-      <div className="flex items-baseline gap-2 px-3 pt-1 pb-4 text-lg font-semibold tracking-tight">
+      <div className="flex items-center gap-2.5 px-3 pt-1 pb-4 text-lg font-semibold tracking-tight">
+        <Logo />
         Orchestrator
-        {health.data && (
-          <small className="text-xs font-medium tracking-normal text-muted-foreground">
-            {health.data.provider === "scripted" ? "no API key" : "practice"}
-          </small>
+        {health.data?.provider === "scripted" && (
+          <small className="text-xs font-medium tracking-normal text-muted-foreground">no API key</small>
         )}
       </div>
 
@@ -144,19 +162,17 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         {group("This week", week)}
       </div>
 
-      <div
-        role="status"
-        title="Connection to the event stream"
-        className="flex min-h-8 flex-none items-start gap-2 px-3 py-1.5 text-sm text-muted-foreground"
-      >
-        <i
-          className={cn(
-            "mt-1.5 size-[7px] flex-none rounded-full",
-            status === "open" ? "bg-emerald-600 dark:bg-emerald-400" : "animate-pulse bg-amber-600 dark:bg-amber-400",
-          )}
-        />
-        {CONNECTION[status]}
-      </div>
+      {/* Shown only while the event stream is down; a live connection needs no notice. */}
+      {status !== "open" && (
+        <div
+          role="status"
+          title="Connection to the event stream"
+          className="flex min-h-8 flex-none items-start gap-2 px-3 py-1.5 text-sm text-muted-foreground"
+        >
+          <i className="mt-1.5 size-[7px] flex-none animate-pulse rounded-full bg-amber-600 dark:bg-amber-400" />
+          {CONNECTION[status]}
+        </div>
+      )}
       <Appearance />
     </nav>
   )
