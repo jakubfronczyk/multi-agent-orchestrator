@@ -20,6 +20,27 @@ export async function waitIdle(root: string, timeoutMs = 60_000, pollMs = 300): 
   }
 }
 
+/** Cancels the task if any run of it is still running, then waits until none is; a 409 means it already ended. */
+export async function stopTask(root: string) {
+  const detail = await api.run(root).catch(() => null)
+  if (!detail?.runs.some((run) => run.status === "running")) return
+  await api.cancel(root).catch(() => undefined)
+  await waitIdle(root, 30_000)
+}
+
+/** Deletes a team, retrying while the server still sees a task of it running; warns when it gives up. */
+export async function removeTeam(id: string, label: string) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await api.deleteTeam(id)
+      return
+    } catch (error) {
+      if (attempt === 2) console.warn(`  couldn't delete team ${label}: ${message(error)}`)
+      else await sleep(2000)
+    }
+  }
+}
+
 /** The task's events once the stream has delivered a `run_finished` for every run of the snapshot. */
 export async function streamed(recorder: EventRecorder, detail: RunDetail, timeoutMs = 10_000) {
   const started = Date.now()

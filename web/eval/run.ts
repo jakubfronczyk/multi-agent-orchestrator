@@ -11,7 +11,7 @@ import { DOMAIN_CASES } from "./domains.ts"
 import { CHECKS, grade, type Check, type Transcript } from "./graders.ts"
 import { judge, judgeInput, JUDGE_MODEL, score, type Verdict } from "./judge.ts"
 import { EventRecorder } from "./events.ts"
-import { message, seedFiles, sleep, streamed, writeTaskLog } from "./setup.ts"
+import { message, removeTeam, seedFiles, sleep, stopTask, streamed, writeTaskLog } from "./setup.ts"
 import { createTeam, loadSeeded, TEAMS, type ReadyTeam, type Seeded, type TeamPlan } from "./teams.ts"
 
 const ALL_CASES = [...CASES, ...DOMAIN_CASES]
@@ -28,6 +28,7 @@ const { values } = parseArgs({
     pairs: { type: "string" },
     reps: { type: "string", default: "1" },
     concurrency: { type: "string", default: "2" },
+    /** USD across agents, second tasks and the judge; may overshoot by up to `concurrency` tasks already running. */
     budget: { type: "string", default: "2" },
     "no-judge": { type: "boolean", default: false },
     /** Every step but Grok: scripted agents, judge input built but not sent. Costs nothing. */
@@ -120,6 +121,8 @@ async function runCase(
   }
   let teamId: string | null = null
   let partnerId: string | null = null
+  // Every task started here, so a harness error never leaves one running or its team behind.
+  const roots: string[] = []
   try {
     // Team names are at most 60 characters.
     const team = await createTeam(plan, seeded, `Eval ${c.id.slice(0, 22)} ${plan.key} ${rep} ${stamp.slice(11)}`.slice(0, 60))
@@ -145,6 +148,7 @@ async function runCase(
       ...(start ? { agent_id: start.agentId, scenario: start.scenario } : {}),
     })
     transcript.rootRunId = root
+    roots.push(root)
     const answered = new Set<string>()
     let followUpSent = !c.followUp
     for (;;) {
@@ -171,6 +175,7 @@ async function runCase(
           : { agent_id: team.leadId, scenario: "test:hello" }
         : {}
       const { run_id: second } = await api.startRun({ team_id: teamId, task: c.secondTask, title: `eval ${c.id} second`, ...dry })
+      roots.push(second)
       for (;;) {
         if (Date.now() - started > TASK_TIMEOUT_MS) {
           await api.cancel(second).catch(() => undefined)
@@ -182,7 +187,14 @@ async function runCase(
         if (!detail.runs.some((run) => run.status === "running") && detail.pending_approvals.length === 0) break
         await sleep(POLL_MS)
       }
-      transcript.second = { rootRunId: second, detail: await api.run(second) }
+      const secondDetail = await api.run(second)
+      transcript.second = {
+        rootRunId: second,
+        detail: secondDetail,
+        approvals: (await api.approvals()).approvals.filter((a) => a.root_run_id === second),
+        outbox: (await api.outbox(teamId)).messages.filter((m) => m.root_run_id === second),
+        events: await streamed(recorder, secondDetail),
+      }
     }
     transcript.approvals = (await api.approvals()).approvals.filter((a) => a.root_run_id === root)
     transcript.outbox = (await api.outbox(teamId)).messages.filter((m) => m.root_run_id === root)
@@ -191,9 +203,9 @@ async function runCase(
   } catch (error) {
     transcript.error = message(error)
   } finally {
-    for (const id of [teamId, partnerId]) {
-      if (id) await api.deleteTeam(id).catch((error: unknown) => console.warn(`  couldn't delete team: ${message(error)}`))
-    }
+    for (const root of roots) await stopTask(root).catch(() => undefined)
+    if (teamId) await removeTeam(teamId, `${c.id} ${plan.key}`)
+    if (partnerId) await removeTeam(partnerId, `${c.id} partner`)
   }
   transcript.seconds = Math.round((Date.now() - started) / 1000)
   return transcript
@@ -305,15 +317,17 @@ async function main() {
   const rows: Row[] = []
   let spent = 0
   let next = 0
+  // Set when a dry run spends anything; workers finish their task and clean up, then the run stops.
+  let abort: string | null = null
   const worker = async () => {
-    while (next < jobs.length && spent < budget) {
+    while (next < jobs.length && spent < budget && !abort) {
       const { c, plan, rep } = jobs[next++]
       const expectation = expectationFor(c, plan.key)
       const answers: unknown[] = []
       const transcript = await runCase(c, plan, seeded, rep, stamp, recorder, answers)
-      spent += transcript.detail?.cost_micros ?? 0
-      // A dry run must never reach a model; any cost means a path went live, so stop at once.
-      if (values.dry && spent > 0) throw new Error(`dry run spent ${money(spent)} on ${c.id}: a call reached the model`)
+      spent += (transcript.detail?.cost_micros ?? 0) + (transcript.second?.detail.cost_micros ?? 0)
+      // A dry run must never reach a model; any cost means a path went live.
+      if (values.dry && spent > 0) abort = `dry run spent ${money(spent)} on ${c.id}: a call reached the model`
       const checks = grade(transcript, expectation)
       let verdict: Verdict | null = null
       let judgeError: string | null = null
@@ -322,10 +336,12 @@ async function main() {
         const chars = judgeInput(transcript, c, expectation, seedData).length
         if (chars < 200) judgeError = `judge input suspiciously short (${chars} chars)`
       } else if (!values["no-judge"] && transcript.detail) {
-        verdict = await judge(transcript, c, expectation, seedData).catch((error: unknown) => {
+        const judged = await judge(transcript, c, expectation, seedData).catch((error: unknown) => {
           judgeError = message(error)
           return null
         })
+        verdict = judged?.verdict ?? null
+        spent += judged?.costMicros ?? 0
       }
       // A run that never finished has no answer to judge, so it scores 0 whatever the judge said.
       const finished = checks.find((check) => check.name === "finished")?.pass ?? false
@@ -353,6 +369,10 @@ async function main() {
   writeFileSync(join(dir, "stream.json"), JSON.stringify({ reconnects: recorder.reconnects, duplicates: recorder.duplicates }, null, 2))
 
   writeFileSync(join(dir, "report.md"), report(rows, stamp, jobs.length - rows.length))
+  if (abort) {
+    console.error(abort)
+    process.exitCode = 1
+  }
   console.log(`Report: ${join(dir, "report.md")}`)
 }
 

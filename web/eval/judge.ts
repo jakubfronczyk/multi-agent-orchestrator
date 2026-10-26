@@ -106,7 +106,10 @@ export function judgeInput(t: Transcript, c: Case, e: Expectation, seedData: str
   return input
 }
 
-export async function judge(t: Transcript, c: Case, e: Expectation, seedData: string): Promise<Verdict> {
+/** `cost_in_usd_ticks` counts 10^10 ticks per USD (as the server's xAI client reads it), so 10^4 ticks per micro. */
+const TICKS_PER_MICRO = 10_000
+
+export async function judge(t: Transcript, c: Case, e: Expectation, seedData: string): Promise<{ verdict: Verdict; costMicros: number }> {
   const key = process.env.XAI_API_KEY
   if (!key) throw new Error("XAI_API_KEY is not set")
   const input = judgeInput(t, c, e, seedData)
@@ -133,5 +136,8 @@ export async function judge(t: Transcript, c: Case, e: Expectation, seedData: st
   if (!response) throw new Error("judge: no response")
   if (!response.ok) throw new Error(`judge: ${response.status} ${await response.text()}`)
   const body = (await response.json()) as { choices: { message: { content: string } }[]; usage?: { cost_in_usd_ticks?: number } }
-  return JSON.parse(body.choices[0].message.content) as Verdict
+  return {
+    verdict: JSON.parse(body.choices[0].message.content) as Verdict,
+    costMicros: Math.round((body.usage?.cost_in_usd_ticks ?? 0) / TICKS_PER_MICRO),
+  }
 }

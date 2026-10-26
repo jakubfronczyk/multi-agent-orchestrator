@@ -11,7 +11,7 @@ import type { ToolCallView } from "../src/generated/ToolCallView.ts"
 import { api } from "./api.ts"
 import { EventRecorder } from "./events.ts"
 import { grade, type Check, type Transcript } from "./graders.ts"
-import { message, scripted, seedFiles, sleep, streamed, waitIdle, writeTaskLog } from "./setup.ts"
+import { message, removeTeam, scripted, seedFiles, sleep, stopTask, streamed, waitIdle, writeTaskLog } from "./setup.ts"
 import { createTeam, loadSeeded, TEAMS, type ReadyTeam } from "./teams.ts"
 
 const { values } = parseArgs({ options: { only: { type: "string" }, loops: { type: "string", default: "5" } } })
@@ -401,7 +401,9 @@ async function main() {
       writeTaskLog(dir, `${name}__${root}`, { "events.jsonl": events, "detail.json": detail, "approvals.json": approvals, "checks.json": checks })
     }
     problems.push(...(await replayCheck(ctx)))
-    for (const team of [a, b]) await api.deleteTeam(team.id).catch(() => undefined)
+    // A failed test can leave a task running (test:hang), which would block the delete.
+    for (const root of ctx.roots) await stopTask(root).catch(() => undefined)
+    for (const team of [a, b]) await removeTeam(team.id, `${name} ${team === a ? "A" : "B"}`)
     results.push({ name, problems })
     console.log(`${problems.length ? "FAIL" : "ok  "} ${name}${problems.length ? `\n       ${problems.join("\n       ")}` : ""}`)
   }
