@@ -7,14 +7,16 @@ import { teamsQuery } from "@/api/teams"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import type { TeamView } from "@/generated/TeamView"
 import { selectTeam } from "@/lib/selected-team"
-import { setWelcomeOpen, STARTERS, useWelcomeOpen, type Starter } from "@/lib/welcome"
+import { setWelcomeHidden, setWelcomeOpen, STARTERS, useWelcomeOpen, welcomeHidden, type Starter } from "@/lib/welcome"
 
-/** Shown on a browser's first visit and from the sidebar's "?"; each card starts a task on its team. */
+/** Opens on every visit until "Don't show this again" is ticked, and always from the sidebar's "?"; each card starts a task on its team. */
 export function WelcomeDialog() {
   const open = useWelcomeOpen()
   const navigate = useNavigate()
   const teams = useQuery(teamsQuery())
   const [error, setError] = useState<string | null>(null)
+  // Read when the component mounts, so the box shows what this browser already chose.
+  const [hidden, setHidden] = useState(welcomeHidden)
 
   const cards = STARTERS.flatMap((starter) => {
     const team = teams.data?.teams.find((t) => t.name === starter.team)
@@ -88,6 +90,28 @@ export function WelcomeDialog() {
         >
           Build your own team
         </Link>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={hidden}
+              onChange={(event) => {
+                setHidden(event.target.checked)
+                setWelcomeHidden(event.target.checked)
+              }}
+              className="size-4 accent-primary"
+            />
+            Don't show this again
+          </label>
+          <button
+            type="button"
+            onClick={() => setWelcomeOpen(false)}
+            className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Done
+          </button>
+        </div>
       </DialogContent>
     </Dialog>
   )
