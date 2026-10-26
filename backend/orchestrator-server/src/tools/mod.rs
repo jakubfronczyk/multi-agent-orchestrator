@@ -11,6 +11,7 @@ use sqlx::SqlitePool;
 
 use crate::sqlite::text::from_text;
 
+pub mod convert;
 pub mod csv;
 pub mod fetch;
 pub mod files;

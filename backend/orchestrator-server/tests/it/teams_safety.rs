@@ -279,7 +279,7 @@ async fn a_write_into_another_team_needs_read_write_and_keeps_the_taint_rule(poo
 
     let upload = seeded
         .workspace()
-        .store_upload(team, "note.txt", "outside text")
+        .store_upload(team, "note.txt", b"outside text")
         .await
         .expect("upload");
     let writer = in_team(&seeded, team, "writer").await;
@@ -337,7 +337,7 @@ async fn an_upload_stays_in_its_team_and_taints_through_a_grant(pool: SqlitePool
     let team = contracts(&seeded).await;
     let upload = seeded
         .workspace()
-        .store_upload(seeded.team, "people.csv", "name,team\nAda,payroll\n")
+        .store_upload(seeded.team, "people.csv", b"name,team\nAda,payroll\n")
         .await
         .expect("upload");
     assert_eq!(upload, "uploads/people.csv");
@@ -543,7 +543,7 @@ async fn a_revoke_while_the_card_waits_stops_the_approved_write(pool: SqlitePool
     grant(&seeded, team, seeded.team, FileAccess::ReadWrite).await;
     let upload = seeded
         .workspace()
-        .store_upload(team, "note.txt", "outside text")
+        .store_upload(team, "note.txt", b"outside text")
         .await
         .expect("upload");
 

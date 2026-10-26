@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::middleware;
 use axum::routing::{get, post, put};
 use orchestrator_core::engine::Engine;
@@ -56,7 +57,12 @@ pub fn router(state: AppState) -> Router {
         .route("/memory", get(memory::list))
         .route("/memory/{id}/versions", get(memory::versions))
         .route("/outbox", get(outbox::list))
-        .route("/files", get(files::view).post(files::upload))
+        .route(
+            "/files",
+            get(files::view)
+                .post(files::upload)
+                .layer(DefaultBodyLimit::max(files::UPLOAD_BYTES + 64 * 1024)),
+        )
         .route("/drill", post(drill::start))
         .route("/drill/{id}/report", get(drill::report))
         .route("/approvals", get(approvals::list))

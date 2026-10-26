@@ -9,6 +9,10 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1"
+calamine = { version = "0.37", features = ["dates"] }
+pdf-extract = "0.12"
+quick-xml = "0.42"
+zip = { version = "9", default-features = false, features = ["deflate"] }
 futures-util = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
 axum = { version = "0.8", features = ["multipart"] }

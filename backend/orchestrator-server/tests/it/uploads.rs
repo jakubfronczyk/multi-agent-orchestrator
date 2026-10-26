@@ -53,9 +53,10 @@ async fn an_upload_is_stored_untrusted_under_uploads(pool: SqlitePool) {
     let (served, base) = served(pool).await;
     let (status, json) = upload(&base, body("file", "notes.md", b"# Notes\n")).await;
     assert_eq!(status, 201, "{json}");
-    assert_eq!(json["path"], "uploads/notes.md");
-    assert_eq!(json["bytes"], 8);
-    assert_eq!(json["trust"], "untrusted");
+    assert_eq!(json["files"][0]["path"], "uploads/notes.md");
+    assert_eq!(json["files"][0]["bytes"], 8);
+    assert_eq!(json["converted_from"], Value::Null, "text is kept as it is");
+    assert_eq!(json["files"][0]["trust"], "untrusted");
     let on_disk =
         std::fs::read_to_string(served.temp.workspace().join(served.own("uploads/notes.md")))
             .expect("stored");
@@ -79,7 +80,7 @@ async fn an_upload_is_stored_untrusted_under_uploads(pool: SqlitePool) {
 
     let (status, again) = upload(&base, body("file", "notes.md", b"replaced")).await;
     assert_eq!(
-        (status, again["path"].clone()),
+        (status, again["files"][0]["path"].clone()),
         (201, json!("uploads/notes-2.md")),
         "a taken name gets a number"
     );
@@ -89,10 +90,10 @@ async fn an_upload_is_stored_untrusted_under_uploads(pool: SqlitePool) {
     assert_eq!(kept, "# Notes\n", "an upload never replaces one");
 }
 
-/// Any name is cleaned rather than refused; only binary or oversized files are refused, before
-/// anything is written.
+/// Any name is cleaned rather than refused, and any file is taken: text as it is, a binary file
+/// as sent and marked unreadable. Only an oversized file is refused, before anything is written.
 #[sqlx::test]
-async fn any_name_is_cleaned_and_only_binary_or_big_files_are_refused(pool: SqlitePool) {
+async fn any_name_and_any_file_are_taken_and_only_big_files_are_refused(pool: SqlitePool) {
     let (served, base) = served(pool).await;
     for (raw, stored) in [
         ("../x.md", "uploads/x.md"),
@@ -102,7 +103,7 @@ async fn any_name_is_cleaned_and_only_binary_or_big_files_are_refused(pool: Sqli
     ] {
         let (status, json) = upload(&base, body("file", raw, b"x")).await;
         assert_eq!(
-            (status, json["path"].clone()),
+            (status, json["files"][0]["path"].clone()),
             (201, json!(stored)),
             "{raw:?}"
         );
@@ -112,22 +113,140 @@ async fn any_name_is_cleaned_and_only_binary_or_big_files_are_refused(pool: Sqli
         "nothing outside the folder"
     );
 
+    let (status, image) = upload(&base, body("file", "photo.png", b"PNG\0\0")).await;
+    assert_eq!(
+        (
+            status,
+            image["files"][0]["path"].clone(),
+            image["files"][0]["readable"].clone()
+        ),
+        (201, json!("uploads/photo.png"), json!(false))
+    );
     let (status, _) = upload(&base, body("other", "y.md", b"x")).await;
     assert_eq!(status, 422, "the field must be named file");
     let big = vec![b'a'; FILE_BYTES + 1];
     let (status, _) = upload(&base, body("file", "big.txt", &big)).await;
-    assert_eq!(status, 413, "one byte over the read cap");
-    let (status, _) = upload(&base, body("file", "bin.txt", &[0xff, 0xfe, 0x00])).await;
-    assert_eq!(status, 415, "not UTF-8");
-    let (status, _) = upload(&base, body("file", "image.png", b"PNG\0\0")).await;
-    assert_eq!(status, 415, "binary");
-    for refused in ["y.md", "big.txt", "bin.txt", "image.png"] {
+    assert_eq!(status, 413, "text over the read cap");
+    let huge = vec![0_u8; 10 * 1024 * 1024 + 1];
+    let (status, _) = upload(&base, body("file", "huge.bin", &huge)).await;
+    assert_eq!(status, 413, "over 10 MB as sent");
+    for refused in ["y.md", "big.txt", "huge.bin"] {
         let path = served
             .temp
             .workspace()
             .join(served.own(&format!("uploads/{refused}")));
         assert!(!path.exists(), "{refused} was stored");
     }
+}
+
+/// A two-sheet workbook becomes one CSV per sheet that `csv_query` can sum, and a Word document
+/// becomes Markdown; both are untrusted like any upload.
+#[sqlx::test]
+async fn a_workbook_and_a_word_document_are_stored_as_text(pool: SqlitePool) {
+    let (served, base) = served(pool).await;
+    let (status, json) = upload(&base, body("file", "Budget Q3.xlsx", &xlsx())).await;
+    assert_eq!(status, 201, "{json}");
+    assert_eq!(json["converted_from"], "Budget-Q3.xlsx");
+    let paths: Vec<&str> = json["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .filter_map(|f| f["path"].as_str())
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "uploads/Budget-Q3-Invoices.csv",
+            "uploads/Budget-Q3-Notes.csv"
+        ]
+    );
+    let invoices = std::fs::read_to_string(
+        served
+            .temp
+            .workspace()
+            .join(served.own("uploads/Budget-Q3-Invoices.csv")),
+    )
+    .expect("csv");
+    assert_eq!(invoices, "invoice,amount\nINV-1,1200\nINV-2,16699.5\n");
+
+    let (status, json) = upload(&base, body("file", "Policy.docx", &docx())).await;
+    assert_eq!(
+        (status, json["files"][0]["path"].clone()),
+        (201, json!("uploads/Policy.md"))
+    );
+    let text = std::fs::read_to_string(
+        served
+            .temp
+            .workspace()
+            .join(served.own("uploads/Policy.md")),
+    )
+    .expect("md");
+    assert_eq!(text, "# Payment policy\n\nOver 5k goes to the CFO.");
+
+    let (status, broken) = upload(&base, body("file", "broken.xlsx", b"not a workbook")).await;
+    assert_eq!(
+        (status, broken["error"]["field"].clone()),
+        (422, json!("file"))
+    );
+}
+
+fn zip_of(entries: &[(&str, &str)]) -> Vec<u8> {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, content) in entries {
+        zip.start_file(*name, zip::write::SimpleFileOptions::default())
+            .expect("entry");
+        zip.write_all(content.as_bytes()).expect("write");
+    }
+    zip.finish().expect("zip").into_inner()
+}
+
+/// The smallest workbook Excel would open: two sheets of inline strings and numbers.
+fn xlsx() -> Vec<u8> {
+    let sheet = |rows: &str| {
+        format!(
+            r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{rows}</sheetData></worksheet>"#
+        )
+    };
+    let s = |r: &str, text: &str| format!(r#"<c r="{r}" t="inlineStr"><is><t>{text}</t></is></c>"#);
+    let n = |r: &str, value: &str| format!(r#"<c r="{r}"><v>{value}</v></c>"#);
+    let invoices = sheet(&format!(
+        r#"<row r="1">{}{}</row><row r="2">{}{}</row><row r="3">{}{}</row>"#,
+        s("A1", "invoice"),
+        s("B1", "amount"),
+        s("A2", "INV-1"),
+        n("B2", "1200"),
+        s("A3", "INV-2"),
+        n("B3", "16699.5")
+    ));
+    let notes = sheet(&format!(r#"<row r="1">{}</row>"#, s("A1", "pay by Friday")));
+    zip_of(&[
+        (
+            "[Content_Types].xml",
+            r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>"#,
+        ),
+        (
+            "_rels/.rels",
+            r#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#,
+        ),
+        (
+            "xl/workbook.xml",
+            r#"<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Invoices" sheetId="1" r:id="rId1"/><sheet name="Notes" sheetId="2" r:id="rId2"/></sheets></workbook>"#,
+        ),
+        (
+            "xl/_rels/workbook.xml.rels",
+            r#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>"#,
+        ),
+        ("xl/worksheets/sheet1.xml", &invoices),
+        ("xl/worksheets/sheet2.xml", &notes),
+    ])
+}
+
+fn docx() -> Vec<u8> {
+    zip_of(&[(
+        "word/document.xml",
+        r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Payment policy</w:t></w:r></w:p><w:p><w:r><w:t>Over 5k goes to the CFO.</w:t></w:r></w:p></w:body></w:document>"#,
+    )])
 }
 
 #[cfg(unix)]

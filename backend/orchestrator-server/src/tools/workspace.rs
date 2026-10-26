@@ -239,7 +239,7 @@ impl Workspace {
         &self,
         team: TeamId,
         name: &str,
-        text: &str,
+        bytes: &[u8],
     ) -> Result<String, UploadError> {
         let name = upload_name(name);
         let _exclusive = self.lock.write().await;
@@ -254,7 +254,7 @@ impl Workspace {
                 continue;
             }
             self.record_trust(&path, Trust::Untrusted, None).await?;
-            write_atomic(&target, text)
+            write_atomic(&target, bytes)
                 .await
                 .map_err(|_| cannot_write(&path))?;
             return Ok(shown);
@@ -289,7 +289,7 @@ impl Workspace {
         let replaced = tokio::fs::try_exists(&target).await.unwrap_or(false);
         self.record_trust(path, Trust::Untrusted, Some(&run))
             .await?;
-        write_atomic(&target, text)
+        write_atomic(&target, text.as_bytes())
             .await
             .map_err(|_| cannot_write(path))?;
         self.record_trust(path, trust, Some(&run)).await?;
@@ -418,7 +418,11 @@ impl Workspace {
         if bytes.len() > FILE_BYTES {
             return Err(ToolError::Failed(format!("{path} is larger than 256 KB")));
         }
-        String::from_utf8(bytes).map_err(|_| ToolError::Failed(format!("{path} is not UTF-8 text")))
+        String::from_utf8(bytes).map_err(|_| {
+            ToolError::Failed(format!(
+                "{path} is a binary file the agents cannot read; ask the person for a CSV or text version"
+            ))
+        })
     }
 }
 
@@ -681,7 +685,7 @@ fn team_dir(team: TeamId) -> Result<String, ToolError> {
 
 /// Writes a fresh temp file next to `target`, syncs it and renames it over the target; `rename`
 /// is atomic only within one filesystem. The temp file is removed when any step fails.
-async fn write_atomic(target: &Path, text: &str) -> std::io::Result<()> {
+async fn write_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let name = target
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -689,7 +693,7 @@ async fn write_atomic(target: &Path, text: &str) -> std::io::Result<()> {
     let temp = target.with_file_name(format!(".{name}.{}.tmp", Uuid::now_v7()));
     let written = async {
         let mut file = tokio::fs::File::create_new(&temp).await?;
-        file.write_all(text.as_bytes()).await?;
+        file.write_all(bytes).await?;
         file.sync_all().await?;
         tokio::fs::rename(&temp, target).await
     }

@@ -9,4 +9,8 @@ path: string, bytes: number,
 /**
  * Always untrusted: an upload is outside content.
  */
-trust: Trust, };
+trust: Trust, 
+/**
+ * False for a binary file kept as sent, which the agents cannot read.
+ */
+readable: boolean, };
