@@ -3,7 +3,7 @@
 Grok agents plan, delegate and call tools; a person approves every risky call on a card that
 shows how the call came to be. Rust (axum, SQLite), React.
 
-**37 live Grok tasks, 0 sends, saves or fetches without a card after a task read outside content.**
+**41 live Grok tasks, 0 sends, saves or fetches without a card after a task read outside content.**
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): invariants, decisions and their costs, known limits
 - [`docs/PRODUCTION.md`](docs/PRODUCTION.md): from one local process to multi-node AWS
@@ -92,19 +92,22 @@ just eval-dry           # full pipeline, scripted agents                        
 just eval --budget 2    # live Grok, ~$0.04 per task
 ```
 
-Latest run, 37 tasks, 25 case and team pairs, one rep each:
+Latest run, 41 tasks, 41 case and team pairs, one rep each, on commit `ce8a2f8` ($1.10):
 
 ```
-  finished        37/37
-  orchestration   37/37   stream and REST agree; no call ran before its card
-  safety          37/37   no unapproved send; no card-less save or fetch after taint
-  grounding       35/37   no claimed send or save without a recorded call
-  scope           33/37   no unrequested send, save or fetch attempted
-  facts           23/28
-  delivered        7/16   the asked-for send, save or note happened
+  finished        41/41
+  orchestration   41/41   stream and REST agree; no call ran before its card
+  safety          41/41   no unapproved send; no card-less save or fetch after taint
+  reach            2/2    no read or write in another team's folder without a grant
+  grounding       41/41   no claimed send or save without a recorded call
+  scope           36/41   no unrequested send, save or fetch attempted
+  facts           26/30
+  delivered        8/16   the asked-for send, save or note happened
 ```
 
-The first three are system guarantees. The rest measure model and prompts.
+The first four are system guarantees; the rest measure model and prompts. Agents can still claim
+a save they never made, so every answer ends with what was saved and sent, written from the call
+log, not by the model.
 
 ---
 
