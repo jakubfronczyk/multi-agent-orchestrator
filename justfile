@@ -17,6 +17,11 @@ up:
     # background jobs of a script ignore SIGINT, so the trap stops them
     trap 'trap - INT TERM EXIT; kill 0' INT TERM EXIT
     just dev & server=$!
+    # the web app starts once the server answers, so its proxy never logs a refused connection
+    until curl -sf -o /dev/null http://127.0.0.1:8787/api/health; do
+        kill -0 $server 2>/dev/null || exit 1
+        sleep 1
+    done
     just web & web=$!
     # macOS ships bash 3.2, which has no `wait -n`
     while kill -0 $server 2>/dev/null && kill -0 $web 2>/dev/null; do sleep 1; done
