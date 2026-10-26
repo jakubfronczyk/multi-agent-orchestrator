@@ -5,6 +5,7 @@ import { Menu, Plus } from "lucide-react"
 import { agentsQuery } from "@/api/agents"
 import { toolsQuery } from "@/api/meta"
 import { HowThisHappenedSheet } from "@/components/how-this-happened"
+import { NewTeamDialog } from "@/components/new-team-dialog"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { WelcomeDialog } from "@/components/welcome-dialog"
@@ -107,6 +108,7 @@ export function AppShell() {
       </main>
       <HowThisHappenedSheet />
       <WelcomeDialog />
+      <NewTeamDialog />
       <div aria-live="polite" className="sr-only">
         {announcement}
       </div>
