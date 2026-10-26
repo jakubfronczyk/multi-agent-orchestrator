@@ -94,8 +94,9 @@ impl Callable {
 }
 
 impl Checked {
-    /// Tool code, spawned and bounded like `preview`. A panic or timeout counts as out of reach;
-    /// a cancel does not, since a cancelled task starts nothing anyway.
+    /// Tool code, spawned and bounded like `preview`. A panic or timeout is `Internal`, like a
+    /// storage error: the check did not answer, which is not a denial. A cancel passes, since a
+    /// cancelled task starts nothing anyway.
     async fn reach(
         &self,
         team: TeamId,
@@ -109,7 +110,7 @@ impl Checked {
         let tool = Arc::clone(tool);
         let handle = tokio::spawn(async move { tool.reach(team, &owned).await });
         let abort = handle.abort_handle();
-        let unchecked = || ToolError::Failed("the path could not be checked".to_string());
+        let unchecked = || ToolError::Internal("the path could not be checked".to_string());
         tokio::select! {
             biased;
             joined = handle => joined.unwrap_or_else(|_| Err(unchecked())),
@@ -239,7 +240,22 @@ pub(super) async fn execute(
     };
 
     // A path out of the team's reach is refused before the decision, so it never raises a card.
+    // A check that could not answer stops the call too, as a failure of the server, not a refusal.
     let reach = checked.reach(ctx.task.team_id(), &args, &ctx.cancel).await;
+    if let Err(ToolError::Internal(_)) = &reach {
+        let requested = RunEvent::ToolCallRequested {
+            call_id,
+            tool: call.name.clone(),
+            args,
+            action: Some(action),
+            decision: None,
+            reasons: Vec::new(),
+        };
+        inner.emit(ctx.at, requested).await?;
+        let ended = Ended::failed(CallStatus::Internal, "the path could not be checked", None);
+        finish(inner, ctx, call_id, started, &ended, None, false).await?;
+        return Ok(envelope::render(&ended, None));
+    }
     let (decision, reasons) = match &reach {
         Ok(()) => verdict(ctx, name, &args, &action),
         Err(_) => (Decision::Deny, vec![Rule::NoAccess]),

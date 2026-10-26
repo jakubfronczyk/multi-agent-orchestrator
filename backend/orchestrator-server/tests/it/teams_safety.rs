@@ -431,3 +431,28 @@ async fn a_listing_shows_only_what_the_team_can_open(pool: SqlitePool) {
         ["teams/access-desk"]
     );
 }
+
+/// A grant check that cannot answer stops the call as a server failure, never as `no_access`:
+/// no decision, no rule, no card, no taint.
+#[sqlx::test]
+async fn a_grant_check_that_fails_is_internal_not_a_refusal(pool: SqlitePool) {
+    let seeded = Seeded::new(pool).await;
+    let team = contracts(&seeded).await;
+    sqlx::raw_sql("DROP TABLE team_file_grants")
+        .execute(&seeded.pool)
+        .await
+        .expect("drop");
+    let events = read_as(&seeded, team, "teams/access-desk/data.md").await;
+    let requested: Vec<_> = events
+        .iter()
+        .filter_map(|e| match &e.event {
+            RunEvent::ToolCallRequested {
+                decision, reasons, ..
+            } => Some((*decision, reasons.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(requested, [(None, Vec::new())]);
+    assert_eq!(finished(&events), [CallStatus::Internal]);
+    assert!(cards(&events).is_empty() && tainted(&events).is_empty());
+}
