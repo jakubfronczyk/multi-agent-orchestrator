@@ -2,7 +2,7 @@ import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router"
 import { agentsQuery } from "@/api/agents"
-import { deleteTeam, renameTeam } from "@/api/teams"
+import { deleteTeam, refetchTeams, renameTeam } from "@/api/teams"
 import { Page } from "@/components/page"
 import { Button } from "@/components/ui/button"
 import type { TeamView } from "@/generated/TeamView"
@@ -72,10 +72,7 @@ function TeamHeader({ team }: { team: TeamView }) {
     setMode("view")
     requestAnimationFrame(() => renameButton.current?.focus())
   }
-  const refresh = async () => {
-    await client.invalidateQueries({ queryKey: ["teams"] })
-    await client.invalidateQueries({ queryKey: ["agents"] })
-  }
+  const refresh = () => refetchTeams(client)
   const rename = useMutation({
     mutationFn: () => renameTeam(team.id, { name }),
     onSuccess: async () => {

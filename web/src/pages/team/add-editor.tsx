@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { cn } from "cn"
 import { agentsQuery, createAgent, replaceAgent } from "@/api/agents"
+import { refetchTeams } from "@/api/teams"
 import { AgentShape } from "@/components/agent-shape"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -44,9 +45,8 @@ export function AddEditor({ teamId, onDone }: { teamId: string; onDone: (slug: s
       return { created, leadError: reachable || joined ? await linkLead(created) : null }
     },
     onSuccess: async ({ created, leadError }) => {
-      await client.invalidateQueries({ queryKey: agentsQuery.queryKey })
-      // A team's agent count changes with it; team writes and agent writes emit no events.
-      await client.invalidateQueries({ queryKey: ["teams"] })
+      // The team's agent count changes with it.
+      await refetchTeams(client)
       if (leadError) {
         setJoined(created)
         setWarning(`${created.name} joined the team, but Lead can't hand it work yet: ${leadError}`)

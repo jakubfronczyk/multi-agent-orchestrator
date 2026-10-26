@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query"
+import { type QueryClient, queryOptions } from "@tanstack/react-query"
 import type { TeamId } from "@/generated/TeamId"
 import type { TeamInput } from "@/generated/TeamInput"
 import type { TeamList } from "@/generated/TeamList"
@@ -11,6 +11,10 @@ export const teamsQuery = (includeDeleted = false) =>
     queryKey: ["teams", { includeDeleted }],
     queryFn: () => getJson<TeamList>(`/teams${query({ include_deleted: includeDeleted ? "true" : undefined })}`),
   })
+
+/** Refetches teams and agents after a team or agent write, since neither emits events. */
+export const refetchTeams = (client: QueryClient) =>
+  Promise.all([client.invalidateQueries({ queryKey: ["teams"] }), client.invalidateQueries({ queryKey: ["agents"] })])
 
 export const createTeam = (input: TeamInput) => postJson<TeamView>("/teams", input)
 

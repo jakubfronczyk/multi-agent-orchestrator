@@ -2,7 +2,7 @@ import { useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router"
 import { ChevronDown, Plus, Users } from "lucide-react"
-import { createTeam } from "@/api/teams"
+import { createTeam, refetchTeams } from "@/api/teams"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -35,9 +35,7 @@ export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
   const create = useMutation({
     mutationFn: () => createTeam({ name }),
     onSuccess: async (created) => {
-      // Team writes emit no events, so the lists refetch here.
-      await client.invalidateQueries({ queryKey: ["teams"] })
-      await client.invalidateQueries({ queryKey: ["agents"] })
+      await refetchTeams(client)
       selectTeam(created.id)
       setAdding(false)
       setName("")

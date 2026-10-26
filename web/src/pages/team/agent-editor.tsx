@@ -1,6 +1,7 @@
 import { useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { agentsQuery, deleteAgent, replaceAgent } from "@/api/agents"
+import { refetchTeams } from "@/api/teams"
 import { AgentShape } from "@/components/agent-shape"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -32,10 +33,8 @@ export function AgentEditor({ agent, team, onRemoved }: { agent: AgentRecord; te
   const remove = useMutation({
     mutationFn: () => deleteAgent(agent.id),
     onSuccess: async () => {
-      // The Lead's targets change on the server too; the refetch shows both.
-      await client.invalidateQueries({ queryKey: agentsQuery.queryKey })
-      // A team's agent count changes with it; team writes and agent writes emit no events.
-      await client.invalidateQueries({ queryKey: ["teams"] })
+      // The Lead's targets and the team's agent count change on the server too.
+      await refetchTeams(client)
       onRemoved()
     },
     onError: (error) => setProblem(problemOf(error)),
