@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { Link, useNavigate } from "react-router"
-import { CircleCheck, Inbox, NotebookText, Target, type LucideIcon } from "lucide-react"
+import { Target } from "lucide-react"
 import { cn } from "cn"
 import { approvalsQuery } from "@/api/approvals"
 import { startDrill } from "@/api/drill"
@@ -13,16 +13,10 @@ import { TaskRow } from "@/components/task-row"
 import { useInvalidateOn } from "@/events/use-invalidate-on"
 import { isApiError } from "@/lib/api"
 import { listText, withAttachments } from "@/lib/copy"
-import { DEMO_STARTS, type DemoStart } from "@/lib/demo"
+import { DEMO_STARTS } from "@/lib/demo"
 import { useAgents } from "@/lib/agents"
 import { useSelectedTeam } from "@/lib/selected-team"
-
-const DEMO_ICON: Record<DemoStart["id"], LucideIcon> = {
-  s1: Inbox,
-  clean: CircleCheck,
-  launder: NotebookText,
-  drill: Target,
-}
+import { STARTERS } from "@/lib/welcome"
 
 export function HomePage() {
   const navigate = useNavigate()
@@ -38,6 +32,8 @@ export function HomePage() {
   const [error, setError] = useState<string | null>(null)
   const look = useAgents(team?.id)
   const lead = look.agents.find((agent) => agent.team_id === team?.id && agent.role === "lead")
+  // Only the seeded teams have tasks written for their files; a team the person built has none.
+  const starter = STARTERS.find((s) => s.team === team?.name)
   // A demo plays fixed replies for named teammates, so it is offered only where the Lead has them.
   const demos = DEMO_STARTS.filter((demo) => demo.slugs.every((slug) => lead?.delegate_targets.includes(slug)))
   const missing = [
@@ -45,13 +41,10 @@ export function HomePage() {
   ]
 
   const start = useMutation({
-    mutationFn: async (demo: DemoStart | { task: string; draftOnly: boolean }) => {
+    mutationFn: async (request: "drill" | { task: string; draftOnly: boolean }) => {
       const team_id = team?.id
-      if ("id" in demo) {
-        if (demo.id === "drill") return startDrill(team_id)
-        return startRun({ task: demo.task ?? "", title: demo.label, scenario: demo.scenario, team_id })
-      }
-      return startRun({ task: demo.task, draft_only: demo.draftOnly || undefined, team_id })
+      if (request === "drill") return startDrill(team_id)
+      return startRun({ task: request.task, draft_only: request.draftOnly || undefined, team_id })
     },
   })
 
@@ -75,17 +68,13 @@ export function HomePage() {
     }
   }
 
-  const runDemo = async (demo: DemoStart) => {
+  const runDrill = async () => {
     setError(null)
     try {
-      const { run_id } = await start.mutateAsync(demo)
+      const { run_id } = await start.mutateAsync("drill")
       void navigate(`/tasks/${run_id}`)
     } catch (failure) {
-      if (demo.conflict && isApiError(failure, 409)) {
-        setError(demo.conflict)
-      } else {
-        setError(`Couldn't start the demo. ${failure instanceof Error ? failure.message : ""}`)
-      }
+      setError(`Couldn't start the drill. ${failure instanceof Error ? failure.message : ""}`)
     }
   }
 
@@ -161,35 +150,46 @@ export function HomePage() {
               {" "}
               {health.data.provider === "scripted"
                 ? "No API key: free-text tasks get a scripted reply."
-                : "Free-text tasks run on the live model and cost money; the demos below are free."}
+                : `Tasks run on the live model and cost money${demos.length > 0 ? "; the security drill is free" : ""}.`}
             </>
           )}
         </p>
-        {demos.length > 0 ? (
+        {(starter || demos.length > 0) && (
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <span className="mr-1 text-sm text-muted-foreground">Free scripted demos</span>
-            {demos.map((demo) => {
-              const Icon = DEMO_ICON[demo.id]
-              return (
-                <button
-                  key={demo.id}
-                  type="button"
-                  title={demo.detail}
-                  disabled={start.isPending || !team}
-                  onClick={() => void runDemo(demo)}
-                  className="inline-flex h-8 items-center gap-2 rounded-full px-3 text-sm text-sidebar-foreground ring-1 ring-border ring-inset hover:text-foreground hover:ring-input disabled:opacity-60"
-                >
-                  <Icon className="size-4" />
-                  {demo.label}
-                </button>
-              )
-            })}
+            {starter && <span className="mr-1 text-sm text-muted-foreground">Try</span>}
+            {starter?.tasks.map((task) => (
+              <button
+                key={task.label}
+                type="button"
+                title={task.prompt}
+                disabled={start.isPending || !team}
+                onClick={() => {
+                  setText(task.prompt)
+                  setError(null)
+                }}
+                className="inline-flex h-8 items-center rounded-full px-3 text-sm text-sidebar-foreground ring-1 ring-border ring-inset hover:text-foreground hover:ring-input disabled:opacity-60"
+              >
+                {task.label}
+              </button>
+            ))}
+            {demos.map((demo) => (
+              <button
+                key={demo.id}
+                type="button"
+                title={demo.detail}
+                disabled={start.isPending || !team}
+                onClick={() => void runDrill()}
+                className="inline-flex h-8 items-center gap-2 rounded-full px-3 text-sm text-sidebar-foreground ring-1 ring-border ring-inset hover:text-foreground hover:ring-input disabled:opacity-60"
+              >
+                <Target className="size-4" />
+                {demo.label}
+              </button>
+            ))}
           </div>
-        ) : null}
+        )}
         {team && lead && missing.length > 0 && (
           <p className="m-0 text-center text-sm text-muted-foreground">
-            {demos.length > 0 ? "More free demos appear" : "The free demos appear"} once {lead.name} can hand work to
-            teammates named {listText(missing)}.
+            The security drill appears once {lead.name} can hand work to teammates named {listText(missing)}.
           </p>
         )}
       </section>

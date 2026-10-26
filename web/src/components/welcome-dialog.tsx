@@ -26,7 +26,7 @@ export function WelcomeDialog() {
 
   const start = useMutation({
     mutationFn: ({ starter, team }: { starter: Starter; team: TeamView }) =>
-      startRun({ task: starter.prompt, team_id: team.id }),
+      startRun({ task: starter.tasks[0].prompt, team_id: team.id }),
     onSuccess: ({ run_id }, { team }) => {
       selectTeam(team.id)
       setWelcomeOpen(false)
@@ -70,7 +70,7 @@ export function WelcomeDialog() {
                   }}
                   className="mt-auto flex w-full items-center gap-2 rounded-md bg-secondary px-3 py-2 text-left text-sm text-secondary-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
                 >
-                  <span className="min-w-0 flex-1">“{starter.prompt}”</span>
+                  <span className="min-w-0 flex-1">“{starter.tasks[0].prompt}”</span>
                   <ArrowRight className="size-4 flex-none" aria-hidden />
                 </button>
               </li>

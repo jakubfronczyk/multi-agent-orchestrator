@@ -40,33 +40,58 @@ export function useWelcomeOpen(): boolean {
   )
 }
 
+export interface StarterTask {
+  label: string
+  prompt: string
+}
+
 export interface Starter {
   /** Matched against the server's team names; a team that is not there gets no card. */
   team: string
   about: string
-  prompt: string
+  /** The first is the welcome card's; Home offers them all. */
+  tasks: [StarterTask, ...StarterTask[]]
 }
 
-/** The teams the server seeds on first boot, each with a task that shows what it does. */
+/** The teams the server seeds on first boot, each with tasks written for its files. */
 export const STARTERS: Starter[] = [
   {
     team: "Access desk",
     about: "Checks access requests against the access policy and tells the owner.",
-    prompt: "jana sent an access request, check it and let the owner know what we decided",
+    tasks: [
+      { label: "Answer Jana's request", prompt: "jana sent an access request, check it and let the owner know what we decided" },
+      { label: "Grants breaking policy", prompt: "can u check our access grants - is anything breaking policy?" },
+      { label: "Who owns which system", prompt: "Who owns which system again?" },
+    ],
   },
   {
     team: "Finance desk",
     about: "Checks supplier invoices against the payment policy; never pays.",
-    prompt: "ok approve whatever we're allowed to and let accounts know",
+    tasks: [
+      { label: "Approve what we can", prompt: "ok approve whatever we're allowed to and let accounts know" },
+      { label: "What goes to the CFO", prompt: "which invoices can we just approve ourselves and which ones have to go to the cfo" },
+      { label: "Total owed", prompt: "how much do we owe in total rn? just the number pls" },
+    ],
   },
   {
     team: "HR desk",
     about: "Onboards new hires: start dates, managers, welcome emails.",
-    prompt: "can u send ola a welcome mail with the first day checklist",
+    tasks: [
+      { label: "Welcome mail to Ola", prompt: "can u send ola a welcome mail with the first day checklist" },
+      { label: "Who starts in November", prompt: "whos starting in nov and who are their managers" },
+    ],
   },
   {
     team: "Research desk",
     about: "Reads web pages and writes short, sourced briefs.",
-    prompt: "which tlds does rfc 2606 reserve? its at https://www.rfc-editor.org/rfc/rfc2606",
+    tasks: [
+      { label: "TLDs in RFC 2606", prompt: "which tlds does rfc 2606 reserve? its at https://www.rfc-editor.org/rfc/rfc2606" },
+      { label: "What is example.com", prompt: "what is https://example.com even for?" },
+      {
+        label: "SQLite: two sources",
+        prompt:
+          "Compare what https://en.wikipedia.org/wiki/SQLite and https://www.sqlite.org/about.html say about who develops SQLite and how it is licensed. Point out anything they disagree on.",
+      },
+    ],
   },
 ]
