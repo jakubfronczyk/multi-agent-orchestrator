@@ -17,4 +17,4 @@ just web                # web app
 
 ## Teams
 
-Each team has one Lead and its own specialists, and every task runs inside one team. Teams organise work: shared notes and delegation stay within a team, while workspace files, uploads and the inbox are shared and keep their trust label wherever they are read. The approval rules are the same for every team.
+Each team has one Lead and its own specialists, and every task runs inside one team. Shared notes, delegation and files stay within a team. Each team has its own folder, and every team reads the shared reference folder `data/`, which no agent can change. A team opens another team's folder only if you grant it on Your team, read or read and write. A path out of reach is refused before any approval card, and a revoke applies at a running task's next file step. The inbox is shared, and every file keeps its trust label wherever it is read, so a grant never launders outside content. The approval rules are the same for every team.

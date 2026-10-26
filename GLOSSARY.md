@@ -42,8 +42,19 @@ The Lead's ordered list of steps for a task, recorded each time it changes.
 ## Agents
 
 **Team**:
-A Lead and its specialists. Every task runs inside one team. A team organises work; it is not a security boundary.
+A Lead and its specialists. Every task runs inside one team. A team changes what a task can reach, never how a call is decided.
 _Avoid_: workspace, tenant, org
+
+**Team folder**:
+A team's own files. Its agents read and write it; another team's agents reach it only through a file grant.
+_Avoid_: workspace, drive
+
+**File grant**:
+The user's permission for one team to open another team's folder, read or read and write. A grant never changes a file's trust.
+_Avoid_: share, permission
+
+**Shared reference**:
+The `data/` folder every team reads and no agent writes.
 
 **Agent**:
 A configured team member with a slug, a prompt, a model and a decision per tool.
