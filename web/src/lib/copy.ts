@@ -201,6 +201,8 @@ function statusDecision(status: CallStatus, call: ToolCallView, earlier: ToolCal
       return "On its own. It then ran out of time."
     case "failed":
     case "internal":
+      // No decision means the call stopped before one: the server couldn't check the path.
+      if (call.decision === null) return "Stopped before any decision: the server couldn't check this path. Nobody was asked."
       return "On its own. It then didn't work."
     case "cancelled":
       return "The task was cancelled first."

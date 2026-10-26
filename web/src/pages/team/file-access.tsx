@@ -24,7 +24,8 @@ export function FileAccessPanel({ team }: { team: TeamView }) {
         </h3>
         <p className="m-0 text-sm text-muted-foreground">
           {team.name}'s agents always open their own folder and data/. They open another team's folder only if you allow
-          it here, as teams/&lt;its short name&gt;/. A change applies to running tasks at their next file step.
+          it here, as teams/&lt;its short name&gt;/. Read and write lets them replace that team's files without asking;
+          a task that read outside content still asks first. A change applies to running tasks at their next file step.
         </p>
       </div>
       {list.error ? (
