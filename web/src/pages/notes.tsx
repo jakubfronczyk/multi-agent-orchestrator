@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useSearchParams } from "react-router"
 import {
@@ -55,6 +55,8 @@ export function NotesPage() {
   useInvalidateOnToolFinished(["memory-versions"], "memory_write")
 
   const entries = notes.data?.entries ?? []
+  // A deleted card unmounts with the focused button; focus moves to the list instead of the page.
+  const list = useRef<HTMLDivElement>(null)
   return (
     <Page
       title="Team notes"
@@ -91,9 +93,15 @@ export function NotesPage() {
       {notes.isPending ? null : notes.error ? (
         <p className="m-0 text-sm text-destructive">Couldn't load the notes. {notes.error.message}</p>
       ) : entries.length > 0 ? (
-        <div className="flex flex-col gap-3">
+        <div ref={list} tabIndex={-1} aria-label="Notes" className="flex flex-col gap-3 outline-none">
           {entries.map((note) => (
-            <NoteCard key={note.id} note={note} teamName={teamName} editable={deleted === null} />
+            <NoteCard
+              key={note.id}
+              note={note}
+              teamName={teamName}
+              editable={deleted === null}
+              onDeleted={() => list.current?.focus()}
+            />
           ))}
         </div>
       ) : (
@@ -198,37 +206,51 @@ function NoteCard({
   note,
   teamName,
   editable,
+  onDeleted,
 }: {
   note: MemoryEntryView
   teamName: string | undefined
   editable: boolean
+  onDeleted: () => void
 }) {
   const look = useAgents()
   const client = useQueryClient()
   const [mode, setMode] = useState<"view" | "edit" | "delete" | "trust">("view")
   const [draft, setDraft] = useState(note.content)
+  // The version the person saw when they opened an action. The list refetches while an action is
+  // open, so `note.version` may already be newer; sending it would accept text they never read.
+  const [seen, setSeen] = useState(note.version)
   const [error, setError] = useState<string | null>(null)
+  const card = useRef<HTMLElement>(null)
   const done = async () => {
     await refetchNotes(client)
     setMode("view")
+    card.current?.focus()
   }
   const onError = async (failed: unknown) => {
     setError(failure(failed))
-    // A 409 means someone wrote a newer version: show it.
-    if (isApiError(failed, 409)) await refetchNotes(client)
+    // A 409 means someone wrote a newer version: close the action and show that version.
+    if (isApiError(failed, 409)) {
+      setMode("view")
+      await refetchNotes(client)
+      card.current?.focus()
+    }
   }
   const save = useMutation({
-    mutationFn: () => editNote(note.id, { content: draft, expected_version: note.version }),
+    mutationFn: () => editNote(note.id, { content: draft, expected_version: seen }),
     onSuccess: done,
     onError,
   })
   const remove = useMutation({
-    mutationFn: () => deleteNote(note.id, note.version),
-    onSuccess: () => refetchNotes(client),
+    mutationFn: () => deleteNote(note.id, seen),
+    onSuccess: async () => {
+      await refetchNotes(client)
+      onDeleted()
+    },
     onError,
   })
   const vouch = useMutation({
-    mutationFn: () => markNoteTrusted(note.id, { expected_version: note.version }),
+    mutationFn: () => markNoteTrusted(note.id, { expected_version: seen }),
     onSuccess: done,
     onError,
   })
@@ -236,6 +258,7 @@ function NoteCard({
   const start = (next: "edit" | "delete" | "trust") => {
     setError(null)
     setDraft(note.content)
+    setSeen(note.version)
     setMode(next)
   }
   const runs = useQuery(runsQuery())
@@ -247,7 +270,12 @@ function NoteCard({
   const count = note.version
 
   return (
-    <article className="flex flex-col gap-2 rounded-lg bg-card px-5 py-4 ring-1 ring-border">
+    <article
+      ref={card}
+      tabIndex={-1}
+      aria-label={note.key}
+      className="flex flex-col gap-2 rounded-lg bg-card px-5 py-4 ring-1 ring-border outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
         <span className="inline-flex items-center gap-2 font-medium text-sidebar-foreground">
           {author && <AgentShape icon={author.icon} colour={author.colour} size="md" />}
@@ -323,7 +351,7 @@ function NoteCard({
           aria-label="Delete note"
           className="flex flex-wrap items-center gap-2 rounded-md bg-muted px-4 py-3 text-sm"
         >
-          <span className="min-w-[200px] flex-1">Delete this note? No agent will see it again; its history stays.</span>
+          <span className="min-w-[200px] flex-1">Delete this note? Agents won't see it unless one writes this key again; its history stays.</span>
           <Button size="sm" disabled={remove.isPending} onClick={() => remove.mutate()}>
             Delete
           </Button>
