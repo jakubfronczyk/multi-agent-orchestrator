@@ -110,7 +110,7 @@ export function explainApproval(
 
   hops.push({
     kind: "read",
-    label: "What it had read before",
+    label: "Read before this call",
     lines: [readBeforeText(approval.custody.taint_sources.map(sourceLabel))],
   })
   // A card means the verdict was Ask, and an agent_policy rule appears only for a setting
@@ -196,13 +196,13 @@ export function explainCall(call: ToolCallView, detail: RunDetail, tools: ToolLi
     .map((c) => taintedBy(c, detail.taint_sources))
     .filter((source): source is TaintSource => source !== undefined)
   if (read.length > 0) {
-    hops.push({ kind: "read", label: "What it had read before", lines: [readBeforeText(read.map(sourceLabel))] })
+    hops.push({ kind: "read", label: "Read before this call", lines: [readBeforeText(read.map(sourceLabel))] })
   } else if (tools) {
     // A read that can taint without naming one source (the inbox list) leaves the answer
     // unknown, so "nothing" is claimed only when no such read came first.
     const taints = new Set(tools.tools.filter((t) => t.taints).map((t) => t.name as string))
     if (!earlierOk.some((c) => taints.has(c.tool))) {
-      hops.push({ kind: "read", label: "What it had read before", lines: [readBeforeText([])] })
+      hops.push({ kind: "read", label: "Read before this call", lines: [readBeforeText([])] })
     }
   }
 

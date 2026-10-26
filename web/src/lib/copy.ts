@@ -98,7 +98,7 @@ export function listText(items: string[]): string {
 /** Task-level: what the task had read from outside, never what one call used. */
 export function readBeforeText(labels: string[]): string {
   const unique = [...new Set(labels)]
-  return unique.length === 0 ? "Nothing from outside." : `This task read ${listText(unique)}.`
+  return unique.length === 0 ? "Nothing from outside yet." : `This task had read ${listText(unique)}.`
 }
 
 /** What taint changes (core `decide`): only file saves and fetches set to Allow are raised. */

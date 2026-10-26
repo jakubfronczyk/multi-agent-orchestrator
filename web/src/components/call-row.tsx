@@ -9,8 +9,8 @@ import { clockTime } from "@/lib/time"
 import { callLabel, money, TONE_CLASS, type CallNode } from "@/lib/thread-view"
 
 /**
- * One call as a row that opens its "How this happened" sheet. "From outside" appears when the
- * call itself brought outside content into its task, as the server records it.
+ * One call as a row that opens its "How this happened" sheet. "Brought in outside content" appears
+ * when the call itself brought outside content into its task, as the server records it.
  */
 export function CallRow({
   call,
@@ -62,7 +62,7 @@ export function CallRow({
         </span>
         {outside && (
           <span className="rounded-full px-2 text-xs whitespace-nowrap text-amber-800 ring-1 ring-current ring-inset dark:text-amber-300">
-            From outside
+            Brought in outside content
           </span>
         )}
         {childCost !== undefined && childCost > 0 && (
