@@ -26,7 +26,6 @@ export function NotesPage() {
   const [params, setParams] = useSearchParams()
   const raw = params.get("scope")
   const filter: Filter = raw === "shared" || raw === "private" ? raw : "all"
-  const notes = useQuery(memoryQuery(filter === "all" ? {} : { scope: filter }))
   const { team: selected } = useSelectedTeam()
   const names = useTeamNames()
   // `?deleted=` opens a deleted team's notes from the switcher, read-only.
@@ -34,11 +33,16 @@ export function NotesPage() {
   const teamId = deleted ?? selected?.id
   const teamName = teamId ? names.nameOf(teamId) : undefined
   const unknown = deleted !== null && names.teams.length > 0 && teamName === undefined
+  const notes = useQuery({
+    ...memoryQuery({ ...(filter === "all" ? {} : { scope: filter }), team_id: teamId }),
+    enabled: teamId !== undefined,
+  })
 
+  // The list's `last_event_id` also catches writes made while no screen showed it.
   useInvalidateOnToolFinished(["memory"], "memory_write")
   useInvalidateOnToolFinished(["memory-versions"], "memory_write")
 
-  const entries = (notes.data?.entries ?? []).filter((note) => note.team_id === teamId)
+  const entries = notes.data?.entries ?? []
   return (
     <Page
       title="Team notes"
@@ -123,7 +127,13 @@ function NoteCard({ note, teamName }: { note: MemoryEntryView; teamName: string 
           Lead can't see this note, because it is untrusted.
         </span>
       )}
-      <div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <Link
+          to={`/tasks/${note.root_run_id}`}
+          className="text-sm text-sidebar-foreground underline decoration-input underline-offset-[3px] hover:text-foreground"
+        >
+          Open the task that wrote it
+        </Link>
         <button
           type="button"
           aria-expanded={open}
