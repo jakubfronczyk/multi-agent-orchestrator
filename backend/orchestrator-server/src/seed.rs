@@ -16,6 +16,7 @@ use sqlx::SqlitePool;
 use crate::sqlite::agents::{self, AgentError};
 use crate::sqlite::text::{timestamp, to_text};
 use crate::sqlite::{begin_write, teams};
+use crate::tools::workspace::SHARED_DIR;
 
 const INBOX: &str = include_str!("../fixtures/inbox.json");
 const WORKSPACE: [(&str, &str); 3] = [
@@ -95,12 +96,14 @@ async fn seed_inbox(pool: &SqlitePool) -> Result<(), SeedError> {
     Ok(())
 }
 
-/// Seeded files are recorded as trusted; a file with no row reads back as untrusted.
+/// Seeded files are the shared reference under `shared/`, recorded as trusted; a file with no
+/// row reads back as untrusted.
 async fn seed_workspace(pool: &SqlitePool, root: &Path) -> Result<(), SeedError> {
     let trusted = to_text(&Trust::Trusted).map_err(|e| SeedError::Fixture(e.to_string()))?;
     let now = timestamp(Utc::now());
     for (path, content) in WORKSPACE {
-        let full = root.join(path);
+        let path = format!("{SHARED_DIR}/{path}");
+        let full = root.join(&path);
         if let Some(parent) = full.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }

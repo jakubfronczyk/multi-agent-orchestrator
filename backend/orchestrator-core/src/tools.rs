@@ -146,8 +146,14 @@ pub trait Tool: Send + Sync {
     /// with `parse_args` as `check` did, so what runs is what was decided.
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError>;
 
+    /// Whether `team`'s agents may reach what the arguments name. Called before the decision,
+    /// so a call out of reach is refused without a card; `run` must check again.
+    async fn reach(&self, _team: TeamId, _args: &Value) -> Result<(), ToolError> {
+        Ok(())
+    }
+
     /// What the approval card shows: the arguments, unless the tool renders something clearer.
-    async fn preview(&self, args: &Value) -> String {
+    async fn preview(&self, _team: TeamId, args: &Value) -> String {
         args_preview(args)
     }
 }

@@ -5,12 +5,24 @@
 CREATE TABLE teams (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,                   -- 1..60 chars after trim
+    slug       TEXT NOT NULL,                   -- fixed at create; names the team's folder to agents
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     deleted_at TEXT
 ) STRICT;
 
 CREATE UNIQUE INDEX teams_live_name ON teams (name COLLATE NOCASE) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX teams_live_slug ON teams (slug) WHERE deleted_at IS NULL;
+
+-- Which other team's folder a team's agents may open; no row means none. The user sets it.
+CREATE TABLE team_file_grants (
+    team_id    TEXT NOT NULL REFERENCES teams (id), -- the team that opens
+    of_team_id TEXT NOT NULL REFERENCES teams (id), -- the team whose folder is opened
+    access     TEXT NOT NULL CHECK (access IN ('read', 'read_write')),
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (team_id, of_team_id),
+    CHECK (team_id <> of_team_id)
+) STRICT;
 
 CREATE TABLE agents (
     id               TEXT PRIMARY KEY,
@@ -158,7 +170,8 @@ CREATE TABLE memory_versions (
     PRIMARY KEY (entry_id, version)
 ) STRICT;
 
--- Metadata only; file content stays on disk in the sandbox.
+-- Metadata only; file content stays on disk in the sandbox. `path` is physical:
+-- `shared/data/...` or `teams/<team id>/...`.
 CREATE TABLE workspace_files (
     path           TEXT PRIMARY KEY,
     trust          TEXT NOT NULL,

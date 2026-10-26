@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use orchestrator_core::ids::TeamId;
 use orchestrator_core::policy::TaintSource;
 use orchestrator_core::tools::{
     Action, MemoryScope, NoteKey, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSet,
@@ -152,7 +153,7 @@ impl Tool for TestTool {
         }
     }
 
-    async fn preview(&self, args: &Value) -> String {
+    async fn preview(&self, _team: TeamId, args: &Value) -> String {
         assert_ne!(args["path"], PANIC_IN_PREVIEW, "test tool preview panicked");
         if args["path"] == HANG_IN_PREVIEW {
             std::future::pending::<()>().await;

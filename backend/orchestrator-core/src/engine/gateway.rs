@@ -10,7 +10,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::{AgentSpec, Role, Slug};
-use crate::ids::{ApprovalId, RunId, ToolCallId};
+use crate::ids::{ApprovalId, RunId, TeamId, ToolCallId};
 use crate::llm::FnCall;
 use crate::policy::{Decision, Rule, TaintSource, Trust, decide};
 use crate::runs::{Answer, ApprovalOutcome, CallStatus, Custody, RunEvent};
@@ -94,14 +94,44 @@ impl Callable {
 }
 
 impl Checked {
+    /// Tool code, spawned and bounded like `preview`. A panic or timeout counts as out of reach;
+    /// a cancel does not, since a cancelled task starts nothing anyway.
+    async fn reach(
+        &self,
+        team: TeamId,
+        args: &Value,
+        cancel: &CancellationToken,
+    ) -> Result<(), ToolError> {
+        let Checked::Tool(tool, _) = self else {
+            return Ok(());
+        };
+        let (timeout, owned) = (tool.spec().timeout, args.clone());
+        let tool = Arc::clone(tool);
+        let handle = tokio::spawn(async move { tool.reach(team, &owned).await });
+        let abort = handle.abort_handle();
+        let unchecked = || ToolError::Failed("the path could not be checked".to_string());
+        tokio::select! {
+            biased;
+            joined = handle => joined.unwrap_or_else(|_| Err(unchecked())),
+            () = cancel.cancelled() => {
+                abort.abort();
+                Ok(())
+            }
+            () = sleep_or_forever(timeout) => {
+                abort.abort();
+                Err(unchecked())
+            }
+        }
+    }
+
     /// Falls back to the arguments when the preview panics, outlasts the tool's timeout or the
     /// task is cancelled, so a card never waits on tool code.
-    async fn preview(&self, args: &Value, cancel: &CancellationToken) -> String {
+    async fn preview(&self, team: TeamId, args: &Value, cancel: &CancellationToken) -> String {
         match self {
             Checked::Tool(tool, _) => {
                 let (timeout, owned) = (tool.spec().timeout, args.clone());
                 let tool = Arc::clone(tool);
-                let handle = tokio::spawn(async move { tool.preview(&owned).await });
+                let handle = tokio::spawn(async move { tool.preview(team, &owned).await });
                 let abort = handle.abort_handle();
                 tokio::select! {
                     biased;
@@ -208,7 +238,12 @@ pub(super) async fn execute(
         }
     };
 
-    let (decision, reasons) = verdict(ctx, name, &args, &action);
+    // A path out of the team's reach is refused before the decision, so it never raises a card.
+    let reach = checked.reach(ctx.task.team_id(), &args, &ctx.cancel).await;
+    let (decision, reasons) = match &reach {
+        Ok(()) => verdict(ctx, name, &args, &action),
+        Err(_) => (Decision::Deny, vec![Rule::NoAccess]),
+    };
     let requested = RunEvent::ToolCallRequested {
         call_id,
         tool: call.name.clone(),
@@ -222,8 +257,13 @@ pub(super) async fn execute(
     // `ran` is whether the call reached `tool.run`; only such a call can taint (rule 4).
     let (ended, ran) = match decision {
         Decision::Deny => {
-            let rule = reasons.first().map_or("agent_policy", Rule::kind);
-            let message = format!("refused by rule {rule}; do not retry it");
+            let message = match &reach {
+                Err(error) => format!("{error}; do not retry it"),
+                Ok(()) => {
+                    let rule = reasons.first().map_or("agent_policy", Rule::kind);
+                    format!("refused by rule {rule}; do not retry it")
+                }
+            };
             (Ended::failed(CallStatus::Refused, &message, None), false)
         }
         Decision::Ask => {
@@ -240,14 +280,15 @@ pub(super) async fn execute(
     };
     commit_taint(inner, ctx, &sources).await?;
 
-    // A draft-only refusal says nothing about the call, so it does not make a later one a repeat.
+    // A draft-only or no-access refusal says nothing about the call itself: a later turn, or a
+    // grant given meanwhile, may let the same call through, so neither makes it a repeat.
     let refused_or_denied = matches!(
         &ended,
         Ended::Failed {
             status: CallStatus::Refused | CallStatus::DeniedHuman,
             ..
         }
-    ) && reasons.first() != Some(&Rule::DraftOnly);
+    ) && !matches!(reasons.first(), Some(Rule::DraftOnly | Rule::NoAccess));
     finish(
         inner,
         ctx,
@@ -288,7 +329,7 @@ async fn ask_then_run(
     action: &Action,
     reasons: &[Rule],
 ) -> Result<(Ended, bool), StoreError> {
-    let preview = checked.preview(args, &ctx.cancel).await;
+    let preview = checked.preview(ctx.task.team_id(), args, &ctx.cancel).await;
     Ok(
         match ask(inner, ctx, call_id, action, preview, reasons).await? {
             Waited::Answered(Answer::Approve { .. }) => run(inner, ctx, call_id, checked).await?,

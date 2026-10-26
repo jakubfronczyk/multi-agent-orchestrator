@@ -475,6 +475,11 @@ impl Seeded {
         Workspace::new(self.temp.workspace(), self.pool.clone())
     }
 
+    /// A path of the seeded team's folder as stored: relative to the workspace root.
+    pub fn own(&self, path: &str) -> String {
+        format!("teams/{}/{path}", id_text(self.team))
+    }
+
     /// Serves the API in scripted mode over this workspace.
     pub async fn serve(&self) -> String {
         serve_state(AppState {
@@ -567,6 +572,13 @@ impl TempDir {
     pub fn workspace(&self) -> std::path::PathBuf {
         self.0.join("workspace")
     }
+
+    /// The team's own folder, created; where its agents' plain paths land.
+    pub fn team(&self, team: TeamId) -> std::path::PathBuf {
+        let dir = self.workspace().join("teams").join(id_text(team));
+        std::fs::create_dir_all(&dir).expect("team dir");
+        dir
+    }
 }
 
 impl Default for TempDir {
@@ -579,4 +591,21 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+/// An id as it is stored and as it names a team's folder.
+pub fn id_text<T: serde::Serialize>(id: T) -> String {
+    serde_json::to_value(id)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .expect("an id serialises as text")
+}
+
+/// The stored trust of a file, by its physical path.
+pub async fn stored_trust(pool: &SqlitePool, physical: &str) -> String {
+    sqlx::query_scalar("SELECT trust FROM workspace_files WHERE path = ?")
+        .bind(physical)
+        .fetch_one(pool)
+        .await
+        .expect("row")
 }

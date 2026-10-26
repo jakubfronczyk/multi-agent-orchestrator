@@ -1,5 +1,5 @@
-//! `/api/teams`: list, create (with its Lead), read, rename and delete. No event is emitted: a
-//! team is configuration, like an agent.
+//! `/api/teams`: list, create (with its Lead), read, rename and delete, and which other teams'
+//! folders a team may open. No event is emitted: a team is configuration, like an agent.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -11,7 +11,9 @@ use super::AppState;
 use super::error::ApiError;
 use super::json::ApiJson;
 use super::query;
-use crate::sqlite::teams::{self, TeamError, TeamInput, TeamList, TeamView};
+use crate::sqlite::teams::{
+    self, FileAccessInput, FileAccessList, TeamError, TeamInput, TeamList, TeamView,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
@@ -51,6 +53,28 @@ pub async fn rename(
 ) -> Result<Json<TeamView>, ApiError> {
     let team = query::path_id::<TeamId>(&id)?;
     Ok(Json(teams::rename(&state.pool, team, input).await?))
+}
+
+/// Every other live team with how much of its folder this team's agents may open.
+pub async fn file_access(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<FileAccessList>, ApiError> {
+    let team = query::path_id::<TeamId>(&id)?;
+    Ok(Json(teams::file_access(&state.pool, team).await?))
+}
+
+/// 204, applied at a running task's next file call; 404 for an unknown or deleted team on
+/// either side, 422 for the team itself.
+pub async fn set_file_access(
+    State(state): State<AppState>,
+    Path((id, of)): Path<(String, String)>,
+    ApiJson(input): ApiJson<FileAccessInput>,
+) -> Result<StatusCode, ApiError> {
+    let team = query::path_id::<TeamId>(&id)?;
+    let of = query::path_id::<TeamId>(&of)?;
+    teams::set_file_access(&state.pool, team, of, input.access).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// 204; 409 while a task of the team is live (waiting on a card counts) or when it is the last.

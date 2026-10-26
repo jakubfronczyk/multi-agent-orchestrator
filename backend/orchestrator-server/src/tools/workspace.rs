@@ -18,14 +18,21 @@ use uuid::Uuid;
 
 use super::sandbox::{relative, resolve};
 use super::{is_trusted, storage_failed};
+use crate::sqlite::teams::{self, FileAccess};
 use crate::sqlite::text::{escape_like, from_text, timestamp, to_text};
 
 /// The largest file the file tools read or write, and so the largest upload.
 pub const FILE_BYTES: usize = 256 * 1024;
 /// The extensions a written or uploaded file may have.
 pub const TEXT_EXTENSIONS: [&str; 4] = ["md", "csv", "json", "txt"];
-/// The one directory uploads go to.
+/// The directory uploads go to, inside a team's folder.
 pub const UPLOADS_DIR: &str = "uploads";
+/// Holds the reference folder every team reads and no agent writes.
+pub const SHARED_DIR: &str = "shared";
+/// Holds one folder per team, named by its id.
+const TEAMS_DIR: &str = "teams";
+/// What an agent calls the shared reference folder.
+const DATA_DIR: &str = "data";
 const UPLOAD_NAME_CHARS: usize = 100;
 const LIST_LIMIT: usize = 500;
 
@@ -200,11 +207,18 @@ impl Workspace {
         Ok((text, self.trust_of(path).await?))
     }
 
-    /// Saves an upload as `uploads/<name>` and returns that path; an existing upload is never
-    /// replaced. The row is recorded untrusted, with no writing run, before any byte is written.
-    pub async fn store_upload(&self, name: &str, text: &str) -> Result<String, UploadError> {
+    /// Saves an upload in `team`'s folder and returns its path as the team's agents name it,
+    /// `uploads/<name>`; an existing upload is never replaced. The row is recorded untrusted,
+    /// with no writing run, before any byte is written.
+    pub async fn store_upload(
+        &self,
+        team: TeamId,
+        name: &str,
+        text: &str,
+    ) -> Result<String, UploadError> {
         check_upload_name(name)?;
-        let path = format!("{UPLOADS_DIR}/{name}");
+        let shown = format!("{UPLOADS_DIR}/{name}");
+        let path = format!("{}/{shown}", team_dir(team)?);
         let _exclusive = self.lock.write().await;
         let target = self.prepare(&path).await?;
         if tokio::fs::try_exists(&target).await.unwrap_or(true) {
@@ -214,7 +228,7 @@ impl Workspace {
         write_atomic(&target, text)
             .await
             .map_err(|_| cannot_write(&path))?;
-        Ok(path)
+        Ok(shown)
     }
 
     /// Writes or replaces a file for `run` and says whether it replaced one. The row is marked
@@ -337,6 +351,263 @@ impl Workspace {
         }
         String::from_utf8(bytes).map_err(|_| ToolError::Failed(format!("{path} is not UTF-8 text")))
     }
+}
+
+/// What a call needs from a path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Need {
+    Read,
+    Write,
+}
+
+/// A path as one team's agents name it, and where it is on disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    /// Relative to the workspace root: `shared/data/...` or `teams/<team id>/...`.
+    pub physical: String,
+    /// As the agent named it, normalised; results, cards and taint sources use it.
+    pub shown: String,
+}
+
+/// Where a path of a team's view points before any I/O beyond the grant lookup.
+enum Place {
+    /// `.`: the own folder's entries plus `data` and `teams`.
+    Root,
+    /// `teams`: the folders shared with this team.
+    Teams,
+    File(Located),
+}
+
+impl Workspace {
+    /// Maps a path as `team`'s agents name it: `data/...` is the shared reference folder, read
+    /// only; `teams/<slug>/...` is that team's folder, its own or one granted to it; anything
+    /// else is in its own folder. Grants are read on every call, so a revoke applies at once.
+    pub async fn locate(&self, team: TeamId, path: &str, need: Need) -> Result<Located, ToolError> {
+        match self.place(team, path, need).await? {
+            Place::File(located) => Ok(located),
+            Place::Root | Place::Teams => Err(ToolError::Failed(format!(
+                "{} is a directory",
+                display(&relative(path)?)
+            ))),
+        }
+    }
+
+    /// Whether `team`'s agents may use `path` for `need`; access only, so a missing file or a
+    /// directory named as a file is left for the call itself to report.
+    pub async fn reach(&self, team: TeamId, path: &str, need: Need) -> Result<(), ToolError> {
+        self.place(team, path, need).await.map(drop)
+    }
+
+    /// The path as `team`'s agents name it, normalised, and what is there in their view.
+    pub async fn kind_for(
+        &self,
+        team: TeamId,
+        path: &str,
+    ) -> Result<(String, Option<EntryKind>), ToolError> {
+        let shown = display(&relative(path)?);
+        match self.place(team, path, Need::Read).await? {
+            Place::Root | Place::Teams => Ok((shown, Some(EntryKind::Dir))),
+            Place::File(at) => Ok((at.shown, self.kind_of(&at.physical).await?)),
+        }
+    }
+
+    /// `path` of `team`'s view as a directory listing; entry paths are in the same view.
+    pub async fn list_for(&self, team: TeamId, path: &str) -> Result<Vec<Entry>, ToolError> {
+        match self.place(team, path, Need::Read).await? {
+            Place::Root => {
+                let own = team_dir(team)?;
+                let mut entries = if self.kind_of(&own).await?.is_some() {
+                    self.list(&own).await?
+                } else {
+                    Vec::new()
+                };
+                let base = format!("{own}/");
+                for entry in &mut entries {
+                    entry.path = entry
+                        .path
+                        .strip_prefix(&base)
+                        .unwrap_or(&entry.name)
+                        .to_string();
+                }
+                let data = format!("{SHARED_DIR}/{DATA_DIR}");
+                if self.kind_of(&data).await?.is_some() {
+                    entries.push(self.folder(DATA_DIR, DATA_DIR, &[data]).await?);
+                }
+                let granted = self.granted(team).await?;
+                if !granted.is_empty() {
+                    let dirs: Vec<String> = granted
+                        .iter()
+                        .map(|(_, id, _)| team_dir(*id))
+                        .collect::<Result<_, _>>()?;
+                    entries.push(self.folder(TEAMS_DIR, TEAMS_DIR, &dirs).await?);
+                }
+                Ok(entries)
+            }
+            Place::Teams => {
+                let mut entries = Vec::new();
+                for (slug, id, _) in self.granted(team).await? {
+                    let shown = format!("{TEAMS_DIR}/{slug}");
+                    entries.push(self.folder(&slug, &shown, &[team_dir(id)?]).await?);
+                }
+                Ok(entries)
+            }
+            Place::File(located) => {
+                let mut entries = self.list(&located.physical).await?;
+                let (physical, shown) = (
+                    format!("{}/", located.physical),
+                    format!("{}/", located.shown),
+                );
+                for entry in &mut entries {
+                    if let Some(rest) = entry.path.strip_prefix(&physical) {
+                        entry.path = format!("{shown}{rest}");
+                    }
+                }
+                Ok(entries)
+            }
+        }
+    }
+
+    async fn place(&self, team: TeamId, path: &str, need: Need) -> Result<Place, ToolError> {
+        let clean = relative(path)?;
+        let shown = display(&clean);
+        let parts: Vec<String> = clean
+            .components()
+            .map(|part| part.as_os_str().to_string_lossy().into_owned())
+            .filter(|part| part != ".")
+            .collect();
+        match parts.as_slice() {
+            [] => Ok(Place::Root),
+            [first, ..] if first == DATA_DIR => {
+                if need == Need::Write {
+                    return Err(ToolError::Failed(
+                        "data/ is shared reference and read-only; save in your own folder"
+                            .to_string(),
+                    ));
+                }
+                Ok(Place::File(Located {
+                    physical: format!("{SHARED_DIR}/{shown}"),
+                    shown,
+                }))
+            }
+            [first] if first == TEAMS_DIR => Ok(Place::Teams),
+            [first, slug, rest @ ..] if first == TEAMS_DIR => {
+                let owner = self.team_by_slug(slug).await?;
+                let allowed = match owner {
+                    Some(owner) if owner == team => true,
+                    Some(owner) => {
+                        self.grant(team, owner)
+                            .await?
+                            .is_some_and(|access| match need {
+                                Need::Read => {
+                                    matches!(access, FileAccess::Read | FileAccess::ReadWrite)
+                                }
+                                Need::Write => access == FileAccess::ReadWrite,
+                            })
+                    }
+                    None => false,
+                };
+                let Some(owner) = owner.filter(|_| allowed) else {
+                    return Err(ToolError::Failed(format!(
+                        "{TEAMS_DIR}/{slug} is not shared with this team{}",
+                        if need == Need::Write {
+                            " for writing"
+                        } else {
+                            ""
+                        }
+                    )));
+                };
+                let mut physical = team_dir(owner)?;
+                for part in rest {
+                    physical.push('/');
+                    physical.push_str(part);
+                }
+                Ok(Place::File(Located { physical, shown }))
+            }
+            _ => Ok(Place::File(Located {
+                physical: format!("{}/{shown}", team_dir(team)?),
+                shown,
+            })),
+        }
+    }
+
+    /// A folder entry named by the server; untrusted when anything recorded under any of
+    /// `physical` is, or nothing is.
+    async fn folder(
+        &self,
+        name: &str,
+        shown: &str,
+        physical: &[String],
+    ) -> Result<Entry, ToolError> {
+        let mut trust = Trust::Trusted;
+        for dir in physical {
+            if self.entry_trust(dir, true).await? == Trust::Untrusted {
+                trust = Trust::Untrusted;
+            }
+        }
+        Ok(Entry {
+            name: name.to_string(),
+            path: shown.to_string(),
+            kind: EntryKind::Dir,
+            bytes: 0,
+            trust,
+            written_by: None,
+        })
+    }
+
+    async fn team_by_slug(&self, slug: &str) -> Result<Option<TeamId>, ToolError> {
+        let mut conn = self.pool.acquire().await.map_err(storage_failed)?;
+        teams::by_slug(&mut conn, slug)
+            .await
+            .map_err(storage_failed)
+    }
+
+    async fn grant(&self, team: TeamId, of: TeamId) -> Result<Option<FileAccess>, ToolError> {
+        let (team, of) = (
+            to_text(&team).map_err(storage_failed)?,
+            to_text(&of).map_err(storage_failed)?,
+        );
+        let access = sqlx::query_scalar!(
+            "SELECT g.access FROM team_file_grants g JOIN teams t ON t.id = g.of_team_id
+             WHERE g.team_id = ? AND g.of_team_id = ? AND t.deleted_at IS NULL",
+            team,
+            of
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(storage_failed)?;
+        access
+            .map(|a| from_text(&a).map_err(storage_failed))
+            .transpose()
+    }
+
+    /// The live teams whose folders `team` may open, by slug.
+    async fn granted(&self, team: TeamId) -> Result<Vec<(String, TeamId, FileAccess)>, ToolError> {
+        let team = to_text(&team).map_err(storage_failed)?;
+        let rows = sqlx::query!(
+            "SELECT t.slug, t.id, g.access FROM team_file_grants g JOIN teams t ON t.id = g.of_team_id
+             WHERE g.team_id = ? AND t.deleted_at IS NULL ORDER BY t.slug",
+            team
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(storage_failed)?;
+        rows.into_iter()
+            .map(|row| {
+                Ok((
+                    row.slug,
+                    from_text(&row.id).map_err(storage_failed)?,
+                    from_text(&row.access).map_err(storage_failed)?,
+                ))
+            })
+            .collect()
+    }
+}
+
+fn team_dir(team: TeamId) -> Result<String, ToolError> {
+    Ok(format!(
+        "{TEAMS_DIR}/{}",
+        to_text(&team).map_err(storage_failed)?
+    ))
 }
 
 /// Writes a fresh temp file next to `target`, syncs it and renames it over the target; `rename`

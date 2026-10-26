@@ -3,7 +3,7 @@ import type { Trust } from "./Trust";
 
 export type UploadResponse = { 
 /**
- * `uploads/<name>`, relative to the workspace root.
+ * `uploads/<name>`, as the team's agents name it.
  */
 path: string, bytes: number, 
 /**

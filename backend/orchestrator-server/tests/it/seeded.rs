@@ -17,8 +17,8 @@ use serde_json::json;
 use sqlx::SqlitePool;
 
 use crate::{
-    Seeded, TempDir, agent_id, answer_approvals, cards, deny_rolf, deny_rolf_naming_anna, request,
-    root_outcome, tainted, task_events,
+    Seeded, TempDir, agent_id, answer_approvals, cards, deny_rolf, deny_rolf_naming_anna, id_text,
+    request, root_outcome, stored_trust, tainted, task_events,
 };
 
 const ALL_TOOLS: [ToolName; 13] = [
@@ -211,15 +211,15 @@ async fn s1_runs_end_to_end_on_the_real_tools(pool: SqlitePool) {
         "the denied Messenger run reports the decline"
     );
     assert_eq!(outbox(&seeded.pool).await, ["anna.weber@example.com"]);
-    let saved = std::fs::read_to_string(seeded.temp.workspace().join("decisions/AR-1042.md"))
-        .expect("decision file");
-    assert!(saved.contains("Decision: approved."));
-    let trust = sqlx::query_scalar!(
-        "SELECT trust FROM workspace_files WHERE path = 'decisions/AR-1042.md'"
+    let saved = std::fs::read_to_string(
+        seeded
+            .temp
+            .workspace()
+            .join(seeded.own("decisions/AR-1042.md")),
     )
-    .fetch_one(&seeded.pool)
-    .await
-    .expect("row");
+    .expect("decision file");
+    assert!(saved.contains("Decision: approved."));
+    let trust = stored_trust(&seeded.pool, &seeded.own("decisions/AR-1042.md")).await;
     assert_eq!(trust, "untrusted", "written after the inbox was read");
     assert!(
         matches!(root_outcome(&events), RunOutcome::Completed { output, .. } if output.contains("Anna Weber"))
@@ -252,7 +252,13 @@ async fn in_a_clean_task_the_writer_saves_without_a_card(pool: SqlitePool) {
             ..
         }
     )));
-    assert!(seeded.temp.workspace().join("notes/clean.md").exists());
+    assert!(
+        seeded
+            .temp
+            .workspace()
+            .join(seeded.own("notes/clean.md"))
+            .exists()
+    );
 }
 
 #[sqlx::test]
@@ -380,11 +386,7 @@ async fn untrusted_data_read_from_storage_taints_the_reading_task(pool: SqlitePo
         unreachable!()
     };
     assert_eq!(custody.rules.first(), Some(&Rule::Taint { source: note }));
-    let written =
-        sqlx::query_scalar!("SELECT trust FROM workspace_files WHERE path = 'out/summary.md'")
-            .fetch_one(&seeded.pool)
-            .await
-            .expect("row");
+    let written = stored_trust(&seeded.pool, &seeded.own("out/summary.md")).await;
     assert_eq!(
         written, "untrusted",
         "no laundering through a clean-looking task"
@@ -419,11 +421,13 @@ async fn trusted_stored_data_does_not_taint(pool: SqlitePool) {
 #[sqlx::test]
 async fn listing_a_folder_with_an_untrusted_file_taints_with_that_file(pool: SqlitePool) {
     let seeded = Seeded::new(pool).await;
-    std::fs::create_dir_all(seeded.temp.workspace().join("inbound")).expect("dir");
-    std::fs::write(seeded.temp.workspace().join("inbound/note.md"), "planted").expect("file");
-    sqlx::query!(
-        "INSERT INTO workspace_files (path, trust, written_by_run, updated_at) VALUES ('inbound/note.md', 'untrusted', NULL, 't')"
+    let planted = seeded.own("inbound/note.md");
+    std::fs::create_dir_all(seeded.temp.workspace().join(seeded.own("inbound"))).expect("dir");
+    std::fs::write(seeded.temp.workspace().join(&planted), "planted").expect("file");
+    sqlx::query(
+        "INSERT INTO workspace_files (path, trust, written_by_run, updated_at) VALUES (?, 'untrusted', NULL, 't')",
     )
+    .bind(&planted)
     .execute(&seeded.pool)
     .await
     .expect("row");
@@ -520,7 +524,8 @@ async fn the_read_views_show_what_the_real_tools_did(pool: SqlitePool) {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0]["recipient"], "anna.weber@example.com");
 
-    let (_, root) = get_json(&base, "/api/files").await;
+    let team = id_text(seeded.team);
+    let (_, root) = get_json(&base, &format!("/api/files?team_id={team}")).await;
     assert_eq!(root["kind"], "dir");
     let entry = |name: &str| {
         root["entries"]
@@ -530,7 +535,11 @@ async fn the_read_views_show_what_the_real_tools_did(pool: SqlitePool) {
     };
     assert_eq!(entry("decisions")["trust"], "untrusted");
     assert_eq!(entry("data")["trust"], "trusted");
-    let (_, file) = get_json(&base, "/api/files?path=decisions/AR-1042.md").await;
+    let (_, file) = get_json(
+        &base,
+        &format!("/api/files?team_id={team}&path=decisions/AR-1042.md"),
+    )
+    .await;
     assert_eq!(file["kind"], "file");
     assert_eq!(file["trust"], "untrusted");
     assert!(
@@ -538,10 +547,16 @@ async fn the_read_views_show_what_the_real_tools_did(pool: SqlitePool) {
             .as_str()
             .is_some_and(|c| c.contains("Decision: approved."))
     );
-    let (status, escape) = get_json(&base, "/api/files?path=../secret").await;
+    let (status, escape) =
+        get_json(&base, &format!("/api/files?team_id={team}&path=../secret")).await;
     assert_eq!(status, 422);
     assert_eq!(escape["error"]["field"], "path");
-    assert_eq!(get_json(&base, "/api/files?path=missing.md").await.0, 404);
+    assert_eq!(
+        get_json(&base, &format!("/api/files?team_id={team}&path=missing.md"))
+            .await
+            .0,
+        404
+    );
     assert_no_wrapper_in_api(&base, s1_root).await;
 }
 
@@ -705,12 +720,7 @@ async fn the_clean_task_runs_without_a_single_card(pool: SqlitePool) {
     }
     assert!(!csv.contains("AG-203"), "90 days is not over 90");
 
-    let trust = sqlx::query_scalar!(
-        "SELECT trust FROM workspace_files WHERE path = 'reports/long-grants.md'"
-    )
-    .fetch_one(&seeded.pool)
-    .await
-    .expect("row");
+    let trust = stored_trust(&seeded.pool, &seeded.own("reports/long-grants.md")).await;
     assert_eq!(trust, "trusted");
 }
 
@@ -749,11 +759,7 @@ async fn indexing_s1s_decisions_taints_the_new_task_with_the_file(pool: SqlitePo
         root_outcome(&events),
         RunOutcome::Completed { .. }
     ));
-    let trust =
-        sqlx::query_scalar!("SELECT trust FROM workspace_files WHERE path = 'decisions/index.md'")
-            .fetch_one(&seeded.pool)
-            .await
-            .expect("row");
+    let trust = stored_trust(&seeded.pool, &seeded.own("decisions/index.md")).await;
     assert_eq!(trust, "untrusted", "the label follows the data again");
 }
 
@@ -914,18 +920,27 @@ async fn records_name_their_task_and_the_list_keeps_the_scenario(pool: SqlitePoo
     assert_eq!(sent[0].root_run_id, root);
 
     let workspace = seeded.workspace();
-    let (_, _, saved_by) = workspace.read("decisions/AR-1042.md").await.expect("read");
+    let (_, _, saved_by) = workspace
+        .read(&seeded.own("decisions/AR-1042.md"))
+        .await
+        .expect("read");
     assert_eq!(
         saved_by.map(|w| w.root_run_id),
         Some(root),
         "the Writer saved it in S1"
     );
-    let (_, _, seeded_by) = workspace.read("data/access-policy.md").await.expect("read");
+    let (_, _, seeded_by) = workspace
+        .read("shared/data/access-policy.md")
+        .await
+        .expect("read");
     assert_eq!(seeded_by, None, "seeded files have no writer");
-    let top = workspace.list(".").await.expect("list");
+    let top = workspace.list_for(seeded.team, ".").await.expect("list");
     let decisions = top.iter().find(|e| e.name == "decisions").expect("dir");
     assert_eq!(decisions.written_by, None, "directories have no writer");
-    let saved = workspace.list("decisions").await.expect("list");
+    let saved = workspace
+        .list_for(seeded.team, "decisions")
+        .await
+        .expect("list");
     assert_eq!(saved[0].written_by.map(|w| w.root_run_id), Some(root));
 
     let mut rx = seeded.store.subscribe();

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO team_file_grants (team_id, of_team_id, access, updated_at)\n                 VALUES (?, ?, ?, ?)\n                 ON CONFLICT (team_id, of_team_id) DO UPDATE SET\n                   access = excluded.access, updated_at = excluded.updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "a5d6d07d567bcd47ada1266b3d08d3d4ed3ce29ca640338a7459bfeb7a1dd398"
+}

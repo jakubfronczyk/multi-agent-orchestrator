@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use orchestrator_core::ids::TeamId;
 use orchestrator_core::tools::{
     Action, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, parse_args,
 };
@@ -13,9 +14,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::files::{file_action, file_taint};
-use super::sandbox::relative;
 use super::spec;
-use super::workspace::{Workspace, display};
+use super::workspace::{Need, Workspace};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 const ROW_LIMIT: usize = 200;
@@ -90,10 +90,19 @@ impl Tool for CsvQuery {
         file_action("query", &args.path)
     }
 
-    async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
+    async fn reach(&self, team: TeamId, args: &Value) -> Result<(), ToolError> {
+        let args: CsvArgs = parse_args(args)?;
+        self.workspace.reach(team, &args.path, Need::Read).await
+    }
+
+    async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         let args: CsvArgs = parse_args(&args)?;
-        let path = display(&relative(&args.path)?);
-        let (text, trust) = self.workspace.read_with_trust(&path).await?;
+        let at = self
+            .workspace
+            .locate(ctx.team_id, &args.path, Need::Read)
+            .await?;
+        let (text, trust) = self.workspace.read_with_trust(&at.physical).await?;
+        let path = at.shown;
         Ok(ToolOutput {
             content: query(&text, &args, &path)?,
             taint: file_taint(&path, trust),

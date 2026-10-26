@@ -77,7 +77,7 @@ async fn send_message_validates_previews_and_writes_the_outbox(pool: SqlitePool)
         matches!(action.target, Target::Recipient { ref channel, ref address } if channel == "email" && address == "anna.weber@example.com")
     );
     assert_eq!(
-        send.preview(&args).await,
+        send.preview(ctx.team_id, &args).await,
         "To: anna.weber@example.com (email)\nSubject: AR-1042\n\nApproved for 90 days."
     );
 

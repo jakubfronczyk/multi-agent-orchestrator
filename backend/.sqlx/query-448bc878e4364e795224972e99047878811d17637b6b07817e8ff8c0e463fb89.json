@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT g.access FROM team_file_grants g JOIN teams t ON t.id = g.of_team_id\n             WHERE g.team_id = ? AND g.of_team_id = ? AND t.deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "access",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "team_file_grants",
+            "name": "access"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "448bc878e4364e795224972e99047878811d17637b6b07817e8ff8c0e463fb89"
+}

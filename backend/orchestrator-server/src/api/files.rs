@@ -1,6 +1,6 @@
-//! `GET /api/files?path=`: read-only view of the workspace through the same sandbox and lock as
-//! the file tools; a file's trust follows the tools' rule: no record means untrusted.
-//! `POST /api/files`: one uploaded text file, stored untrusted under `uploads/`.
+//! `GET /api/files?team_id=&path=`: read-only view of the workspace as that team's agents see it,
+//! through the same mapper, sandbox and lock as the file tools; no trust record means untrusted.
+//! `POST /api/files?team_id=`: one uploaded text file, stored untrusted in the team's `uploads/`.
 
 use axum::Json;
 use axum::extract::multipart::MultipartError;
@@ -12,18 +12,25 @@ use orchestrator_core::tools::ToolError;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::AppState;
 use super::error::ApiError;
 use super::error::ErrorCode;
+use super::{AppState, query};
+use crate::sqlite::teams;
 use crate::tools::workspace::{
-    EntryKind, FILE_BYTES, TEXT_EXTENSIONS, UploadError, check_upload_name,
+    EntryKind, FILE_BYTES, Need, TEXT_EXTENSIONS, UploadError, check_upload_name,
 };
 
 const UPLOAD_FIELD: &str = "file";
 
 #[derive(Debug, Deserialize)]
 pub struct FileQuery {
+    team_id: Option<String>,
     path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UploadQuery {
+    team_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -60,18 +67,23 @@ pub enum FileView {
     },
 }
 
+/// The one user may view any team's files, a deleted team's included. 404 for an unknown team or
+/// a path with nothing there.
 pub async fn view(
     State(state): State<AppState>,
     Query(query): Query<FileQuery>,
 ) -> Result<Json<FileView>, ApiError> {
+    let team = required_team(query.team_id)?;
+    teams::get(&state.pool, team).await?;
     let path = query.path.unwrap_or_else(|| ".".to_string());
     let workspace = &state.workspace;
-    let view = match workspace.kind_of(&path).await.map_err(path_error)? {
+    let (shown, kind) = workspace.kind_for(team, &path).await.map_err(path_error)?;
+    let view = match kind {
         None => return Err(ApiError::not_found()),
         Some(EntryKind::Dir) => {
-            let entries = workspace.list(&path).await.map_err(path_error)?;
+            let entries = workspace.list_for(team, &path).await.map_err(path_error)?;
             FileView::Dir {
-                path,
+                path: shown,
                 entries: entries
                     .into_iter()
                     .map(|entry| FileEntryView {
@@ -87,9 +99,14 @@ pub async fn view(
             }
         }
         Some(EntryKind::File | EntryKind::Symlink) => {
-            let (content, trust, written_by) = workspace.read(&path).await.map_err(path_error)?;
+            let at = workspace
+                .locate(team, &path, Need::Read)
+                .await
+                .map_err(path_error)?;
+            let (content, trust, written_by) =
+                workspace.read(&at.physical).await.map_err(path_error)?;
             FileView::File {
-                path,
+                path: at.shown,
                 content,
                 trust,
                 written_by_root_run_id: written_by.map(|w| w.root_run_id),
@@ -103,19 +120,25 @@ pub async fn view(
 #[derive(Debug, Serialize, TS)]
 #[ts(export)]
 pub struct UploadResponse {
-    /// `uploads/<name>`, relative to the workspace root.
+    /// `uploads/<name>`, as the team's agents name it.
     pub path: String,
     pub bytes: u64,
     /// Always untrusted: an upload is outside content.
     pub trust: Trust,
 }
 
-/// 201 with the stored path. 422 for a missing field or a bad name, 409 when the name is taken,
-/// 413 over 256 KB, 415 for anything but UTF-8 .csv, .md, .txt or .json, 500 when the disk fails.
+/// 201 with the stored path. 422 for a missing field, a bad name or no `team_id`, 404 for an
+/// unknown or deleted team, 409 when the name is taken, 413 over 256 KB, 415 for anything but
+/// UTF-8 .csv, .md, .txt or .json, 500 when the disk fails.
 pub async fn upload(
     State(state): State<AppState>,
+    Query(query): Query<UploadQuery>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<UploadResponse>), ApiError> {
+    let team = required_team(query.team_id)?;
+    if teams::get(&state.pool, team).await?.deleted_at.is_some() {
+        return Err(ApiError::not_found());
+    }
     let mut field = multipart
         .next_field()
         .await
@@ -151,7 +174,7 @@ pub async fn upload(
 
     let path = state
         .workspace
-        .store_upload(&name, &text)
+        .store_upload(team, &name, &text)
         .await
         .map_err(|error| match error {
             UploadError::Exists => ApiError::conflict("a file with this name was already uploaded"),
@@ -167,6 +190,10 @@ pub async fn upload(
         trust: Trust::Untrusted,
     };
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+fn required_team(raw: Option<String>) -> Result<TeamId, ApiError> {
+    query::id("team_id", raw)?.ok_or_else(|| ApiError::invalid("team_id", "name a team"))
 }
 
 fn too_large() -> ApiError {

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT t.id, t.name, t.created_at, t.updated_at, t.deleted_at,\n                  (SELECT a.id FROM agents a WHERE a.team_id = t.id AND a.role = ?\n                   ORDER BY a.deleted_at IS NOT NULL, a.created_at DESC LIMIT 1) AS \"lead_agent_id?: String\",\n                  (SELECT COUNT(*) FROM agents a WHERE a.team_id = t.id AND a.deleted_at IS NULL) AS \"agent_count!: i64\"\n           FROM teams t WHERE t.id = ?",
+  "query": "SELECT t.id, t.name, t.slug, t.created_at, t.updated_at, t.deleted_at,\n                  (SELECT a.id FROM agents a WHERE a.team_id = t.id AND a.role = ?\n                   ORDER BY a.deleted_at IS NOT NULL, a.created_at DESC LIMIT 1) AS \"lead_agent_id?: String\",\n                  (SELECT COUNT(*) FROM agents a WHERE a.team_id = t.id AND a.deleted_at IS NULL) AS \"agent_count!: i64\"\n           FROM teams t WHERE t.id = ?",
   "describe": {
     "columns": [
       {
@@ -26,8 +26,19 @@
         }
       },
       {
-        "name": "created_at",
+        "name": "slug",
         "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teams",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 3,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -38,7 +49,7 @@
       },
       {
         "name": "updated_at",
-        "ordinal": 3,
+        "ordinal": 4,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +60,7 @@
       },
       {
         "name": "deleted_at",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "lead_agent_id?: String",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,7 +82,7 @@
       },
       {
         "name": "agent_count!: i64",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": "Expression"
       }
@@ -84,10 +95,11 @@
       false,
       false,
       false,
+      false,
       true,
       true,
       false
     ]
   },
-  "hash": "36b74d96df86cea964b1c778418058eec22be707c246f50330b0ffdb324a17ed"
+  "hash": "f96c603789a86ac66b7a29146dd48ba7a1daad62cd14e76a98b8db07e931ec8d"
 }

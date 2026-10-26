@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::middleware;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use orchestrator_core::engine::Engine;
 use sqlx::SqlitePool;
 use tower_http::trace::TraceLayer;
@@ -66,6 +66,11 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/teams/{id}",
             get(teams::get).put(teams::rename).delete(teams::delete),
+        )
+        .route("/teams/{id}/file-access", get(teams::file_access))
+        .route(
+            "/teams/{id}/file-access/{of_team_id}",
+            put(teams::set_file_access),
         )
         .route(
             "/agents/{id}",

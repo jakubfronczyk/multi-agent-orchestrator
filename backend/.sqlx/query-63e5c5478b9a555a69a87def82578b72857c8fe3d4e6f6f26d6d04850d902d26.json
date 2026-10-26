@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t.id, t.name, t.slug, g.access AS \"access?\"\n           FROM teams t\n           LEFT JOIN team_file_grants g ON g.of_team_id = t.id AND g.team_id = ?1\n           WHERE t.deleted_at IS NULL AND t.id != ?1\n           ORDER BY t.created_at, t.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teams",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teams",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "slug",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "teams",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "name": "access?",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "team_file_grants",
+            "name": "access"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "63e5c5478b9a555a69a87def82578b72857c8fe3d4e6f6f26d6d04850d902d26"
+}

@@ -1,26 +1,26 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT trust FROM workspace_files WHERE path = 'out/summary.md'",
+  "query": "SELECT id FROM teams WHERE slug = ? AND deleted_at IS NULL",
   "describe": {
     "columns": [
       {
-        "name": "trust",
+        "name": "id",
         "ordinal": 0,
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "workspace_files",
-            "name": "trust"
+            "table": "teams",
+            "name": "id"
           }
         }
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false
     ]
   },
-  "hash": "a1b94679117cfbdbe490601b6e4c43061417bb4d4258d18064f351f5ec1587cb"
+  "hash": "8d8fc38b415b87e36ec8592fe1f6ca9d636565e64e078d5609a53a08d81fb74c"
 }

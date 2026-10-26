@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO team_file_grants (team_id, of_team_id, access, updated_at)\n         VALUES (?1, ?2, 'read', 'now'), (?2, ?1, 'read_write', 'now')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "dc050f0e366c2ee4506a285f6f1b9999b79cf3c53cb4a5c63979120501bdddac"
+}

@@ -5,6 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use orchestrator_core::ids::TeamId;
 use orchestrator_core::policy::{TaintSource, Trust};
 use orchestrator_core::tools::{
     Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, args_preview,
@@ -16,7 +17,7 @@ use serde_json::{Value, json};
 
 use super::sandbox::relative;
 use super::spec;
-use super::workspace::{FILE_BYTES, TEXT_EXTENSIONS, Workspace, display};
+use super::workspace::{FILE_BYTES, Need, TEXT_EXTENSIONS, Workspace, display};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -70,8 +71,9 @@ pub struct FileWrite {
 
 impl FileList {
     pub fn new(workspace: Workspace) -> Self {
-        let purpose =
-            "List the files in a workspace directory. Use it to find a path before reading.";
+        let purpose = "List the files in a workspace directory. Use it to find a path before reading. \
+                       The root is your team's folder, with data/ (shared reference, read only) and \
+                       teams/ (folders other teams share with you).";
         Self {
             workspace,
             spec: spec::<ListArgs>(ToolName::FileList, purpose, TIMEOUT),
@@ -92,7 +94,8 @@ impl FileRead {
 
 impl FileWrite {
     pub fn new(workspace: Workspace) -> Self {
-        let purpose = "Save a .md, .csv, .json or .txt file in the workspace, replacing any file at that path.";
+        let purpose = "Save a .md, .csv, .json or .txt file in your team's folder, replacing any file at that path. \
+                       data/ is read only.";
         Self {
             workspace,
             spec: spec::<WriteArgs>(ToolName::FileWrite, purpose, TIMEOUT),
@@ -111,12 +114,19 @@ impl Tool for FileList {
         file_action("list", args.path.as_deref().unwrap_or("."))
     }
 
+    async fn reach(&self, team: TeamId, args: &Value) -> Result<(), ToolError> {
+        let args: ListArgs = parse_args(args)?;
+        self.workspace
+            .reach(team, args.path.as_deref().unwrap_or("."), Need::Read)
+            .await
+    }
+
     /// Symlinks are listed as such and never followed.
     /// Entry names are stored text too, so each untrusted entry is a taint source.
-    async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
+    async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         let args: ListArgs = parse_args(&args)?;
-        let path = args.path.unwrap_or_else(|| ".".to_string());
-        let entries = self.workspace.list(&path).await?;
+        let path = display(&relative(args.path.as_deref().unwrap_or("."))?);
+        let entries = self.workspace.list_for(ctx.team_id, &path).await?;
         let taint = entries
             .iter()
             .filter(|entry| entry.trust == Trust::Untrusted)
@@ -146,11 +156,20 @@ impl Tool for FileRead {
         file_action("read", &args.path)
     }
 
+    async fn reach(&self, team: TeamId, args: &Value) -> Result<(), ToolError> {
+        let args: ReadArgs = parse_args(args)?;
+        self.workspace.reach(team, &args.path, Need::Read).await
+    }
+
     /// A file with no trust row counts as untrusted; the seed records rows for its files.
-    async fn run(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
+    async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         let args: ReadArgs = parse_args(&args)?;
-        let path = display(&relative(&args.path)?);
-        let (text, trust) = self.workspace.read_with_trust(&path).await?;
+        let at = self
+            .workspace
+            .locate(ctx.team_id, &args.path, Need::Read)
+            .await?;
+        let (text, trust) = self.workspace.read_with_trust(&at.physical).await?;
+        let path = at.shown;
         Ok(ToolOutput {
             content: json!({ "path": path, "content": text, "trust": trust }),
             taint: file_taint(&path, trust),
@@ -187,11 +206,15 @@ impl Tool for FileWrite {
     /// file or the new one, never part of either.
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         let args: WriteArgs = parse_args(&args)?;
-        let path = display(&relative(&args.path)?);
+        let at = self
+            .workspace
+            .locate(ctx.team_id, &args.path, Need::Write)
+            .await?;
         let replaced = self
             .workspace
-            .write(&path, &args.content, ctx.run_id, ctx.trust)
+            .write(&at.physical, &args.content, ctx.run_id, ctx.trust)
             .await?;
+        let path = at.shown;
         Ok(ToolOutput {
             content: json!({ "path": path, "bytes": args.content.len(), "replaced": replaced, "trust": ctx.trust }),
             taint: Vec::new(),
@@ -199,11 +222,20 @@ impl Tool for FileWrite {
     }
 
     /// The card shows the whole new file and says when it replaces one.
-    async fn preview(&self, args: &Value) -> String {
+    async fn reach(&self, team: TeamId, args: &Value) -> Result<(), ToolError> {
+        let args: WriteArgs = parse_args(args)?;
+        self.workspace.reach(team, &args.path, Need::Write).await
+    }
+
+    async fn preview(&self, team: TeamId, args: &Value) -> String {
         let Ok(args) = parse_args::<WriteArgs>(args) else {
             return args_preview(args);
         };
-        let note = if self.workspace.exists(&args.path).await {
+        let exists = match self.workspace.locate(team, &args.path, Need::Write).await {
+            Ok(at) => self.workspace.exists(&at.physical).await,
+            Err(_) => false,
+        };
+        let note = if exists {
             "\n\n(replaces an existing file)"
         } else {
             ""

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM team_file_grants WHERE team_id = ? AND of_team_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "a6531e9bc074dadb536f97389007483f0d365ac17f6f467f61da56d24604b2ff"
+}

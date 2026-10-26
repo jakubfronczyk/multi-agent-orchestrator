@@ -84,6 +84,9 @@ pub enum Rule {
     ExternalEffect,
     /// A turn started as draft only refuses every call that would leave a lasting change.
     DraftOnly,
+    /// The path is outside what the task's team may reach: another team's folder without a
+    /// grant, or a write under the read-only shared reference.
+    NoAccess,
 }
 
 impl Rule {
@@ -98,6 +101,7 @@ impl Rule {
             Rule::RepeatOfRefused => "repeat_of_refused",
             Rule::ExternalEffect => "external_effect",
             Rule::DraftOnly => "draft_only",
+            Rule::NoAccess => "no_access",
         }
     }
 }
@@ -134,6 +138,7 @@ mod tests {
             Rule::RepeatOfRefused,
             Rule::ExternalEffect,
             Rule::DraftOnly,
+            Rule::NoAccess,
         ] {
             let tag = serde_json::to_value(&rule).expect("json")["kind"].clone();
             assert_eq!(tag, rule.kind());

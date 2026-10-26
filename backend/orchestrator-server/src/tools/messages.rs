@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use orchestrator_core::ids::TeamId;
 use orchestrator_core::policy::TaintSource;
 use orchestrator_core::tools::{
     Action, Target, Tool, ToolCtx, ToolError, ToolName, ToolOutput, ToolSpec, parse_args,
@@ -281,7 +282,7 @@ impl Tool for SendMessage {
     }
 
     /// The card shows the message as the person approving it will read it.
-    async fn preview(&self, args: &Value) -> String {
+    async fn preview(&self, _team: TeamId, args: &Value) -> String {
         let Ok(args) = parse_args::<SendArgs>(args) else {
             return serde_json::to_string_pretty(args).unwrap_or_default();
         };

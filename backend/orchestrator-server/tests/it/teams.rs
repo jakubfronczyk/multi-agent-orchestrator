@@ -284,3 +284,96 @@ async fn delete_keeps_busy_and_last_teams_and_their_history(pool: SqlitePool) {
     .await;
     assert_eq!(status, 422, "a live team's Lead stays");
 }
+
+/// A slug is derived once from the name, gets `-2` on a live clash, survives a rename and is
+/// free again once its team is deleted; the delete also drops every file grant naming the team.
+#[sqlx::test]
+async fn a_team_slug_is_fixed_at_create_and_its_grants_go_with_it(pool: SqlitePool) {
+    let app = app(pool.clone()).await;
+    let base = serve(&app).await;
+    let client = reqwest::Client::new();
+    let create = |name: &str| {
+        client
+            .post(format!("{base}/api/teams"))
+            .json(&json!({"name": name}))
+    };
+
+    let (_, ops) = send(&create("Ops desk")).await;
+    assert_eq!(ops["slug"], "ops-desk");
+    let (_, second) = send(&create("Ops-desk!")).await;
+    assert_eq!(second["slug"], "ops-desk-2");
+    let ops_id = ops["id"].as_str().expect("id").to_string();
+    let (status, renamed) = send(
+        &client
+            .put(format!("{base}/api/teams/{ops_id}"))
+            .json(&json!({"name": "Field ops"})),
+    )
+    .await;
+    assert_eq!((status, renamed["slug"].clone()), (200, json!("ops-desk")));
+
+    let second_id = second["id"].as_str().expect("id").to_string();
+    sqlx::query!(
+        "INSERT INTO team_file_grants (team_id, of_team_id, access, updated_at)
+         VALUES (?1, ?2, 'read', 'now'), (?2, ?1, 'read_write', 'now')",
+        ops_id,
+        second_id
+    )
+    .execute(&pool)
+    .await
+    .expect("grants");
+    let (status, _) = send(&client.delete(format!("{base}/api/teams/{ops_id}"))).await;
+    assert_eq!(status, 204);
+    let left = sqlx::query_scalar!("SELECT COUNT(*) FROM team_file_grants")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(left, 0);
+
+    let (_, again) = send(&create("Ops desk")).await;
+    assert_eq!(again["slug"], "ops-desk");
+}
+
+/// `/teams/{id}/file-access`: every other live team starts at `none`; a grant is set, changed
+/// and cleared; the team itself, an unknown team and a bad value are refused.
+#[sqlx::test]
+async fn file_access_lists_other_teams_and_sets_each_grant(pool: SqlitePool) {
+    let app = app(pool).await;
+    let base = serve(&app).await;
+    let client = reqwest::Client::new();
+    let (_, contracts) = send(
+        &client
+            .post(format!("{base}/api/teams"))
+            .json(&json!({"name": "Contracts"})),
+    )
+    .await;
+    let own = crate::id_text(app.team);
+    let other = contracts["id"].as_str().expect("id").to_string();
+    let access = |of: &str, value: Value| {
+        client
+            .put(format!("{base}/api/teams/{own}/file-access/{of}"))
+            .json(&json!({"access": value}))
+    };
+    let listed = || async {
+        send(&client.get(format!("{base}/api/teams/{own}/file-access")))
+            .await
+            .1["teams"]
+            .clone()
+    };
+
+    assert_eq!(
+        listed().await,
+        json!([{"team_id": other, "name": "Contracts", "slug": "contracts", "access": "none"}])
+    );
+    for value in ["read", "read_write", "none"] {
+        assert_eq!(send(&access(&other, json!(value))).await.0, 204);
+        assert_eq!(listed().await[0]["access"], value);
+    }
+    assert_eq!(send(&access(&own, json!("read"))).await.0, 422);
+    assert_eq!(
+        send(&access(&crate::id_text(TeamId::new()), json!("read")))
+            .await
+            .0,
+        404
+    );
+    assert_eq!(send(&access(&other, json!("write"))).await.0, 422);
+}

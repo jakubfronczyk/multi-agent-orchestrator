@@ -4,6 +4,10 @@ import type { TeamId } from "./TeamId";
 
 export type TeamView = { id: TeamId, name: string, 
 /**
+ * Fixed at create, unique among live teams; agents reach the team's folder as `teams/<slug>/`.
+ */
+slug: string, 
+/**
  * Stays set on a deleted team: it names the soft-deleted Lead, so history can show it.
  */
 lead_agent_id: AgentId, 

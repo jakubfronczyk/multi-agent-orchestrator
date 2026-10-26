@@ -8,7 +8,7 @@ use orchestrator_server::tools::workspace::Workspace;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
-use crate::{TempDir, app, tool_ctx};
+use crate::{TempDir, app, id_text, tool_ctx};
 
 async fn run(tool: &dyn Tool, ctx: &ToolCtx, args: Value) -> Result<Value, ToolError> {
     tool.check(&args)?;
@@ -40,9 +40,9 @@ async fn file_tools_reject_traversal_and_symlinks(pool: SqlitePool) {
     }
 
     std::fs::write(temp.0.join("secret.md"), "outside the workspace").expect("outside file");
-    std::os::unix::fs::symlink(temp.0.join("secret.md"), temp.workspace().join("link.md"))
-        .expect("file link");
-    std::os::unix::fs::symlink(&temp.0, temp.workspace().join("linkdir")).expect("dir link");
+    let own = temp.team(ctx.team_id);
+    std::os::unix::fs::symlink(temp.0.join("secret.md"), own.join("link.md")).expect("file link");
+    std::os::unix::fs::symlink(&temp.0, own.join("linkdir")).expect("dir link");
 
     for path in ["link.md", "linkdir/secret.md"] {
         let error = run(&read, &ctx, json!({ "path": path }))
@@ -88,7 +88,10 @@ async fn writes_replace_atomically_and_untrusted_files_are_taint_sources(pool: S
     .expect("write");
     assert_eq!(first["replaced"], false);
     let preview = write
-        .preview(&json!({"path": "out/decision.md", "content": "deny"}))
+        .preview(
+            clean.team_id,
+            &json!({"path": "out/decision.md", "content": "deny"}),
+        )
         .await;
     assert!(
         preview.contains("deny") && preview.contains("(replaces an existing file)"),
@@ -102,7 +105,7 @@ async fn writes_replace_atomically_and_untrusted_files_are_taint_sources(pool: S
     .await
     .expect("write");
     assert_eq!(second["replaced"], true);
-    let leftovers: Vec<_> = std::fs::read_dir(temp.workspace().join("out"))
+    let leftovers: Vec<_> = std::fs::read_dir(temp.team(clean.team_id).join("out"))
         .expect("dir")
         .collect();
     assert_eq!(leftovers.len(), 1, "no temp file is left behind");
@@ -145,8 +148,9 @@ async fn listings_hide_temp_files_and_unrecorded_files_read_untrusted(pool: Sqli
     let workspace = Workspace::new(temp.workspace(), pool);
     let (read, list) = (FileRead::new(workspace.clone()), FileList::new(workspace));
 
-    std::fs::write(temp.workspace().join("unrecorded.md"), "no row").expect("plain file");
-    std::fs::write(temp.workspace().join(".left.md.0194.tmp"), "aborted").expect("leftover");
+    let own = temp.team(clean.team_id);
+    std::fs::write(own.join("unrecorded.md"), "no row").expect("plain file");
+    std::fs::write(own.join(".left.md.0194.tmp"), "aborted").expect("leftover");
     let listed = run(&list, &clean, json!({})).await.expect("list");
     let names: Vec<&str> = listed["entries"]
         .as_array()
@@ -188,19 +192,19 @@ async fn csv_query_filters_selects_counts_and_groups(pool: SqlitePool) {
     run(
         &write,
         &ctx,
-        json!({"path": "data/systems.csv", "content": systems}),
+        json!({"path": "lists/systems.csv", "content": systems}),
     )
     .await
     .expect("write");
 
-    let anna = run(&csv, &ctx, json!({"path": "data/systems.csv", "filter": [{"column": "owner", "op": "eq", "value": "Anna Weber"}], "select": ["system"]})).await.expect("query");
+    let anna = run(&csv, &ctx, json!({"path": "lists/systems.csv", "filter": [{"column": "owner", "op": "eq", "value": "Anna Weber"}], "select": ["system"]})).await.expect("query");
     assert_eq!(anna["rows"], json!([["Payroll"], ["Wiki"]]));
-    let big = run(&csv, &ctx, json!({"path": "data/systems.csv", "filter": [{"column": "seats", "op": "gt", "value": "20"}], "count": true})).await.expect("query");
+    let big = run(&csv, &ctx, json!({"path": "lists/systems.csv", "filter": [{"column": "seats", "op": "gt", "value": "20"}], "count": true})).await.expect("query");
     assert_eq!(big["count"], 2, "numbers compare as numbers");
     let grouped = run(
         &csv,
         &ctx,
-        json!({"path": "data/systems.csv", "group_by": "owner"}),
+        json!({"path": "lists/systems.csv", "group_by": "owner"}),
     )
     .await
     .expect("query");
@@ -208,7 +212,7 @@ async fn csv_query_filters_selects_counts_and_groups(pool: SqlitePool) {
     let defaults = run(
         &csv,
         &ctx,
-        json!({"path": "data/systems.csv", "group_by": "", "select": [""], "count": false, "filter": []}),
+        json!({"path": "lists/systems.csv", "group_by": "", "select": [""], "count": false, "filter": []}),
     )
     .await
     .expect("empty fields mean absent");
@@ -218,13 +222,13 @@ async fn csv_query_filters_selects_counts_and_groups(pool: SqlitePool) {
     let unknown = run(
         &csv,
         &ctx,
-        json!({"path": "data/systems.csv", "select": ["salary"]}),
+        json!({"path": "lists/systems.csv", "select": ["salary"]}),
     )
     .await
     .expect_err("unknown column");
     assert_eq!(unknown.to_string(), "unknown column: salary");
     assert!(
-        csv.check(&json!({"path": "data/systems.csv", "where": "1=1"}))
+        csv.check(&json!({"path": "lists/systems.csv", "where": "1=1"}))
             .is_err(),
         "no expressions"
     );
@@ -275,11 +279,13 @@ async fn an_unknown_stored_trust_reads_as_untrusted(pool: SqlitePool) {
     let app = app(pool.clone()).await;
     let ctx = tool_ctx(&app, "specialist").await;
     let temp = TempDir::new();
-    std::fs::write(temp.workspace().join("odd.csv"), "a\n1\n").expect("file");
-    sqlx::raw_sql(
+    std::fs::write(temp.team(ctx.team_id).join("odd.csv"), "a\n1\n").expect("file");
+    let physical = format!("teams/{}/odd.csv", id_text(ctx.team_id));
+    sqlx::query(
         "INSERT INTO workspace_files (path, trust, updated_at)
-         VALUES ('odd.csv', 'TRUSTED', '2026-01-01T00:00:00.000000Z')",
+         VALUES (?, 'TRUSTED', '2026-01-01T00:00:00.000000Z')",
     )
+    .bind(&physical)
     .execute(&pool)
     .await
     .expect("row");
@@ -304,6 +310,6 @@ async fn an_unknown_stored_trust_reads_as_untrusted(pool: SqlitePool) {
         .await
         .expect("list");
     assert_eq!(list.taint, source);
-    let (_, trust, _) = workspace.read("odd.csv").await.expect("view");
+    let (_, trust, _) = workspace.read(&physical).await.expect("view");
     assert_eq!(trust, Trust::Untrusted);
 }

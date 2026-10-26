@@ -1,5 +1,5 @@
-//! `POST /api/files` on the real workspace: an upload is stored untrusted under `uploads/`,
-//! never outside it and never over another upload, and a task that reads it is tainted.
+//! `POST /api/files` on the real workspace: an upload is stored untrusted under the team's
+//! `uploads/`, never outside it and never over another upload, and a task that reads it is tainted.
 
 use orchestrator_core::engine::StartRequest;
 use orchestrator_core::policy::TaintSource;
@@ -7,15 +7,19 @@ use orchestrator_server::tools::workspace::FILE_BYTES;
 use serde_json::Value;
 use sqlx::SqlitePool;
 
-use crate::{Seeded, TempDir, agent_id, request, tainted, task_events};
+use crate::{Seeded, TempDir, agent_id, id_text, request, tainted, task_events};
 
 const BOUNDARY: &str = "upload-boundary";
 
-/// The seeded team and the API it serves.
+/// The seeded team and its files endpoint, `/api/files?team_id=<seeded team>`.
 async fn served(pool: SqlitePool) -> (Seeded, String) {
     let seeded = Seeded::new(pool).await;
-    let base = seeded.serve().await;
-    (seeded, base)
+    let files = format!(
+        "{}/api/files?team_id={}",
+        seeded.serve().await,
+        id_text(seeded.team)
+    );
+    (seeded, files)
 }
 
 /// One multipart field named `field` holding `bytes` as the file `name`.
@@ -29,9 +33,9 @@ fn body(field: &str, name: &str, bytes: &[u8]) -> Vec<u8> {
     body
 }
 
-async fn upload(base: &str, body: Vec<u8>) -> (u16, Value) {
+async fn upload(files: &str, body: Vec<u8>) -> (u16, Value) {
     let response = reqwest::Client::new()
-        .post(format!("{base}/api/files"))
+        .post(files)
         .header(
             "content-type",
             format!("multipart/form-data; boundary={BOUNDARY}"),
@@ -53,20 +57,18 @@ async fn an_upload_is_stored_untrusted_under_uploads(pool: SqlitePool) {
     assert_eq!(json["bytes"], 8);
     assert_eq!(json["trust"], "untrusted");
     let on_disk =
-        std::fs::read_to_string(served.temp.workspace().join("uploads/notes.md")).expect("stored");
+        std::fs::read_to_string(served.temp.workspace().join(served.own("uploads/notes.md")))
+            .expect("stored");
     assert_eq!(on_disk, "# Notes\n");
-    let row = sqlx::query!(
-        "SELECT trust, written_by_run FROM workspace_files WHERE path = 'uploads/notes.md'"
-    )
-    .fetch_one(&served.pool)
-    .await
-    .expect("row");
-    assert_eq!(
-        (row.trust.as_str(), row.written_by_run),
-        ("untrusted", None)
-    );
+    let (trust, written_by_run): (String, Option<String>) =
+        sqlx::query_as("SELECT trust, written_by_run FROM workspace_files WHERE path = ?")
+            .bind(served.own("uploads/notes.md"))
+            .fetch_one(&served.pool)
+            .await
+            .expect("row");
+    assert_eq!((trust.as_str(), written_by_run), ("untrusted", None));
 
-    let view: Value = reqwest::get(format!("{}/api/files?path=uploads/notes.md", base))
+    let view: Value = reqwest::get(format!("{base}&path=uploads/notes.md"))
         .await
         .expect("response")
         .json()
@@ -78,7 +80,8 @@ async fn an_upload_is_stored_untrusted_under_uploads(pool: SqlitePool) {
     let (status, _) = upload(&base, body("file", "notes.md", b"replaced")).await;
     assert_eq!(status, 409, "an upload never replaces one");
     let kept =
-        std::fs::read_to_string(served.temp.workspace().join("uploads/notes.md")).expect("stored");
+        std::fs::read_to_string(served.temp.workspace().join(served.own("uploads/notes.md")))
+            .expect("stored");
     assert_eq!(kept, "# Notes\n");
 }
 
@@ -109,8 +112,8 @@ async fn bad_uploads_are_refused_before_anything_is_written(pool: SqlitePool) {
     let (status, _) = upload(&base, body("file", "image.png", b"text")).await;
     assert_eq!(status, 415, "not a text extension");
 
-    assert!(!served.temp.workspace().join("x.md").exists());
-    let names: Vec<String> = std::fs::read_dir(served.temp.workspace().join("uploads"))
+    assert!(!served.temp.workspace().join(served.own("x.md")).exists());
+    let names: Vec<String> = std::fs::read_dir(served.temp.workspace().join(served.own("uploads")))
         .map(|dir| {
             dir.filter_map(Result::ok)
                 .map(|e| e.file_name().to_string_lossy().into_owned())
@@ -119,7 +122,7 @@ async fn bad_uploads_are_refused_before_anything_is_written(pool: SqlitePool) {
         .unwrap_or_default();
     assert!(names.is_empty(), "nothing was stored: {names:?}");
     let rows =
-        sqlx::query_scalar!("SELECT COUNT(*) FROM workspace_files WHERE path LIKE 'uploads/%'")
+        sqlx::query_scalar!("SELECT COUNT(*) FROM workspace_files WHERE path LIKE '%uploads/%'")
             .fetch_one(&served.pool)
             .await
             .expect("count");
@@ -132,8 +135,11 @@ async fn a_symlinked_uploads_directory_is_refused(pool: SqlitePool) {
     let (served, base) = served(pool).await;
     let outside = TempDir::new();
     std::fs::create_dir_all(outside.workspace()).expect("dir");
-    std::os::unix::fs::symlink(outside.workspace(), served.temp.workspace().join("uploads"))
-        .expect("symlink");
+    std::os::unix::fs::symlink(
+        outside.workspace(),
+        served.temp.team(served.team).join("uploads"),
+    )
+    .expect("symlink");
     let (status, json) = upload(&base, body("file", "notes.md", b"x")).await;
     assert_eq!(status, 422, "{json}");
     assert!(!outside.workspace().join("notes.md").exists());
@@ -144,7 +150,7 @@ async fn a_symlinked_uploads_directory_is_refused(pool: SqlitePool) {
 async fn an_upload_the_disk_refuses_is_a_server_error(pool: SqlitePool) {
     use std::os::unix::fs::PermissionsExt;
     let (served, base) = served(pool).await;
-    let uploads = served.temp.workspace().join("uploads");
+    let uploads = served.temp.team(served.team).join("uploads");
     std::fs::create_dir_all(&uploads).expect("dir");
     std::fs::set_permissions(&uploads, std::fs::Permissions::from_mode(0o555)).expect("chmod");
     let (status, json) = upload(&base, body("file", "notes.md", b"x")).await;
@@ -160,7 +166,7 @@ async fn an_upload_at_the_cap_is_readable(pool: SqlitePool) {
     let full = vec![b'a'; FILE_BYTES];
     let (status, json) = upload(&base, body("file", "full.txt", &full)).await;
     assert_eq!(status, 201, "{json}");
-    let view: Value = reqwest::get(format!("{}/api/files?path=uploads/full.txt", base))
+    let view: Value = reqwest::get(format!("{base}&path=uploads/full.txt"))
         .await
         .expect("response")
         .json()

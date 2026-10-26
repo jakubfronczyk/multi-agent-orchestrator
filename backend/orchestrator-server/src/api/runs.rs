@@ -19,7 +19,7 @@ use crate::llm::{LAUNDER, S1_DECISION, scenario_slugs};
 use crate::sqlite::agents::{self, AgentError};
 use crate::sqlite::runs::{self, RunDetail, RunList};
 use crate::sqlite::teams;
-use crate::tools::workspace::EntryKind;
+use crate::tools::workspace::{EntryKind, Need};
 
 const DEFAULT_LIMIT: u32 = 50;
 const NO_TEAM: &str = "no live team has this id";
@@ -61,7 +61,7 @@ pub async fn start(
         require_demo_slugs(&state, team, scenario).await?;
     }
     if request.scenario.as_deref() == Some(LAUNDER) {
-        require_s1_decision(&state).await?;
+        require_s1_decision(&state, team).await?;
     }
     let start = StartRequest {
         team_id: team,
@@ -179,9 +179,14 @@ fn storage(error: sqlx::Error) -> ApiError {
     ApiError::internal()
 }
 
-/// `launder` indexes the file S1 saves; without it the script would describe a file that is not there.
-async fn require_s1_decision(state: &AppState) -> Result<(), ApiError> {
-    match state.workspace.kind_of(S1_DECISION).await {
+/// `launder` indexes the file S1 saves in the same team's folder; without it the script would
+/// describe a file that is not there.
+async fn require_s1_decision(state: &AppState, team: TeamId) -> Result<(), ApiError> {
+    let found = match state.workspace.locate(team, S1_DECISION, Need::Read).await {
+        Ok(at) => state.workspace.kind_of(&at.physical).await,
+        Err(error) => Err(error),
+    };
+    match found {
         Ok(Some(EntryKind::File)) => Ok(()),
         Ok(_) => Err(ApiError::conflict("run the s1 scenario first")),
         Err(error) => {
