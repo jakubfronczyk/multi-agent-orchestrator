@@ -4,7 +4,11 @@ import type { RunId } from "./RunId";
 import type { TeamId } from "./TeamId";
 import type { Trust } from "./Trust";
 
-export type FileView = { "kind": "dir", path: string, entries: Array<FileEntryView>, } | { "kind": "file", path: string, content: string, trust: Trust, 
+export type FileView = { "kind": "dir", path: string, entries: Array<FileEntryView>, } | { "kind": "file", path: string, 
+/**
+ * Null for a file the agents cannot read: binary, or over 256 KB.
+ */
+content: string | null, trust: Trust, 
 /**
  * The root run of the task that last wrote the file; null for seeded files and uploads.
  */
@@ -12,4 +16,18 @@ written_by_root_run_id: RunId | null,
 /**
  * That task's team; null exactly when `written_by_root_run_id` is.
  */
-written_by_team_id: TeamId | null, };
+written_by_team_id: TeamId | null, 
+/**
+ * The person saved it themselves.
+ */
+written_by_user: boolean, 
+/**
+ * When its record last changed; a change, delete or mark by the person names it.
+ * Null for a file with no record.
+ */
+updated_at: string | null, 
+/**
+ * The person may change it here: a file of this team's own folder, not `data/` or a
+ * granted folder.
+ */
+editable: boolean, };

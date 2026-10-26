@@ -38,6 +38,21 @@ const UPLOAD_NAME_CHARS: usize = 100;
 const UPLOAD_NUMBERS: u32 = 99;
 const LIST_LIMIT: usize = 500;
 
+/// Why the person's own file change was refused.
+#[derive(Debug, thiserror::Error)]
+pub enum PersonFileError {
+    #[error(transparent)]
+    Tool(#[from] ToolError),
+    #[error("no file there")]
+    NotFound,
+    #[error("the file changed since you opened it")]
+    Stale,
+    #[error("a file is already there")]
+    Exists,
+    #[error("{0}")]
+    Conflict(&'static str),
+}
+
 /// Why an upload was not stored.
 #[derive(Debug, thiserror::Error)]
 pub enum UploadError {
@@ -213,10 +228,17 @@ impl Workspace {
     }
 
     /// A file's text, its trust and the root run of the task that last wrote it, read together
-    /// under the shared lock.
-    pub async fn read(&self, path: &str) -> Result<(String, Trust, Option<Writer>), ToolError> {
+    /// under the shared lock. The text is `None` for a file the agents cannot read: binary, or
+    /// over 256 KB.
+    pub async fn read(
+        &self,
+        path: &str,
+    ) -> Result<(Option<String>, Trust, Option<Writer>), ToolError> {
         let _shared = self.lock.read().await;
-        let text = self.read_text(path).await?;
+        let bytes = self.read_bytes(path).await?;
+        let text = (bytes.len() <= FILE_BYTES)
+            .then(|| String::from_utf8(bytes).ok())
+            .flatten();
         Ok((
             text,
             self.trust_of(path).await?,
@@ -296,6 +318,165 @@ impl Workspace {
         Ok((at.shown, replaced))
     }
 
+    /// When the file's row last changed and whether the person wrote it; `None` with no row.
+    pub async fn stamp(&self, path: &str) -> Result<Option<(String, bool)>, ToolError> {
+        let row = sqlx::query!(
+            "SELECT updated_at, written_by_user FROM workspace_files WHERE path = ?",
+            path
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(storage_failed)?;
+        Ok(row.map(|row| (row.updated_at, row.written_by_user != 0)))
+    }
+
+    /// The person's own save into `team`'s own folder, with the rules an agent's save has. A new
+    /// file is trusted, the person's words; a replaced one keeps its label, since the editor
+    /// starts from the old text. `expected` is the `updated_at` the person saw: `None` creates
+    /// only, and a file changed since is `Stale`. Returns the path as shown and whether it was new.
+    pub async fn person_write(
+        &self,
+        team: TeamId,
+        path: &str,
+        text: &str,
+        expected: Option<&str>,
+    ) -> Result<(String, bool), PersonFileError> {
+        let _exclusive = self.lock.write().await;
+        let at = self.person_place(team, path).await?;
+        let stamp = self.stamp(&at.physical).await?;
+        let exists = self.kind_of(&at.physical).await?.is_some();
+        let trust = match (exists || stamp.is_some(), expected, &stamp) {
+            (false, None, _) => Trust::Trusted,
+            (false, Some(_), _) => return Err(PersonFileError::Stale),
+            (true, None, _) => return Err(PersonFileError::Exists),
+            (true, Some(seen), Some((updated, _))) if seen == updated => {
+                self.trust_of(&at.physical).await?
+            }
+            (true, Some(_), _) => return Err(PersonFileError::Stale),
+        };
+        let target = self.prepare(&at.physical).await?;
+        self.record_person(&at.physical, Trust::Untrusted).await?;
+        write_atomic(&target, text.as_bytes())
+            .await
+            .map_err(|_| cannot_write(&at.physical))?;
+        self.record_person(&at.physical, trust).await?;
+        Ok((at.shown, !exists))
+    }
+
+    /// Removes a file of `team`'s own folder and its row; `expected` as for `person_write`.
+    pub async fn person_delete(
+        &self,
+        team: TeamId,
+        path: &str,
+        expected: &str,
+    ) -> Result<(), PersonFileError> {
+        let _exclusive = self.lock.write().await;
+        let at = self.person_place(team, path).await?;
+        self.check_stamp(&at.physical, expected).await?;
+        let target = resolve(&self.root, &at.physical).await?;
+        tokio::fs::remove_file(&target)
+            .await
+            .map_err(|_| cannot_write(&at.physical))?;
+        sqlx::query!("DELETE FROM workspace_files WHERE path = ?", at.physical)
+            .execute(&self.pool)
+            .await
+            .map_err(storage_failed)?;
+        Ok(())
+    }
+
+    /// The person vouches for a file of `team`'s own folder, an upload included: its row becomes
+    /// trusted. A task that already read it stays tainted; nothing clears taint.
+    pub async fn person_trust(
+        &self,
+        team: TeamId,
+        path: &str,
+        expected: &str,
+    ) -> Result<(), PersonFileError> {
+        let _exclusive = self.lock.write().await;
+        let at = self.person_place(team, path).await?;
+        self.check_stamp(&at.physical, expected).await?;
+        if self.trust_of(&at.physical).await? == Trust::Trusted {
+            return Err(PersonFileError::Conflict("the file is already trusted"));
+        }
+        let trusted = to_text(&Trust::Trusted).map_err(storage_failed)?;
+        let now = timestamp(Utc::now());
+        sqlx::query!(
+            "UPDATE workspace_files SET trust = ?, updated_at = ? WHERE path = ?",
+            trusted,
+            now,
+            at.physical
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(storage_failed)?;
+        Ok(())
+    }
+
+    /// Whether the person may change `path` from `team`: its own folder, not `data/`.
+    pub async fn person_editable(&self, team: TeamId, path: &str) -> bool {
+        self.person_place(team, path).await.is_ok()
+    }
+
+    /// A path of the team's own folder: never `data/` and never another team's folder, which the
+    /// person edits from that team.
+    async fn person_place(&self, team: TeamId, path: &str) -> Result<Located, PersonFileError> {
+        let clean = display(&relative(path)?);
+        if clean
+            .to_ascii_lowercase()
+            .starts_with(&format!("{TEAMS_DIR}/"))
+        {
+            return Err(PersonFileError::Tool(ToolError::InvalidArgs(
+                "path: edit another team's files from that team".to_string(),
+            )));
+        }
+        if !clean.is_ascii() {
+            return Err(PersonFileError::Tool(ToolError::InvalidArgs(
+                "path: use ASCII letters, digits and punctuation".to_string(),
+            )));
+        }
+        // Here a refused path is the person's request, not a failure of the server.
+        let at = self
+            .locate(team, &clean, Need::Write)
+            .await
+            .map_err(|error| match error {
+                ToolError::Failed(message) => ToolError::InvalidArgs(format!("path: {message}")),
+                other => other,
+            })?;
+        if self.case_twin(&at.physical).await? {
+            return Err(PersonFileError::Tool(ToolError::InvalidArgs(format!(
+                "path: {} differs only in letter case from a file that exists",
+                at.shown
+            ))));
+        }
+        Ok(at)
+    }
+
+    async fn check_stamp(&self, physical: &str, expected: &str) -> Result<(), PersonFileError> {
+        match self.stamp(physical).await? {
+            None => Err(PersonFileError::NotFound),
+            Some((updated, _)) if updated == expected => Ok(()),
+            Some(_) => Err(PersonFileError::Stale),
+        }
+    }
+
+    /// A row written by the person: no run, marked as theirs.
+    async fn record_person(&self, path: &str, trust: Trust) -> Result<(), ToolError> {
+        let trust = to_text(&trust).map_err(storage_failed)?;
+        let now = timestamp(Utc::now());
+        sqlx::query!(
+            "INSERT INTO workspace_files (path, trust, written_by_run, written_by_user, updated_at) VALUES (?, ?, NULL, 1, ?)
+             ON CONFLICT (path) DO UPDATE SET trust = excluded.trust, written_by_run = NULL,
+                                              written_by_user = 1, updated_at = excluded.updated_at",
+            path,
+            trust,
+            now
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(storage_failed)?;
+        Ok(())
+    }
+
     /// Holds every file operation off while a caller changes what a team may reach.
     pub async fn exclusive(&self) -> tokio::sync::OwnedRwLockWriteGuard<()> {
         Arc::clone(&self.lock).write_owned().await
@@ -363,9 +544,9 @@ impl Workspace {
         let trust = to_text(&trust).map_err(storage_failed)?;
         let now = timestamp(Utc::now());
         sqlx::query!(
-            "INSERT INTO workspace_files (path, trust, written_by_run, updated_at) VALUES (?, ?, ?, ?)
+            "INSERT INTO workspace_files (path, trust, written_by_run, written_by_user, updated_at) VALUES (?, ?, ?, 0, ?)
              ON CONFLICT (path) DO UPDATE SET trust = excluded.trust, written_by_run = excluded.written_by_run,
-                                              updated_at = excluded.updated_at",
+                                              written_by_user = 0, updated_at = excluded.updated_at",
             path,
             trust,
             run,
@@ -406,15 +587,19 @@ impl Workspace {
     }
 
     /// Reads a text file inside the sandbox, at most 256 KB.
-    async fn read_text(&self, path: &str) -> Result<String, ToolError> {
+    async fn read_bytes(&self, path: &str) -> Result<Vec<u8>, ToolError> {
         let full = resolve(&self.root, path).await?;
-        let bytes = match tokio::fs::read(&full).await {
-            Ok(bytes) => bytes,
+        match tokio::fs::read(&full).await {
+            Ok(bytes) => Ok(bytes),
             Err(error) if error.kind() == ErrorKind::NotFound => {
-                return Err(ToolError::Failed(format!("no file at {path}")));
+                Err(ToolError::Failed(format!("no file at {path}")))
             }
-            Err(_) => return Err(ToolError::Failed(format!("{path} cannot be read"))),
-        };
+            Err(_) => Err(ToolError::Failed(format!("{path} cannot be read"))),
+        }
+    }
+
+    async fn read_text(&self, path: &str) -> Result<String, ToolError> {
+        let bytes = self.read_bytes(path).await?;
         if bytes.len() > FILE_BYTES {
             return Err(ToolError::Failed(format!("{path} is larger than 256 KB")));
         }

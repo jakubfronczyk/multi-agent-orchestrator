@@ -15,10 +15,13 @@ use ts_rs::TS;
 
 use super::error::ApiError;
 use super::error::ErrorCode;
+use super::json::ApiJson;
 use super::{AppState, query};
 use crate::sqlite::teams;
 use crate::tools::convert::{ConvertError, convert, is_text};
-use crate::tools::workspace::{EntryKind, FILE_BYTES, Need, UploadError, upload_name};
+use crate::tools::workspace::{
+    EntryKind, FILE_BYTES, Need, PersonFileError, TEXT_EXTENSIONS, UploadError, upload_name,
+};
 
 const UPLOAD_FIELD: &str = "file";
 /// The largest file an upload takes as sent; what is stored as text stays within `FILE_BYTES`.
@@ -49,6 +52,8 @@ pub struct FileEntryView {
     pub written_by_root_run_id: Option<RunId>,
     /// That task's team; null exactly when `written_by_root_run_id` is.
     pub written_by_team_id: Option<TeamId>,
+    /// The person saved it themselves.
+    pub written_by_user: bool,
 }
 
 #[derive(Debug, Serialize, TS)]
@@ -61,12 +66,21 @@ pub enum FileView {
     },
     File {
         path: String,
-        content: String,
+        /// Null for a file the agents cannot read: binary, or over 256 KB.
+        content: Option<String>,
         trust: Trust,
         /// The root run of the task that last wrote the file; null for seeded files and uploads.
         written_by_root_run_id: Option<RunId>,
         /// That task's team; null exactly when `written_by_root_run_id` is.
         written_by_team_id: Option<TeamId>,
+        /// The person saved it themselves.
+        written_by_user: bool,
+        /// When its record last changed; a change, delete or mark by the person names it.
+        /// Null for a file with no record.
+        updated_at: Option<String>,
+        /// The person may change it here: a file of this team's own folder, not `data/` or a
+        /// granted folder.
+        editable: bool,
     },
 }
 
@@ -85,20 +99,31 @@ pub async fn view(
         None => return Err(ApiError::not_found()),
         Some(EntryKind::Dir) => {
             let entries = workspace.list_for(team, &path).await.map_err(path_error)?;
+            let mut views = Vec::with_capacity(entries.len());
+            for entry in entries {
+                let physical = workspace.locate(team, &entry.path, Need::Read).await.ok();
+                let by_user = match physical {
+                    Some(at) if entry.kind == EntryKind::File => workspace
+                        .stamp(&at.physical)
+                        .await
+                        .map_err(path_error)?
+                        .is_some_and(|(_, by_user)| by_user),
+                    _ => false,
+                };
+                views.push(FileEntryView {
+                    name: entry.name,
+                    path: entry.path,
+                    kind: entry.kind,
+                    bytes: entry.bytes,
+                    trust: entry.trust,
+                    written_by_root_run_id: entry.written_by.map(|w| w.root_run_id),
+                    written_by_team_id: entry.written_by.map(|w| w.team_id),
+                    written_by_user: by_user,
+                });
+            }
             FileView::Dir {
                 path: shown,
-                entries: entries
-                    .into_iter()
-                    .map(|entry| FileEntryView {
-                        name: entry.name,
-                        path: entry.path,
-                        kind: entry.kind,
-                        bytes: entry.bytes,
-                        trust: entry.trust,
-                        written_by_root_run_id: entry.written_by.map(|w| w.root_run_id),
-                        written_by_team_id: entry.written_by.map(|w| w.team_id),
-                    })
-                    .collect(),
+                entries: views,
             }
         }
         Some(EntryKind::File | EntryKind::Symlink) => {
@@ -108,12 +133,18 @@ pub async fn view(
                 .map_err(path_error)?;
             let (content, trust, written_by) =
                 workspace.read(&at.physical).await.map_err(path_error)?;
+            let stamp = workspace.stamp(&at.physical).await.map_err(path_error)?;
+            let editable = !teams::get(&state.pool, team).await?.deleted_at.is_some()
+                && workspace.person_editable(team, &at.shown).await;
             FileView::File {
                 path: at.shown,
                 content,
                 trust,
                 written_by_root_run_id: written_by.map(|w| w.root_run_id),
                 written_by_team_id: written_by.map(|w| w.team_id),
+                written_by_user: stamp.as_ref().is_some_and(|(_, by_user)| *by_user),
+                updated_at: stamp.map(|(updated, _)| updated),
+                editable,
             }
         }
     };
@@ -235,6 +266,139 @@ pub async fn upload(
             converted_from,
         }),
     ))
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
+pub struct FileWrite {
+    pub content: String,
+    /// The file's `updated_at` as the person saw it; absent creates a new file only.
+    #[serde(default)]
+    pub expected_updated_at: Option<String>,
+}
+
+/// The `updated_at` the person saw, for a mark as trusted.
+#[derive(Debug, Deserialize, TS)]
+#[ts(export)]
+pub struct FileStamp {
+    pub expected_updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileChangeQuery {
+    team_id: Option<String>,
+    path: Option<String>,
+    expected_updated_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct FileWritten {
+    /// As the team's agents name it.
+    pub path: String,
+    pub created: bool,
+}
+
+/// The person's own save into a live team's own folder, with an agent's rules: a text extension,
+/// at most 256 KB, ASCII path, no case twin, never `data/` or another team's folder. 201 for a
+/// new file, stored trusted; 200 for a replaced one, label unchanged. 409 when the file exists
+/// and no `expected_updated_at` was sent, or it changed since; 404 for an unknown or deleted team.
+pub async fn write(
+    State(state): State<AppState>,
+    Query(query): Query<FileChangeQuery>,
+    ApiJson(input): ApiJson<FileWrite>,
+) -> Result<(StatusCode, Json<FileWritten>), ApiError> {
+    let team = live_team(&state, query.team_id).await?;
+    let path = query
+        .path
+        .ok_or_else(|| ApiError::invalid("path", "name a file"))?;
+    let extension = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+    if !extension.is_some_and(|e| TEXT_EXTENSIONS.contains(&e.as_str())) {
+        return Err(ApiError::invalid(
+            "path",
+            "end it in .md, .csv, .json or .txt",
+        ));
+    }
+    if input.content.len() > FILE_BYTES {
+        return Err(ApiError::invalid("content", "at most 256 KB"));
+    }
+    let (path, created) = state
+        .workspace
+        .person_write(
+            team,
+            &path,
+            &input.content,
+            input.expected_updated_at.as_deref(),
+        )
+        .await
+        .map_err(person_error)?;
+    let status = if created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
+    Ok((status, Json(FileWritten { path, created })))
+}
+
+/// 204: the file and its record are gone. 409 when it changed since `expected_updated_at`.
+pub async fn remove(
+    State(state): State<AppState>,
+    Query(query): Query<FileChangeQuery>,
+) -> Result<StatusCode, ApiError> {
+    let team = live_team(&state, query.team_id).await?;
+    let path = query
+        .path
+        .ok_or_else(|| ApiError::invalid("path", "name a file"))?;
+    let expected = query
+        .expected_updated_at
+        .ok_or_else(|| ApiError::invalid("expected_updated_at", "name the version you saw"))?;
+    state
+        .workspace
+        .person_delete(team, &path, &expected)
+        .await
+        .map_err(person_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// 204: the person vouches for the file, an upload included, and it is stored trusted. Tasks it
+/// already tainted stay tainted.
+pub async fn mark_trusted(
+    State(state): State<AppState>,
+    Query(query): Query<FileChangeQuery>,
+    ApiJson(input): ApiJson<FileStamp>,
+) -> Result<StatusCode, ApiError> {
+    let team = live_team(&state, query.team_id).await?;
+    let path = query
+        .path
+        .ok_or_else(|| ApiError::invalid("path", "name a file"))?;
+    state
+        .workspace
+        .person_trust(team, &path, &input.expected_updated_at)
+        .await
+        .map_err(person_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn live_team(state: &AppState, raw: Option<String>) -> Result<TeamId, ApiError> {
+    let team = required_team(raw)?;
+    if teams::get(&state.pool, team).await?.deleted_at.is_some() {
+        return Err(ApiError::not_found());
+    }
+    Ok(team)
+}
+
+fn person_error(error: PersonFileError) -> ApiError {
+    match error {
+        PersonFileError::Tool(ToolError::Failed(message)) => {
+            tracing::error!(%message, "a person's file change failed");
+            ApiError::internal()
+        }
+        PersonFileError::Tool(error) => path_error(error),
+        PersonFileError::NotFound => ApiError::not_found(),
+        PersonFileError::Stale => ApiError::conflict("the file changed since you opened it"),
+        PersonFileError::Exists => ApiError::conflict("a file is already there"),
+        PersonFileError::Conflict(message) => ApiError::conflict(message),
+    }
 }
 
 fn required_team(raw: Option<String>) -> Result<TeamId, ApiError> {

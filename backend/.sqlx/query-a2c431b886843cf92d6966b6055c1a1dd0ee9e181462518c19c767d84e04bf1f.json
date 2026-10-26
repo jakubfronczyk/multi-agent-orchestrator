@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT e.id, e.scope, e.team_id, e.owner_agent_id, e.key, e.content, e.author_agent_id,\n                  a.slug AS \"author_slug!\", e.trust, e.version, e.created_at, e.updated_at,\n                  r.root_run_id AS \"root_run_id!\"\n           FROM memory_entries e\n           JOIN agents a ON a.id = e.author_agent_id\n           JOIN memory_versions v ON v.entry_id = e.id AND v.version = e.version\n           JOIN runs r ON r.id = v.run_id\n           WHERE (?1 IS NULL OR e.scope = ?1) AND (?2 IS NULL OR e.owner_agent_id = ?2)\n             AND (?3 IS NULL OR e.key LIKE ?3 ESCAPE '\\' OR e.content LIKE ?3 ESCAPE '\\')\n             AND (?5 IS NULL OR e.team_id = ?5)\n           ORDER BY e.updated_at DESC, e.id\n           LIMIT ?4",
+  "query": "SELECT e.id, e.scope, e.team_id, e.owner_agent_id, e.key, e.content, e.author_agent_id,\n                  a.slug AS \"author_slug?\", e.trust, e.version, e.created_at, e.updated_at,\n                  r.root_run_id AS \"root_run_id?\"\n           FROM memory_entries e\n           LEFT JOIN agents a ON a.id = e.author_agent_id\n           JOIN memory_versions v ON v.entry_id = e.id AND v.version = e.version\n           LEFT JOIN runs r ON r.id = v.run_id\n           WHERE e.deleted_at IS NULL\n             AND (?1 IS NULL OR e.scope = ?1) AND (?2 IS NULL OR e.owner_agent_id = ?2)\n             AND (?3 IS NULL OR e.key LIKE ?3 ESCAPE '\\' OR e.content LIKE ?3 ESCAPE '\\')\n             AND (?5 IS NULL OR e.team_id = ?5)\n           ORDER BY e.updated_at DESC, e.id\n           LIMIT ?4",
   "describe": {
     "columns": [
       {
@@ -81,7 +81,7 @@
         }
       },
       {
-        "name": "author_slug!",
+        "name": "author_slug?",
         "ordinal": 7,
         "type_info": "Text",
         "origin": {
@@ -136,7 +136,7 @@
         }
       },
       {
-        "name": "root_run_id!",
+        "name": "root_run_id?",
         "ordinal": 12,
         "type_info": "Text",
         "origin": {
@@ -157,14 +157,14 @@
       true,
       false,
       false,
+      true,
+      true,
       false,
       false,
       false,
       false,
-      false,
-      false,
-      false
+      true
     ]
   },
-  "hash": "46bc9342ee35267a1c785b6cc22ee28c76c9473bcaf2f9e78ab6ebdb31733b9d"
+  "hash": "a2c431b886843cf92d6966b6055c1a1dd0ee9e181462518c19c767d84e04bf1f"
 }

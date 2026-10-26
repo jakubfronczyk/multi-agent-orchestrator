@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT updated_at, written_by_user FROM workspace_files WHERE path = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "updated_at",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "written_by_user",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "workspace_files",
+            "name": "written_by_user"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "82ef7bc2923957e20a4c52143fce953d6c56aaf16cfd671fbb752b28c189d40c"
+}

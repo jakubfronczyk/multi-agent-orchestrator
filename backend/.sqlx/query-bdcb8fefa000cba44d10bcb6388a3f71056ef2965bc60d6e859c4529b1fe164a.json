@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE workspace_files SET trust = ?, updated_at = ? WHERE path = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "bdcb8fefa000cba44d10bcb6388a3f71056ef2965bc60d6e859c4529b1fe164a"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT e.content, e.trust, e.version, a.slug AS \"author!\"\n               FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id\n               WHERE e.scope = ? AND e.key = ? AND e.owner_agent_id IS ? AND e.team_id = ?\n                 AND (NOT ? OR e.trust = ?)",
+  "query": "SELECT e.content, e.trust, e.version, a.slug AS \"author?\"\n               FROM memory_entries e LEFT JOIN agents a ON a.id = e.author_agent_id\n               WHERE e.scope = ? AND e.key = ? AND e.owner_agent_id IS ? AND e.team_id = ?\n                 AND (NOT ? OR e.trust = ?) AND e.deleted_at IS NULL",
   "describe": {
     "columns": [
       {
@@ -37,7 +37,7 @@
         }
       },
       {
-        "name": "author!",
+        "name": "author?",
         "ordinal": 3,
         "type_info": "Text",
         "origin": {
@@ -55,8 +55,8 @@
       false,
       false,
       false,
-      false
+      true
     ]
   },
-  "hash": "547ca61517595327c1b3a87e43a0d7c084d0423e03a1e0b166f73aebb04494af"
+  "hash": "0a5d1b13d2cf88588ad2b839951a9108c68d5d8c6a2eb48cef61b491e8c13dce"
 }

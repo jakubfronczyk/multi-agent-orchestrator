@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO memory_versions (entry_id, version, content, author_agent_id, run_id, trust, created_at)\n         VALUES (?, ?, ?, NULL, NULL, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "4861a41a6ff835beaf4a8bd06ff242ba5007f43155eaddf4b5f2ead69bbfb596"
+}

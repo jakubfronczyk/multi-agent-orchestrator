@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.scope, e.content, e.trust, e.version FROM memory_entries e\n         JOIN teams t ON t.id = e.team_id\n         WHERE e.id = ? AND e.deleted_at IS NULL AND t.deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "scope",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "scope"
+          }
+        }
+      },
+      {
+        "name": "content",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "name": "trust",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "trust"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "93d5a3f377e589095c184107e918adeea63eecf4ce6686608efd5113bed12eab"
+}

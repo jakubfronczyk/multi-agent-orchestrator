@@ -27,6 +27,8 @@ const CONTENT_BYTES: usize = 16 * 1024;
 const SEARCH_LIMIT: usize = 20;
 /// Search shows the start of each note; memory_read returns the whole note.
 const SEARCH_NOTE_CHARS: usize = 1000;
+/// How a note the person wrote names its author to the model.
+const BY_PERSON: &str = "the person";
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -153,10 +155,10 @@ impl Tool for MemoryRead {
         // Shared notes are the caller's team's; a private note's owner implies its team.
         let team = to_text(&ctx.team_id).map_err(storage_failed)?;
         let row = sqlx::query!(
-            r#"SELECT e.content, e.trust, e.version, a.slug AS "author!"
-               FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id
+            r#"SELECT e.content, e.trust, e.version, a.slug AS "author?"
+               FROM memory_entries e LEFT JOIN agents a ON a.id = e.author_agent_id
                WHERE e.scope = ? AND e.key = ? AND e.owner_agent_id IS ? AND e.team_id = ?
-                 AND (NOT ? OR e.trust = ?)"#,
+                 AND (NOT ? OR e.trust = ?) AND e.deleted_at IS NULL"#,
             scope,
             key,
             owner,
@@ -186,7 +188,7 @@ impl Tool for MemoryRead {
                 "found": true,
                 "key": key,
                 "content": row.content,
-                "author": row.author,
+                "author": row.author.as_deref().unwrap_or(BY_PERSON),
                 "trust": row.trust,
                 "version": row.version,
             }),
@@ -229,11 +231,11 @@ impl Tool for MemorySearch {
         let (trusted_only, trusted) = trusted_only(ctx)?;
         let team = to_text(&ctx.team_id).map_err(storage_failed)?;
         let rows = sqlx::query!(
-            r#"SELECT e.scope, e.key, e.content, e.trust, a.slug AS "author!"
-               FROM memory_entries e JOIN agents a ON a.id = e.author_agent_id
+            r#"SELECT e.scope, e.key, e.content, e.trust, a.slug AS "author?"
+               FROM memory_entries e LEFT JOIN agents a ON a.id = e.author_agent_id
                WHERE ((?1 AND e.scope = ?2) OR (?3 AND e.scope = ?4 AND e.owner_agent_id = ?5))
                  AND (NOT ?6 OR e.trust = ?7)
-                 AND e.team_id = ?8
+                 AND e.team_id = ?8 AND e.deleted_at IS NULL
                ORDER BY e.updated_at DESC"#,
             shared,
             shared_scope,
@@ -272,7 +274,7 @@ impl Tool for MemorySearch {
                 "key": row.key,
                 "content": start,
                 "truncated": cut,
-                "author": row.author,
+                "author": row.author.as_deref().unwrap_or(BY_PERSON),
                 "trust": row.trust,
             }));
         }
@@ -299,8 +301,8 @@ impl Tool for MemoryWrite {
 
     /// One transaction: the upsert bumps the version, so parallel writes to one key never
     /// share a version number, and the version row records who wrote it in which run.
-    /// The upsert skips an untrusted write over a trusted note in the same statement, so no
-    /// trusted note is ever replaced by a tainted task.
+    /// The upsert skips an untrusted write over a live trusted note in the same statement, so no
+    /// trusted note is ever replaced by a tainted task; writing a deleted note's key revives it.
     async fn run(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput, ToolError> {
         let args: WriteArgs = parse_args(&args)?;
         let scope = to_text(&args.scope).map_err(storage_failed)?;
@@ -325,8 +327,9 @@ impl Tool for MemoryWrite {
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                    ON CONFLICT (owner_agent_id, key) WHERE scope = 'private' DO UPDATE SET
                      content = excluded.content, author_agent_id = excluded.author_agent_id,
-                     trust = excluded.trust, version = memory_entries.version + 1, updated_at = excluded.updated_at
-                   WHERE NOT (memory_entries.trust = ? AND excluded.trust = ?)
+                     trust = excluded.trust, version = memory_entries.version + 1, updated_at = excluded.updated_at,
+                     deleted_at = NULL
+                   WHERE NOT (memory_entries.trust = ? AND excluded.trust = ? AND memory_entries.deleted_at IS NULL)
                    RETURNING id, version"#,
                 id,
                 scope,
@@ -350,8 +353,9 @@ impl Tool for MemoryWrite {
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                    ON CONFLICT (team_id, key) WHERE scope = 'shared' DO UPDATE SET
                      content = excluded.content, author_agent_id = excluded.author_agent_id,
-                     trust = excluded.trust, version = memory_entries.version + 1, updated_at = excluded.updated_at
-                   WHERE NOT (memory_entries.trust = ? AND excluded.trust = ?)
+                     trust = excluded.trust, version = memory_entries.version + 1, updated_at = excluded.updated_at,
+                     deleted_at = NULL
+                   WHERE NOT (memory_entries.trust = ? AND excluded.trust = ? AND memory_entries.deleted_at IS NULL)
                    RETURNING id, version"#,
                 id,
                 scope,

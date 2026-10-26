@@ -13,4 +13,8 @@ written_by_root_run_id: RunId | null,
 /**
  * That task's team; null exactly when `written_by_root_run_id` is.
  */
-written_by_team_id: TeamId | null, };
+written_by_team_id: TeamId | null, 
+/**
+ * The person saved it themselves.
+ */
+written_by_user: boolean, };

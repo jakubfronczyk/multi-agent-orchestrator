@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT v.version, v.content, v.author_agent_id, a.slug AS \"author_slug!\", v.run_id,\n                  r.root_run_id, v.trust, v.created_at\n           FROM memory_versions v\n           JOIN agents a ON a.id = v.author_agent_id\n           JOIN runs r ON r.id = v.run_id\n           WHERE v.entry_id = ?\n           ORDER BY v.version DESC",
+  "query": "SELECT v.version, v.content, v.author_agent_id, a.slug AS \"author_slug?\", v.run_id,\n                  r.root_run_id AS \"root_run_id?\", v.trust, v.created_at\n           FROM memory_versions v\n           LEFT JOIN agents a ON a.id = v.author_agent_id\n           LEFT JOIN runs r ON r.id = v.run_id\n           WHERE v.entry_id = ?\n           ORDER BY v.version DESC",
   "describe": {
     "columns": [
       {
@@ -37,7 +37,7 @@
         }
       },
       {
-        "name": "author_slug!",
+        "name": "author_slug?",
         "ordinal": 3,
         "type_info": "Text",
         "origin": {
@@ -59,7 +59,7 @@
         }
       },
       {
-        "name": "root_run_id",
+        "name": "root_run_id?",
         "ordinal": 5,
         "type_info": "Text",
         "origin": {
@@ -98,13 +98,13 @@
     "nullable": [
       false,
       false,
-      false,
-      false,
-      false,
-      false,
+      true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "72b0358b1067e2df7edeefb686775c822505fef39912b50efd6acad93786e48a"
+  "hash": "7b7df1dabb8007628b82c3947ee79939256c34f8e58c73603044424d8cadb8c6"
 }

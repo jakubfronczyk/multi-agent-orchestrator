@@ -54,15 +54,20 @@ pub fn router(state: AppState) -> Router {
         .route("/runs/{id}/cancel", post(runs::cancel))
         .route("/runs/{id}/messages", post(runs::follow_up))
         .route("/tool-calls", get(tool_calls::list))
-        .route("/memory", get(memory::list))
+        .route("/memory", get(memory::list).post(memory::create))
+        .route("/memory/{id}", put(memory::edit).delete(memory::delete))
         .route("/memory/{id}/versions", get(memory::versions))
+        .route("/memory/{id}/trust", post(memory::mark_trusted))
         .route("/outbox", get(outbox::list))
         .route(
             "/files",
             get(files::view)
                 .post(files::upload)
+                .put(files::write)
+                .delete(files::remove)
                 .layer(DefaultBodyLimit::max(files::UPLOAD_BYTES + 64 * 1024)),
         )
+        .route("/files/trust", post(files::mark_trusted))
         .route("/drill", post(drill::start))
         .route("/drill/{id}/report", get(drill::report))
         .route("/approvals", get(approvals::list))

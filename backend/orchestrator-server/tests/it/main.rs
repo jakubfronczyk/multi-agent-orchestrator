@@ -43,6 +43,7 @@ mod teams;
 mod teams_safety;
 mod tools;
 mod uploads;
+mod user_edits;
 mod xai;
 
 /// Upper bound for any wait in a test; reaching it is a failure, not a delay.

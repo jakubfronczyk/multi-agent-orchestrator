@@ -297,8 +297,8 @@ async fn a_delegated_runs_note_version_names_the_task(pool: SqlitePool) {
         .expect("read")
         .expect("note")
         .versions;
-    assert_eq!(versions[0].run_id, child);
-    assert_eq!(versions[0].root_run_id, root_ctx.root_run_id);
+    assert_eq!(versions[0].run_id, Some(child));
+    assert_eq!(versions[0].root_run_id, Some(root_ctx.root_run_id));
 }
 
 /// Shared notes belong to a team: another team neither reads nor finds them, writes its own
@@ -376,7 +376,7 @@ async fn shared_notes_stay_with_their_team(pool: SqlitePool) {
     .expect("list");
     assert_eq!(listed.entries.len(), 1);
     assert_eq!(listed.entries[0].team_id, app.team);
-    assert_eq!(listed.entries[0].root_run_id, a_writer.root_run_id);
+    assert_eq!(listed.entries[0].root_run_id, Some(a_writer.root_run_id));
     assert!(listed.last_event_id.is_some());
 }
 

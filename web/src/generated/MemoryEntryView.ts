@@ -13,8 +13,12 @@ team_id: TeamId,
 /**
  * The agent a private note belongs to; `None` for shared notes.
  */
-owner_agent_id: AgentId | null, key: string, content: string, author_agent_id: AgentId, author_slug: string, trust: Trust, version: number, 
+owner_agent_id: AgentId | null, key: string, content: string, 
 /**
- * The task that wrote the current version.
+ * `None` when the person wrote the current version.
  */
-root_run_id: RunId, created_at: string, updated_at: string, };
+author_agent_id: AgentId | null, author_slug: string | null, trust: Trust, version: number, 
+/**
+ * The task that wrote the current version; `None` when the person did, outside any task.
+ */
+root_run_id: RunId | null, created_at: string, updated_at: string, };

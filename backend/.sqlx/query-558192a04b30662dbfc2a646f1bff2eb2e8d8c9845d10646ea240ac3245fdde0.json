@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE memory_entries SET deleted_at = NULL WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "558192a04b30662dbfc2a646f1bff2eb2e8d8c9845d10646ea240ac3245fdde0"
+}

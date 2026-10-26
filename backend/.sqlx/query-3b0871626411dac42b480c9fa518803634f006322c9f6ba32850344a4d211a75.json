@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE memory_entries SET content = ?, author_agent_id = NULL, trust = ?, version = ?, updated_at = ?\n         WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "3b0871626411dac42b480c9fa518803634f006322c9f6ba32850344a4d211a75"
+}

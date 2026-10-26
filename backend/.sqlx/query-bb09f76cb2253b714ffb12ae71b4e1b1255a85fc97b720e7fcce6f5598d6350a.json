@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT team_id FROM memory_entries WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "team_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "team_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bb09f76cb2253b714ffb12ae71b4e1b1255a85fc97b720e7fcce6f5598d6350a"
+}

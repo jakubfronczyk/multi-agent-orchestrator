@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO memory_entries\n                     (id, scope, team_id, owner_agent_id, key, content, author_agent_id, trust, version, created_at, updated_at)\n                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)\n                   ON CONFLICT (owner_agent_id, key) WHERE scope = 'private' DO UPDATE SET\n                     content = excluded.content, author_agent_id = excluded.author_agent_id,\n                     trust = excluded.trust, version = memory_entries.version + 1, updated_at = excluded.updated_at,\n                     deleted_at = NULL\n                   WHERE NOT (memory_entries.trust = ? AND excluded.trust = ? AND memory_entries.deleted_at IS NULL)\n                   RETURNING id, version",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "version",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "memory_entries",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "c96f49ee102eb4a2e1a2f8d198b0a0ebad913d1072b5718ac059a396f7560b65"
+}
