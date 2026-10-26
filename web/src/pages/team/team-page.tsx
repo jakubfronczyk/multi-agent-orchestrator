@@ -1,7 +1,8 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useSearchParams } from "react-router"
+import { Link, useSearchParams } from "react-router"
 import { agentsQuery } from "@/api/agents"
+import { runsQuery } from "@/api/runs"
 import { deleteTeam, refetchTeams, renameTeam } from "@/api/teams"
 import { Page } from "@/components/page"
 import { Button } from "@/components/ui/button"
@@ -66,6 +67,12 @@ function TeamHeader({ team }: { team: TeamView }) {
   const [mode, setMode] = useState<"view" | "rename" | "delete">("view")
   const [name, setName] = useState(team.name)
   const [error, setError] = useState<string | null>(null)
+  // The live task that blocked a delete, linked from the 409 notice.
+  const [blocker, setBlocker] = useState<string | null>(null)
+  const clearError = () => {
+    setError(null)
+    setBlocker(null)
+  }
   const renameButton = useRef<HTMLButtonElement>(null)
   // The form unmounts on save or cancel; focus goes back to the button that opened it.
   const closeForm = () => {
@@ -85,14 +92,15 @@ function TeamHeader({ team }: { team: TeamView }) {
     mutationFn: () => deleteTeam(team.id),
     // The switcher falls back to the oldest live team once the list no longer has this one.
     onSuccess: refresh,
-    onError: (failure) =>
-      setError(
-        isApiError(failure, 409)
-          ? failure.message.includes("running")
-            ? "Cancel its running task first."
-            : "Keep at least one team."
-          : `Couldn't delete it. ${failure.message}`,
-      ),
+    onError: async (failure) => {
+      if (isApiError(failure, 409) && failure.message.includes("running")) {
+        setError("Cancel its running task first.")
+        const { runs } = await client.fetchQuery({ ...runsQuery(50, team.id), staleTime: 0 })
+        setBlocker(runs.find((run) => run.status === "running")?.id ?? null)
+      } else {
+        setError(isApiError(failure, 409) ? "Keep at least one team." : `Couldn't delete it. ${failure.message}`)
+      }
+    },
   })
 
   return (
@@ -112,7 +120,7 @@ function TeamHeader({ team }: { team: TeamView }) {
             maxLength={60}
             onChange={(event) => {
               setName(event.target.value)
-              setError(null)
+              clearError()
             }}
             className="h-9 min-w-[200px] flex-1 rounded-md bg-card px-3 ring-1 ring-border outline-none ring-inset focus-visible:ring-2 focus-visible:ring-ring"
           />
@@ -135,7 +143,7 @@ function TeamHeader({ team }: { team: TeamView }) {
               size="sm"
               variant="ghost"
               onClick={() => {
-                setError(null)
+                clearError()
                 setName(team.name)
                 setMode("rename")
               }}
@@ -147,7 +155,7 @@ function TeamHeader({ team }: { team: TeamView }) {
               variant="ghost"
               className="text-destructive"
               onClick={() => {
-                setError(null)
+                clearError()
                 setMode("delete")
               }}
             >
@@ -172,6 +180,14 @@ function TeamHeader({ team }: { team: TeamView }) {
       {error && (
         <p role="alert" className="m-0 text-sm text-destructive">
           {error}
+          {blocker && (
+            <>
+              {" "}
+              <Link to={`/tasks/${blocker}`} className="underline underline-offset-[3px]">
+                Open the running task
+              </Link>
+            </>
+          )}
         </p>
       )}
     </section>
