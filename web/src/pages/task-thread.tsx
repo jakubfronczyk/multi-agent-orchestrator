@@ -545,9 +545,9 @@ function TurnSection({
           )}
         </>
       ) : running && !waiting && !planning ? (
-        <div className="grid grid-cols-[20px_minmax(0,1fr)] items-center gap-3 text-sm text-muted-foreground">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
           {lead && <AgentShape icon={lead.icon} colour={lead.colour} size="md" pulse />}
-          {name} is working
+          <span>{name} is working</span>
         </div>
       ) : null}
     </>

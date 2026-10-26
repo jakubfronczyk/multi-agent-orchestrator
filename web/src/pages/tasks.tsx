@@ -7,7 +7,6 @@ import { TaskRow } from "@/components/task-row"
 import { useTeamScope } from "@/lib/team-scope"
 import { useInvalidateOn } from "@/events/use-invalidate-on"
 import type { RunSummary } from "@/generated/RunSummary"
-import { money } from "@/lib/thread-view"
 
 type Filter = "all" | "needs" | "working" | "done" | "unfinished"
 
@@ -61,19 +60,9 @@ export function TasksPage() {
 
   const all = runs.data?.runs ?? []
   const shown = filter === "all" ? all : all.filter((run) => category(run) === filter)
-  const spend = shown.reduce((total, run) => total + run.cost_micros, 0)
 
   return (
-    <Page
-      title="Tasks"
-      lede={`Every task you've given, and how it ended. Open one to see the plan, what each teammate did, and to give its Lead a follow-up.${
-        runs.data
-          ? ` Model spend for the ${shown.length} ${shown.length === 1 ? "task" : "tasks"} shown: ${money(spend)}.${
-              all.length === LIMIT ? ` Showing the latest ${LIMIT}.` : ""
-            }`
-          : ""
-      } Scripted demos are free.`}
-    >
+    <Page title="Tasks" lede="Every task you've given and how it ended.">
       <FilterPills
         label="Show tasks"
         options={FILTERS}

@@ -46,7 +46,7 @@ export function NotesPage() {
   return (
     <Page
       title="Team notes"
-      lede={unknown ? "No team has this id." : `Notes ${teamName ?? "your team"} keeps between tasks. Every teammate of the team can read its shared notes; a private note only the teammate it belongs to. Each change is kept as a version with its own trust label. The Lead can read only trusted shared notes. Untrusted ones are invisible to it.`}
+      lede={unknown ? "No team has this id." : "What the team remembers between tasks. The Lead sees only trusted shared notes."}
     >
       {deleted !== null && !unknown && (
         <p className="m-0 text-sm text-muted-foreground">
