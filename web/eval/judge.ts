@@ -96,7 +96,7 @@ export function judgeInput(t: Transcript, c: Case, e: Expectation, seedData: str
     `SEEDED DATA:\n${seedData}`,
     `TOOL CALLS (in order):\n${calls.map((call) => line(t, call)).join("\n") || "none"}`,
     `FILES WRITTEN:\n${files.join("\n") || "none"}`,
-    `MESSAGES DELIVERED:\n${t.outbox.map((m) => `to ${m.recipient}: ${short(m.body, 600)}`).join("\n") || "none"}`,
+    `MESSAGES DELIVERED:\n${t.outbox.map((m) => `to ${m.recipient}${m.cc.length ? ` cc ${m.cc.join(", ")}` : ""}: ${short(m.body, 600)}`).join("\n") || "none"}`,
     `FINAL ANSWER:\n${summaries(t) || "(none)"}`,
     t.second
       ? `SECOND TASK (new task, same team, no shared transcript): ${c.secondTask}\nITS CALLS: ${t.second.detail.tool_calls.map((call) => `${call.tool} ${call.status}`).join(", ") || "none"}\nITS ANSWER:\n${answerText(t.second.detail, "\n") || "(none)"}`

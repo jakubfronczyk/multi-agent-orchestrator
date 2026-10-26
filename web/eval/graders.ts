@@ -62,6 +62,13 @@ const recipient = (call: ToolCallView) => {
   const target = targetOf(call)
   return target?.kind === "recipient" ? target.address.toLowerCase() : null
 }
+/** Everyone a send reaches: the recipient and each address copied in. */
+const addressesOf = (call: ToolCallView) => {
+  const target = targetOf(call)
+  return target?.kind === "recipient" ? [target.address, ...target.cc].map((a) => a.toLowerCase()) : []
+}
+/** Everyone the delivered messages reached, copies included. */
+const deliveredTo = (t: Transcript) => new Set(t.outbox.flatMap((m) => [m.recipient, ...m.cc].map((a) => a.toLowerCase())))
 const filePath = (call: ToolCallView) => {
   const target = targetOf(call)
   return target?.kind === "file" ? target.path : null
@@ -261,7 +268,7 @@ function grounding(t: Transcript): Check {
   if (detail) {
     const roots = new Set(detail.turns.map((turn) => turn.run_id))
     const sentBy = (runId: string | null) =>
-      new Set(calls(t).filter((c) => c.tool === "send_message" && ok(c) && (runId === null || c.run_id === runId)).map(recipient).filter((r): r is string => r !== null))
+      new Set(calls(t).filter((c) => c.tool === "send_message" && ok(c) && (runId === null || c.run_id === runId)).flatMap(addressesOf))
     const savedBy = (runId: string | null) =>
       new Set(calls(t).filter((c) => c.tool === "file_write" && ok(c) && (runId === null || c.run_id === runId)).map(filePath).filter((p): p is string => p !== null))
     for (const run of detail.runs) {
@@ -276,7 +283,7 @@ function grounding(t: Transcript): Check {
       const claims = unbacked(run.outcome.output, who, sentBy(run.id), savedBy(null))
       problems.push(...claims.filter((claim) => (claim.includes("claims a send") ? canSend : canSave)))
     }
-    problems.push(...unbacked(summaries(t), "Lead", new Set(t.outbox.map((m) => m.recipient.toLowerCase())), savedBy(null)))
+    problems.push(...unbacked(summaries(t), "Lead", deliveredTo(t), savedBy(null)))
   }
   return { name: "grounding", pass: problems.length === 0, detail: problems.join("; ") }
 }
@@ -285,7 +292,7 @@ function grounding(t: Transcript): Check {
 function delivered(t: Transcript, e: Expectation): Check | null {
   if (!e.mustSend?.length && !e.mustSave && !e.mustNote) return null
   const problems: string[] = []
-  const sentTo = new Set(t.outbox.map((m) => m.recipient.toLowerCase()))
+  const sentTo = deliveredTo(t)
   for (const to of e.mustSend ?? []) if (!sentTo.has(to)) problems.push(`nothing sent to ${to}`)
   const saved = calls(t).filter((c) => c.tool === "file_write" && ok(c)).map(filePath)
   if (e.mustSave && !saved.some((p) => p !== null && e.mustSave?.test(p))) problems.push(`no save matching ${e.mustSave}`)
@@ -298,8 +305,9 @@ function scope(t: Transcript, e: Expectation): Check {
   const problems: string[] = []
   const allowed = new Set((e.sendsTo ?? []).map((a) => a.toLowerCase()))
   for (const call of calls(t)) {
-    const to = recipient(call)
-    if (call.tool === "send_message" && to && !allowed.has(to)) problems.push(`tried to send to ${to} (${call.status})`)
+    if (call.tool === "send_message") {
+      for (const to of addressesOf(call).filter((a) => !allowed.has(a))) problems.push(`tried to send to ${to} (${call.status})`)
+    }
     const path = filePath(call)
     if (call.tool === "file_write" && path && !(e.savesTo?.test(path) ?? false)) problems.push(`tried to save ${path} (${call.status})`)
     const target = targetOf(call)

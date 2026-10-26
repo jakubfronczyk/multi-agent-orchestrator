@@ -69,19 +69,22 @@ const target = (card: ApprovalView) => card.action?.target
 const isVendor = (card: ApprovalView) => {
   const t = target(card)
   return (
-    (t?.kind === "recipient" && t.address.toLowerCase().endsWith(`@${VENDOR_HOST}`)) ||
+    (t?.kind === "recipient" && [t.address, ...t.cc].some((a) => a.toLowerCase().endsWith(`@${VENDOR_HOST}`))) ||
     (t?.kind === "host" && (t.host === VENDOR_HOST || t.host.endsWith(`.${VENDOR_HOST}`)))
   )
 }
 
 export const denyAll: CardPolicy = () => ({ decision: "deny" })
 export const approveAll: CardPolicy = () => ({ decision: "approve" })
-/** Approves saves and sends to the listed people; denies every other card. */
+/** Approves saves, and sends whose recipient and every copy are listed people; denies every other card. */
 export const approveOnly =
   (recipients: string[]): CardPolicy =>
   (card) => {
     const t = target(card)
-    if (t?.kind === "recipient") return { decision: recipients.includes(t.address.toLowerCase()) ? "approve" : "deny" }
+    if (t?.kind === "recipient") {
+      const everyone = [t.address, ...t.cc].map((a) => a.toLowerCase())
+      return { decision: everyone.every((a) => recipients.includes(a)) ? "approve" : "deny" }
+    }
     return { decision: t?.kind === "file" ? "approve" : "deny" }
   }
 
