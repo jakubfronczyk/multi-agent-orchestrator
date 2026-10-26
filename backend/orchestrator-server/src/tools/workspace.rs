@@ -30,7 +30,7 @@ pub const UPLOADS_DIR: &str = "uploads";
 /// Holds the reference folder every team reads and no agent writes.
 pub const SHARED_DIR: &str = "shared";
 /// Holds one folder per team, named by its id.
-const TEAMS_DIR: &str = "teams";
+pub const TEAMS_DIR: &str = "teams";
 /// What an agent calls the shared reference folder.
 const DATA_DIR: &str = "data";
 const UPLOAD_NAME_CHARS: usize = 100;

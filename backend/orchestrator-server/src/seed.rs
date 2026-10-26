@@ -1,5 +1,5 @@
-//! First-boot data: the team "Access desk" with its four agents, the mock inbox and the
-//! workspace files. Runs only when no team exists, deleted ones included, so a restart or a
+//! First-boot data: the team "Access desk" and three example teams, each with four agents, the
+//! mock inbox and the workspace files. Runs only when no team exists, deleted ones included, so a restart or a
 //! user's edits are never overwritten.
 
 use std::collections::BTreeMap;
@@ -16,7 +16,7 @@ use sqlx::SqlitePool;
 use crate::sqlite::agents::{self, AgentError};
 use crate::sqlite::text::{timestamp, to_text};
 use crate::sqlite::{begin_write, teams};
-use crate::tools::workspace::SHARED_DIR;
+use crate::tools::workspace::{SHARED_DIR, TEAMS_DIR};
 
 const INBOX: &str = include_str!("../fixtures/inbox.json");
 const WORKSPACE: [(&str, &str); 3] = [
@@ -32,6 +32,50 @@ const WORKSPACE: [(&str, &str); 3] = [
         "data/systems.csv",
         include_str!("../fixtures/workspace/data/systems.csv"),
     ),
+];
+
+/// A team seeded beside the Access desk: its name, the line put before its Lead's default prompt,
+/// and the files written into its own folder.
+struct ExampleTeam {
+    name: &'static str,
+    job: &'static str,
+    files: &'static [(&'static str, &'static str)],
+}
+
+const EXAMPLE_TEAMS: [ExampleTeam; 3] = [
+    ExampleTeam {
+        name: "Finance desk",
+        job: "Your team is the finance desk: it checks supplier invoices against the payment policy in its folder.",
+        files: &[
+            (
+                "policy/payments.md",
+                include_str!("../fixtures/teams/finance-desk/policy/payments.md"),
+            ),
+            (
+                "invoices.csv",
+                include_str!("../fixtures/teams/finance-desk/invoices.csv"),
+            ),
+        ],
+    },
+    ExampleTeam {
+        name: "HR desk",
+        job: "Your team is the HR desk: it onboards new hires using the hire list and checklist in its folder.",
+        files: &[
+            (
+                "hires.csv",
+                include_str!("../fixtures/teams/hr-desk/hires.csv"),
+            ),
+            (
+                "checklist.md",
+                include_str!("../fixtures/teams/hr-desk/checklist.md"),
+            ),
+        ],
+    },
+    ExampleTeam {
+        name: "Research desk",
+        job: "Your team is the research desk: it reads web pages and writes short, sourced briefs.",
+        files: &[],
+    },
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -67,14 +111,31 @@ pub async fn run(pool: &SqlitePool, workspace_root: &Path) -> Result<bool, SeedE
     if teams_exist {
         return Ok(false);
     }
+    // The Access desk is inserted first, so it stays the oldest team and the default one.
     let mut tx = begin_write(pool).await?;
     let team = teams::insert(&mut tx, SEEDED_TEAM).await?;
-    for agent in team_agents() {
+    for agent in team_agents(seeded_lead()) {
         agents::insert(&mut tx, team, agent).await?;
+    }
+    let mut folders = Vec::new();
+    for example in &EXAMPLE_TEAMS {
+        let team = teams::insert(&mut tx, example.name).await?;
+        let lead = AgentInput {
+            system_prompt: format!("{} {DEFAULT_LEAD_PROMPT}", example.job),
+            ..seeded_lead()
+        };
+        for agent in team_agents(lead) {
+            agents::insert(&mut tx, team, agent).await?;
+        }
+        let id = to_text(&team).map_err(|e| SeedError::Fixture(e.to_string()))?;
+        folders.push((format!("{TEAMS_DIR}/{id}"), example.files));
     }
     tx.commit().await?;
     seed_inbox(pool).await?;
-    seed_workspace(pool, workspace_root).await?;
+    seed_workspace(pool, workspace_root, SHARED_DIR, &WORKSPACE).await?;
+    for (folder, files) in folders {
+        seed_workspace(pool, workspace_root, &folder, files).await?;
+    }
     Ok(true)
 }
 
@@ -96,13 +157,17 @@ async fn seed_inbox(pool: &SqlitePool) -> Result<(), SeedError> {
     Ok(())
 }
 
-/// Seeded files are the shared reference under `shared/`, recorded as trusted; a file with no
-/// row reads back as untrusted.
-async fn seed_workspace(pool: &SqlitePool, root: &Path) -> Result<(), SeedError> {
+/// Seeded files are recorded as trusted, unlike uploads; a file with no row reads back as untrusted.
+async fn seed_workspace(
+    pool: &SqlitePool,
+    root: &Path,
+    folder: &str,
+    files: &[(&str, &str)],
+) -> Result<(), SeedError> {
     let trusted = to_text(&Trust::Trusted).map_err(|e| SeedError::Fixture(e.to_string()))?;
     let now = timestamp(Utc::now());
-    for (path, content) in WORKSPACE {
-        let path = format!("{SHARED_DIR}/{path}");
+    for (path, content) in files {
+        let path = format!("{folder}/{path}");
         let full = root.join(&path);
         if let Some(parent) = full.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -134,7 +199,7 @@ pub fn default_lead() -> AgentInput {
 
 /// No agent reads outside content and sends unchecked: Reader reads but cannot send, Messenger
 /// sends but only with approval, and the Lead reads trusted notes only and no other outside content.
-fn team_agents() -> Vec<AgentInput> {
+fn team_agents(lead: AgentInput) -> Vec<AgentInput> {
     use Decision::{Allow, Ask, Deny};
     let reader = AgentInput {
         team_id: None,
@@ -204,7 +269,7 @@ fn team_agents() -> Vec<AgentInput> {
 
     // Targets must exist before the Lead names them.
     // The Lead last: its targets must exist when it is created.
-    vec![reader, writer, messenger, seeded_lead()]
+    vec![reader, writer, messenger, lead]
 }
 
 fn seeded_lead() -> AgentInput {

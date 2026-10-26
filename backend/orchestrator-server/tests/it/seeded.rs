@@ -264,14 +264,22 @@ async fn in_a_clean_task_the_writer_saves_without_a_card(pool: SqlitePool) {
 #[sqlx::test]
 async fn the_seed_runs_once_and_never_overwrites(pool: SqlitePool) {
     let seeded = Seeded::new(pool).await;
-    let teams = sqlx::query!("SELECT id, name FROM teams")
+    let teams = sqlx::query!("SELECT id, name FROM teams ORDER BY created_at, id")
         .fetch_all(&seeded.pool)
         .await
         .expect("teams");
-    assert_eq!(teams.len(), 1);
-    assert_eq!(teams[0].name, seed::SEEDED_TEAM);
+    let names: Vec<&str> = teams.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            seed::SEEDED_TEAM,
+            "Finance desk",
+            "HR desk",
+            "Research desk"
+        ]
+    );
     // A renamed team still counts: the seed looks for any team, not its own name.
-    sqlx::query!("UPDATE teams SET name = 'Renamed'")
+    sqlx::query!("UPDATE teams SET name = 'Renamed ' || id")
         .execute(&seeded.pool)
         .await
         .expect("rename");
@@ -280,11 +288,30 @@ async fn the_seed_runs_once_and_never_overwrites(pool: SqlitePool) {
             .await
             .expect("second run")
     );
-    let agents = sqlx::query_scalar!("SELECT COUNT(*) FROM agents WHERE team_id = ?", teams[0].id)
+    for team in &teams {
+        let agents = sqlx::query_scalar!("SELECT COUNT(*) FROM agents WHERE team_id = ?", team.id)
+            .fetch_one(&seeded.pool)
+            .await
+            .expect("count");
+        assert_eq!(agents, 4);
+    }
+    let finance_lead = sqlx::query_scalar!(
+        "SELECT system_prompt FROM agents WHERE team_id = ? AND slug = 'lead'",
+        teams[1].id
+    )
+    .fetch_one(&seeded.pool)
+    .await
+    .expect("finance lead");
+    assert!(finance_lead.starts_with("Your team is the finance desk:"));
+    assert!(finance_lead.ends_with(seed::DEFAULT_LEAD_PROMPT));
+    // Example files sit in their team's own folder and read as trusted, unlike an upload.
+    let invoices = format!("teams/{}/invoices.csv", teams[1].id);
+    let trust = sqlx::query_scalar!("SELECT trust FROM workspace_files WHERE path = ?", invoices)
         .fetch_one(&seeded.pool)
         .await
-        .expect("count");
-    assert_eq!(agents, 4);
+        .expect("invoices row");
+    assert_eq!(trust, "trusted");
+    assert!(seeded.temp.workspace().join(&invoices).exists());
     let reader_send = sqlx::query_scalar!(
         "SELECT t.decision FROM agent_tools t JOIN agents a ON a.id = t.agent_id WHERE a.slug = 'reader' AND t.tool = 'send_message'"
     )

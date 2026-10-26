@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE teams SET name = 'Renamed ' || id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "8cccb111e63c2a71387753e26a0f22fe9f5fae7197e23d31b7d16680a243d682"
+}

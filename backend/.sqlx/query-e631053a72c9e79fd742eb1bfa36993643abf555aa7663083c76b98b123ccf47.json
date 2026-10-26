@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT system_prompt FROM agents WHERE team_id = ? AND slug = 'lead'",
+  "describe": {
+    "columns": [
+      {
+        "name": "system_prompt",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agents",
+            "name": "system_prompt"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e631053a72c9e79fd742eb1bfa36993643abf555aa7663083c76b98b123ccf47"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, name FROM teams",
+  "query": "SELECT id, name FROM teams ORDER BY created_at, id",
   "describe": {
     "columns": [
       {
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "efb0e2d8308cc1d6779ce6f75071280acddbff1a21252461f1aacc4102c2fff9"
+  "hash": "1924cdc21e254cfa9f83c6a9adc4761c1c74cb7e95b28e88fa520a9cd736d97d"
 }

@@ -7,6 +7,7 @@ import { toolsQuery } from "@/api/meta"
 import { HowThisHappenedSheet } from "@/components/how-this-happened"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
+import { WelcomeDialog } from "@/components/welcome-dialog"
 import { subscribe } from "@/events/event-hub"
 import { isMac } from "@/lib/platform"
 import { Sidebar } from "./sidebar"
@@ -105,6 +106,7 @@ export function AppShell() {
         </div>
       </main>
       <HowThisHappenedSheet />
+      <WelcomeDialog />
       <div aria-live="polite" className="sr-only">
         {announcement}
       </div>

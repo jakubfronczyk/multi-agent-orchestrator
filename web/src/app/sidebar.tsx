@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { NavLink } from "react-router"
-import { Clock, Folder, Inbox, List, NotebookText, Plus, Send, Target, Users, type LucideIcon } from "lucide-react"
+import { CircleHelp, Clock, Folder, Inbox, List, NotebookText, Plus, Send, Users, type LucideIcon } from "lucide-react"
 import { cn } from "cn"
 import { approvalsQuery } from "@/api/approvals"
 import { agentsQuery } from "@/api/agents"
@@ -8,12 +8,14 @@ import { healthQuery } from "@/api/meta"
 import { runsQuery } from "@/api/runs"
 import { AgentShape } from "@/components/agent-shape"
 import { TeamSwitcher } from "@/components/team-switcher"
+import { Button } from "@/components/ui/button"
 import { isChildRun, useHubStatus, type HubStatus } from "@/events/event-hub"
 import { useInvalidateOn } from "@/events/use-invalidate-on"
 import type { EventEnvelope } from "@/generated/EventEnvelope"
 import type { RunSummary } from "@/generated/RunSummary"
 import { isMac } from "@/lib/platform"
 import { useTeamNames } from "@/lib/selected-team"
+import { setWelcomeOpen } from "@/lib/welcome"
 import { Appearance } from "./appearance"
 
 const NAV: [string, LucideIcon, string][] = [
@@ -24,7 +26,6 @@ const NAV: [string, LucideIcon, string][] = [
   ["/files", Folder, "Files"],
   ["/sent", Send, "Sent messages"],
   ["/activity", Clock, "Activity"],
-  ["/drill", Target, "Security drill"],
 ]
 
 const CONNECTION: Record<Exclude<HubStatus, "open">, string> = {
@@ -132,6 +133,19 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         {health.data?.provider === "scripted" && (
           <small className="text-xs font-medium tracking-normal text-muted-foreground">no API key</small>
         )}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="What is this app?"
+          title="What is this app?"
+          className="ml-auto text-muted-foreground"
+          onClick={() => {
+            onNavigate?.()
+            setWelcomeOpen(true)
+          }}
+        >
+          <CircleHelp className="size-[18px]" />
+        </Button>
       </div>
 
       <TeamSwitcher onNavigate={onNavigate} />

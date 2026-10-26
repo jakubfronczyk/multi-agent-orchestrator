@@ -25,7 +25,9 @@ async fn contracts(seeded: &Seeded) -> TeamId {
     )
     .await
     .expect("team");
-    let seeded_agents = agents::list(&seeded.pool, None).await.expect("agents");
+    let seeded_agents = agents::list(&seeded.pool, Some(seeded.team))
+        .await
+        .expect("agents");
     let mut targets = Vec::new();
     for record in seeded_agents
         .iter()
