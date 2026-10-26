@@ -25,6 +25,7 @@ import { initThread, reduceThread, type ThreadState } from "@/lib/thread-state"
 import {
   callTree,
   countCalls,
+  recordedOutcome,
   headerStatus,
   money,
   TONE_CLASS,
@@ -537,7 +538,12 @@ function TurnSection({
       ))}
 
       {ending ? (
-        <LeadMessage lead={lead}>{ending}</LeadMessage>
+        <>
+          <LeadMessage lead={lead}>{ending}</LeadMessage>
+          {turn.outcome?.kind === "completed" && (
+            <p className="m-0 pl-8 text-sm text-muted-foreground">{recordedOutcome(tree)}</p>
+          )}
+        </>
       ) : running && !waiting && !planning ? (
         <div className="grid grid-cols-[20px_minmax(0,1fr)] items-center gap-3 text-sm text-muted-foreground">
           {lead && <AgentShape icon={lead.icon} colour={lead.colour} size="md" pulse />}

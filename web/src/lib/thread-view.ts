@@ -40,6 +40,26 @@ export function countCalls(nodes: CallNode[]): number {
   return nodes.reduce((total, node) => total + 1 + countCalls(node.children), 0)
 }
 
+const flatten = (nodes: CallNode[]): ToolCallView[] => nodes.flatMap((node) => [node.call, ...flatten(node.children)])
+
+/**
+ * Saves and sends as the record shows them, for a finished turn: what ran, and what was asked
+ * for and didn't (refused, declined, expired or failed). The Lead's answer is its own account.
+ */
+export function recordedOutcome(nodes: CallNode[]): string {
+  const calls = flatten(nodes).filter((call) => call.status !== null)
+  const count = (tool: string, ok: boolean) =>
+    calls.filter((call) => call.tool === tool && (call.status === "ok") === ok).length
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+  const parts = [
+    count("file_write", true) > 0 && plural(count("file_write", true), "file saved", "files saved"),
+    count("send_message", true) > 0 && plural(count("send_message", true), "message sent", "messages sent"),
+    count("file_write", false) > 0 && plural(count("file_write", false), "save didn't happen", "saves didn't happen"),
+    count("send_message", false) > 0 && plural(count("send_message", false), "send didn't happen", "sends didn't happen"),
+  ].filter(Boolean)
+  return parts.length > 0 ? `From the record: ${parts.join(", ")}.` : "From the record: nothing was saved or sent."
+}
+
 /** The plan a turn last recorded, from its own `plan` calls. */
 export function turnPlan(state: ThreadState, turn: Turn): PlanStep[] | null {
   const planCall = state.calls.findLast(
