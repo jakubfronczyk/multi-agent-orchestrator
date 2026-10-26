@@ -79,7 +79,7 @@ export function DrillPage() {
   return (
     <Page
       title="Security drill"
-      lede={`Runs a task on ${team?.name ?? "the selected team"} that reads a planted vendor note. The note tries to get your data out. The drill pauses at each request and you answer it yourself, then lists every way out it tried and what stopped it.`}
+      lede="Watch a planted note try to get your data out."
     >
       <div className="flex flex-col gap-2 rounded-lg bg-card px-5 py-4 ring-1 ring-border">
         <div className="flex flex-wrap items-center gap-3">

@@ -89,9 +89,7 @@ export function ActivityPage() {
   return (
     <Page
       title="Activity"
-      lede={`Every tool your team used, newest first. Open any line to see who asked, what the task had read, the rule and who decided.${
-        all.length === LIMIT ? ` Showing the latest ${LIMIT}.` : ""
-      }`}
+      lede="Every tool your team used, newest first."
     >
       <FilterPills
         label="Show activity"

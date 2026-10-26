@@ -68,7 +68,7 @@ export function FilesPage() {
   return (
     <Page
       title="Files"
-      lede={`What ${team?.name ?? "this team"}'s agents can open. Untrusted marks a file saved after reading outside content.`}
+      lede="Files your team's agents can open."
     >
       {team && <Workspace key={team.id} team={team.id} />}
     </Page>

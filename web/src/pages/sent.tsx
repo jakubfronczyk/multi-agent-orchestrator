@@ -36,7 +36,7 @@ export function SentPage() {
     .sort((a, b) => b.requested_at.localeCompare(a.requested_at))
 
   return (
-    <Page title="Sent messages" lede="What your team sent, each time after you said yes.">
+    <Page title="Sent messages" lede="Messages your team sent after your yes.">
       <div className="flex items-start gap-4 rounded-lg bg-muted px-5 py-4 text-sm text-sidebar-foreground">
         <Inbox className="mt-0.5 size-[18px] flex-none" />
         <div>

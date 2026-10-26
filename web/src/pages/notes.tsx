@@ -60,7 +60,7 @@ export function NotesPage() {
   return (
     <Page
       title="Team notes"
-      lede={unknown ? "No team has this id." : "What the team remembers between tasks. The Lead sees only trusted shared notes."}
+      lede={unknown ? "No team has this id." : "What the team remembers between tasks."}
     >
       {deleted !== null && !unknown && (
         <p className="m-0 text-sm text-muted-foreground">
