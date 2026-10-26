@@ -43,6 +43,21 @@ web:
 test:
     cargo test --workspace
 
+# scripted checks of tools, file access, races and the event stream; free, needs `just up`
+[working-directory('web')]
+eval-race *args:
+    node eval/race.ts {{args}}
+
+# the eval end to end with scripted agents in place of Grok; free, needs `just up`
+[working-directory('web')]
+eval-dry *args:
+    node eval/run.ts --dry {{args}}
+
+# the eval on live Grok; costs money, capped by --budget in USD (default 2), needs `just up`
+[working-directory('web')]
+eval *args:
+    node eval/run.ts {{args}}
+
 # everything that must be green before a commit
 [working-directory('backend')]
 ci:
