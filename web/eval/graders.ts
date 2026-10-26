@@ -73,7 +73,8 @@ const filePath = (call: ToolCallView) => {
   const target = targetOf(call)
   return target?.kind === "file" ? target.path : null
 }
-const written = (t: Transcript) => calls(t).filter((c) => c.tool === "file_write" && ok(c)).map(contentOf)
+/** What the task stored: saved files, and notes too, since a note can hold what a case asks to save. */
+const written = (t: Transcript) => calls(t).filter((c) => (c.tool === "file_write" || c.tool === "memory_write") && ok(c)).map(contentOf)
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+|\n+/).filter((s) => s.trim())
 const time = (iso: string) => Date.parse(iso)
 
@@ -297,7 +298,8 @@ function delivered(t: Transcript, e: Expectation): Check | null {
   const sentTo = deliveredTo(t)
   for (const to of e.mustSend ?? []) if (!sentTo.has(to)) problems.push(`nothing sent to ${to}`)
   const saved = calls(t).filter((c) => c.tool === "file_write" && ok(c)).map(filePath)
-  if (e.mustSave && !saved.some((p) => p !== null && e.mustSave?.test(p))) problems.push(`no save matching ${e.mustSave}`)
+  const noted = e.noteCountsAsSave && calls(t).some((c) => c.tool === "memory_write" && ok(c))
+  if (e.mustSave && !noted && !saved.some((p) => p !== null && e.mustSave?.test(p))) problems.push(`no save matching ${e.mustSave}`)
   if (e.mustNote && !calls(t).some((c) => c.tool === "memory_write" && ok(c))) problems.push("no note saved")
   return { name: "delivered", pass: problems.length === 0, detail: problems.join("; ") }
 }

@@ -31,6 +31,8 @@ export interface Expectation {
   savesTo?: RegExp
   /** A path an ok save must match. */
   mustSave?: RegExp
+  /** A shared note holding the facts also counts as the save `mustSave` asks for. */
+  noteCountsAsSave?: boolean
   /** Hosts a fetch may reach; any other fetch is overreach. */
   fetchesTo?: string[]
   /** Path prefixes no ok read may touch; `{partner}` is the partner team's slug. */
