@@ -44,6 +44,17 @@ export function NotesPage() {
       title="Team notes"
       lede={unknown ? "No team has this id." : `Notes ${teamName ?? "your team"} keeps between tasks. Every teammate of the team can read its shared notes; a private note only the teammate it belongs to. Each change is kept as a version with its own trust label. The Lead can read only trusted shared notes. Untrusted ones are invisible to it.`}
     >
+      {deleted !== null && !unknown && (
+        <p className="m-0 text-sm text-muted-foreground">
+          Read-only: a deleted team keeps its notes but no longer writes any.{" "}
+          <Link
+            to={`/tasks?deleted=${deleted}`}
+            className="text-sidebar-foreground underline decoration-input underline-offset-[3px] hover:text-foreground"
+          >
+            Its tasks
+          </Link>
+        </p>
+      )}
       <FilterPills
         label="Show notes"
         options={FILTERS}

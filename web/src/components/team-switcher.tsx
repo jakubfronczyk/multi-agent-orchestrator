@@ -12,12 +12,15 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { isApiError } from "@/lib/api"
 import { selectTeam, useSelectedTeam, useTeamNames } from "@/lib/selected-team"
 
-/** The selected team above the navigation: switch, create, or open a deleted team's notes. */
+/** The selected team above the navigation: switch, create, or open a deleted team's tasks or notes. */
 export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
   const { team, teams } = useSelectedTeam()
   const { teams: all } = useTeamNames()
@@ -89,17 +92,26 @@ export function TeamSwitcher({ onNavigate }: { onNavigate?: () => void }) {
           {deleted.length > 0 && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-xs text-muted-foreground">Deleted teams, notes only</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-xs text-muted-foreground">Deleted teams, read-only</DropdownMenuLabel>
               {deleted.map((t) => (
-                <DropdownMenuItem
-                  key={t.id}
-                  onSelect={() => {
-                    onNavigate?.()
-                    void navigate(`/notes?deleted=${t.id}`)
-                  }}
-                >
-                  <span className="truncate text-sidebar-foreground">{t.name}</span>
-                </DropdownMenuItem>
+                <DropdownMenuSub key={t.id}>
+                  <DropdownMenuSubTrigger className="min-w-0">
+                    <span className="truncate text-sidebar-foreground">{t.name}</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {(["tasks", "notes"] as const).map((page) => (
+                      <DropdownMenuItem
+                        key={page}
+                        onSelect={() => {
+                          onNavigate?.()
+                          void navigate(`/${page}?deleted=${t.id}`)
+                        }}
+                      >
+                        {page === "tasks" ? "Tasks" : "Notes"}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
               ))}
             </>
           )}

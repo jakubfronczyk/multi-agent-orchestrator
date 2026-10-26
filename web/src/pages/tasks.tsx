@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { useSearchParams } from "react-router"
+import { Link, useSearchParams } from "react-router"
 import { runsQuery } from "@/api/runs"
 import { FilterPills } from "@/components/filter-pills"
 import { Page } from "@/components/page"
@@ -91,6 +91,17 @@ export function TasksPage() {
         }
       />
       {team.pills}
+      {team.deleted && (
+        <p className="m-0 text-sm text-muted-foreground">
+          {team.deletedName ?? "No team has this id"}: read-only, a deleted team takes no follow-ups.{" "}
+          <Link
+            to={`/notes?deleted=${team.deleted}`}
+            className="text-sidebar-foreground underline decoration-input underline-offset-[3px] hover:text-foreground"
+          >
+            Its notes
+          </Link>
+        </p>
+      )}
       {runs.isPending ? null : runs.error ? (
         <p className="m-0 text-sm text-destructive">Couldn't load the tasks. {runs.error.message}</p>
       ) : shown.length > 0 ? (
