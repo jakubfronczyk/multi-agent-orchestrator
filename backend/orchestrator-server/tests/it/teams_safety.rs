@@ -1,15 +1,18 @@
 //! A second team with the seeded team's agents: the gates hold on it, and what crosses between
-//! teams (files) carries its label.
+//! teams (files, uploads) carries its label.
 
 use orchestrator_core::agents::AgentInput;
 use orchestrator_core::engine::StartRequest;
 use orchestrator_core::ids::{AgentId, TeamId};
-use orchestrator_core::policy::TaintSource;
+use orchestrator_core::policy::{Rule, TaintSource, Trust};
 use orchestrator_core::runs::{Answer, CallStatus, RunEvent};
-use orchestrator_server::sqlite::{agents, drill, teams};
+use orchestrator_core::tools::Target;
+use orchestrator_server::sqlite::{agents, drill, outbox, teams, tool_calls};
 use sqlx::SqlitePool;
 
-use crate::{Seeded, answer_approvals, deny_rolf_naming_anna, request, tainted, task_events};
+use crate::{
+    Seeded, answer_approvals, cards, deny_rolf_naming_anna, request, tainted, task_events,
+};
 
 /// "Contracts": a new team with copies of the seeded specialists and a Lead targeting them.
 async fn contracts(seeded: &Seeded) -> TeamId {
@@ -167,4 +170,145 @@ async fn a_lead_cannot_delegate_across_teams(pool: SqlitePool) {
             .iter()
             .all(|e| e.root_run_id == root && e.team_id == team)
     );
+}
+
+/// S1 on Contracts: the save card names taint, Rolf and Anna each ask, one email goes out, and
+/// every outbox row and tool call carries Contracts' id.
+#[sqlx::test]
+async fn s1_holds_on_a_second_team(pool: SqlitePool) {
+    let seeded = Seeded::new(pool).await;
+    let team = contracts(&seeded).await;
+    answer_approvals(&seeded.store, &seeded.engine, deny_rolf_naming_anna);
+    let (root, events) = run(
+        &seeded,
+        StartRequest {
+            task: "Check access request AR-1042".to_string(),
+            ..request(team, "s1")
+        },
+    )
+    .await;
+
+    let shown = cards(&events);
+    assert_eq!(shown.len(), 3);
+    let RunEvent::ApprovalRequested { custody, .. } = shown[0] else {
+        unreachable!()
+    };
+    assert!(matches!(custody.rules.first(), Some(Rule::Taint { .. })));
+    let asked: Vec<&str> = shown[1..]
+        .iter()
+        .map(|card| match card {
+            RunEvent::ApprovalRequested { action, .. } => match &action.target {
+                Target::Recipient { address, .. } => address.as_str(),
+                other => panic!("{other:?}"),
+            },
+            _ => unreachable!(),
+        })
+        .collect();
+    assert_eq!(asked, ["rolf.bauer@example.com", "anna.weber@example.com"]);
+
+    let sent = outbox::list(&seeded.pool, outbox::OutboxFilter::default())
+        .await
+        .expect("outbox")
+        .messages;
+    assert_eq!(sent.len(), 1);
+    assert!(sent.iter().all(|m| m.team_id == team));
+    let calls = tool_calls::tool_calls(&seeded.pool, tool_calls::ToolCallFilter::default(), 200)
+        .await
+        .expect("calls")
+        .tool_calls;
+    assert!(calls.iter().any(|c| c.root_run_id == root));
+    assert!(calls.iter().all(|c| c.team_id == team));
+}
+
+/// Overwriting a trusted file from Contracts: a clean task saves without a card and keeps it
+/// trusted; a task tainted by an upload asks and stores it untrusted.
+#[sqlx::test]
+async fn a_trusted_file_keeps_its_rules_on_another_team(pool: SqlitePool) {
+    let seeded = Seeded::new(pool).await;
+    let team = contracts(&seeded).await;
+    answer_approvals(&seeded.store, &seeded.engine, |_| Answer::Approve {
+        note: None,
+    });
+    let path = "reports/shared.md";
+    let writer = in_team(&seeded, seeded.team, "writer").await;
+    run(
+        &seeded,
+        StartRequest {
+            agent_id: Some(writer),
+            ..request(
+                seeded.team,
+                &format!(r#"test:call:file_write:{{"path":"{path}","content":"first"}}"#),
+            )
+        },
+    )
+    .await;
+    assert_eq!(trust_of(&seeded, path).await, Trust::Trusted);
+
+    let writer = in_team(&seeded, team, "writer").await;
+    let (_, events) = run(
+        &seeded,
+        StartRequest {
+            agent_id: Some(writer),
+            ..request(
+                team,
+                &format!(r#"test:call:file_write:{{"path":"{path}","content":"clean"}}"#),
+            )
+        },
+    )
+    .await;
+    assert!(cards(&events).is_empty(), "a clean overwrite asks nothing");
+    assert_eq!(trust_of(&seeded, path).await, Trust::Trusted);
+
+    let upload = seeded
+        .workspace()
+        .store_upload("note.txt", "outside text")
+        .await
+        .expect("upload");
+    let (_, events) = run(
+        &seeded,
+        StartRequest {
+            agent_id: Some(writer),
+            ..request(
+                team,
+                &format!(
+                    r#"test:seq:file_read:{{"path":"{upload}"}}|file_write:{{"path":"{path}","content":"tainted"}}"#
+                ),
+            )
+        },
+    )
+    .await;
+    assert_eq!(cards(&events).len(), 1, "the tainted overwrite asks");
+    assert_eq!(trust_of(&seeded, path).await, Trust::Untrusted);
+}
+
+/// An upload taints the task that reads it on either team.
+#[sqlx::test]
+async fn an_upload_taints_a_task_on_either_team(pool: SqlitePool) {
+    let seeded = Seeded::new(pool).await;
+    let team = contracts(&seeded).await;
+    let upload = seeded
+        .workspace()
+        .store_upload("people.csv", "name,team\nAda,payroll\n")
+        .await
+        .expect("upload");
+    let source = TaintSource::File {
+        path: upload.clone(),
+    };
+    for on in [seeded.team, team] {
+        let reader = in_team(&seeded, on, "reader").await;
+        let (_, events) = run(
+            &seeded,
+            StartRequest {
+                agent_id: Some(reader),
+                ..request(on, &format!(r#"test:call:file_read:{{"path":"{upload}"}}"#))
+            },
+        )
+        .await;
+        assert_eq!(tainted(&events), std::slice::from_ref(&source));
+        assert!(events.iter().all(|e| e.team_id == on));
+    }
+}
+
+async fn trust_of(seeded: &Seeded, path: &str) -> Trust {
+    seeded.workspace().read(path).await.expect("read").1
 }
