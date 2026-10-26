@@ -356,9 +356,17 @@ impl Workspace {
         };
         let target = self.prepare(&at.physical).await?;
         self.record_person(&at.physical, Trust::Untrusted).await?;
-        write_atomic(&target, text.as_bytes())
-            .await
-            .map_err(|_| cannot_write(&at.physical))?;
+        if write_atomic(&target, text.as_bytes()).await.is_err() {
+            // A new file that was never written leaves no record behind, so the path stays free;
+            // a replaced one keeps its record, untrusted, as a failed write always does.
+            if !exists {
+                sqlx::query!("DELETE FROM workspace_files WHERE path = ?", at.physical)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(storage_failed)?;
+            }
+            return Err(cannot_write(&at.physical).into());
+        }
         self.record_person(&at.physical, trust).await?;
         Ok((at.shown, !exists))
     }

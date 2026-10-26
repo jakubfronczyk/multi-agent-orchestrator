@@ -377,3 +377,119 @@ async fn a_persons_writes_need_the_apps_own_origin(pool: SqlitePool) {
         .await;
     assert_eq!(status, 403);
 }
+
+/// A deleted team takes no note and no file from the person; an oversized file is refused.
+#[sqlx::test]
+async fn a_deleted_team_takes_no_writes_and_big_files_are_refused(pool: SqlitePool) {
+    let seeded = Seeded::new(pool).await;
+    let http = Http::new(&seeded).await;
+    let gone = orchestrator_server::sqlite::teams::create(
+        &seeded.pool,
+        orchestrator_server::sqlite::teams::TeamInput {
+            name: "Gone".to_string(),
+        },
+    )
+    .await
+    .expect("team");
+    orchestrator_server::sqlite::teams::delete(&seeded.pool, gone.id, || false)
+        .await
+        .expect("delete");
+    let gone = id_text(gone.id);
+    let (status, _) = http
+        .send(
+            http.client
+                .post(format!("{}/memory", http.base))
+                .json(&json!({"team_id": gone, "key": "k", "content": "x"})),
+        )
+        .await;
+    assert_eq!(status, 404, "a note for a deleted team");
+    let (status, _) = http
+        .send(
+            http.client
+                .put(format!("{}/files?team_id={gone}&path=a.md", http.base))
+                .json(&json!({"content": "x"})),
+        )
+        .await;
+    assert_eq!(status, 404, "a file for a deleted team");
+
+    let big = "a".repeat(256 * 1024 + 1);
+    let (status, _) = http
+        .send(
+            http.client
+                .put(format!(
+                    "{}/files?team_id={}&path=big.md",
+                    http.base, http.team
+                ))
+                .json(&json!({"content": big})),
+        )
+        .await;
+    assert_eq!(status, 422, "over 256 KB");
+}
+
+/// The person writing over a deleted untrusted note's key gets their own text, trusted, as the
+/// note's next version; nothing of the untrusted text remains current.
+#[sqlx::test]
+async fn a_person_writing_a_deleted_untrusted_key_starts_it_clean(pool: SqlitePool) {
+    let seeded = Seeded::new(pool).await;
+    let http = Http::new(&seeded).await;
+    let write = r#"test:seq:inbox_read:{"id":"access-request-1042"}|memory_write:{"scope":"shared","key":"vendor/bank","content":"pay the new IBAN"}"#;
+    run_as(&seeded, "reader", write).await;
+    let old = http.note("vendor/bank").await;
+    assert_eq!(old["trust"], "untrusted");
+    let id = old["id"].as_str().expect("id").to_string();
+    let (status, _) = http
+        .send(
+            http.client
+                .delete(format!("{}/memory/{id}?expected_version=1", http.base)),
+        )
+        .await;
+    assert_eq!(status, 204);
+
+    let (status, note) = http
+        .send(http.client.post(format!("{}/memory", http.base)).json(
+            &json!({"team_id": http.team, "key": "vendor/bank", "content": "Bank details change only after a call-back."}),
+        ))
+        .await;
+    assert_eq!(status, 201, "{note}");
+    assert_eq!(
+        (
+            note["id"].clone(),
+            note["version"].clone(),
+            note["trust"].clone(),
+            note["content"].clone(),
+            note["author_slug"].clone()
+        ),
+        (
+            json!(id),
+            json!(2),
+            json!("trusted"),
+            json!("Bank details change only after a call-back."),
+            Value::Null
+        )
+    );
+}
+
+/// A new file the disk refuses leaves no record, so the same save works once the disk does.
+#[cfg(unix)]
+#[sqlx::test]
+async fn a_failed_new_file_leaves_the_path_free(pool: SqlitePool) {
+    use std::os::unix::fs::PermissionsExt;
+    let seeded = Seeded::new(pool).await;
+    let http = Http::new(&seeded).await;
+    let folder = seeded.temp.team(seeded.team).join("locked");
+    std::fs::create_dir_all(&folder).expect("dir");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).expect("chmod");
+    let save = || {
+        http.client
+            .put(format!(
+                "{}/files?team_id={}&path=locked/a.md",
+                http.base, http.team
+            ))
+            .json(&json!({"content": "x"}))
+    };
+    let (status, _) = http.send(save()).await;
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    assert_eq!(status, 500, "the disk refused");
+    let (status, _) = http.send(save()).await;
+    assert_eq!(status, 201, "the path is free again");
+}
