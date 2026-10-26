@@ -137,14 +137,17 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </NavLink>
       ))}
 
-      {group("Running", running, true)}
-      {group("Today", today)}
-      {group("This week", week)}
+      {/* Task history scrolls on its own so the nav links and connection status stay in view. */}
+      <div className="-mx-3 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3 scrollbar-thin">
+        {group("Running", running, true)}
+        {group("Today", today)}
+        {group("This week", week)}
+      </div>
 
       <div
         role="status"
         title="Connection to the event stream"
-        className="mt-auto flex min-h-8 flex-none items-start gap-2 px-3 py-1.5 text-sm text-muted-foreground"
+        className="flex min-h-8 flex-none items-start gap-2 px-3 py-1.5 text-sm text-muted-foreground"
       >
         <i
           className={cn(

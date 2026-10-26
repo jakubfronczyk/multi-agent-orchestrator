@@ -156,3 +156,20 @@
     @apply cursor-pointer;
   }
 }
+
+/* Thin thumb on no track; Safari ignores scrollbar-color and reads the ::-webkit-scrollbar rules instead. */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 35%, transparent) transparent;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--muted-foreground) 35%, transparent);
+  }
+}
