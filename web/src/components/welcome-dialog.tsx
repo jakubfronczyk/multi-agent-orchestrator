@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router"
-import { ArrowRight, Plus } from "lucide-react"
+import { ArrowRight, MessageSquare, Plus, ShieldCheck, Workflow, type LucideIcon } from "lucide-react"
 import { startRun } from "@/api/runs"
 import { teamsQuery } from "@/api/teams"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -9,6 +9,12 @@ import type { TeamView } from "@/generated/TeamView"
 import { setNewTeamOpen } from "@/lib/new-team"
 import { selectTeam } from "@/lib/selected-team"
 import { setWelcomeHidden, setWelcomeOpen, STARTERS, useWelcomeOpen, welcomeHidden, type Starter } from "@/lib/welcome"
+
+const STEPS: [LucideIcon, string, string][] = [
+  [MessageSquare, "You ask", "Describe a task the way you'd tell a colleague."],
+  [Workflow, "The Lead plans", "It hands each step to a teammate who reads, writes or sends."],
+  [ShieldCheck, "You approve", "Sending, or saving after reading outside content, waits for your yes."],
+]
 
 /** Opens on every visit until "Don't show this again" is ticked, and always from the sidebar's "?"; each card starts a task on its team. */
 export function WelcomeDialog() {
@@ -45,15 +51,25 @@ export function WelcomeDialog() {
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Welcome to Orchestrator</DialogTitle>
-          <DialogDescription asChild>
-            <div className="flex flex-col gap-1">
-              <p>You give a team of agents a task in plain words, and they do it.</p>
-              <p>A Lead plans the steps and hands each one to a teammate who reads, writes or sends.</p>
-              <p>Before anything risky, like sending a message or saving after reading outside content, it asks you first.</p>
-            </div>
-          </DialogDescription>
+          <DialogTitle className="text-xl">Welcome to Orchestrator</DialogTitle>
+          <DialogDescription>A team of agents that does tasks you describe in plain words.</DialogDescription>
         </DialogHeader>
+
+        <ol className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-3">
+          {STEPS.map(([Icon, title, text], i) => (
+            <li key={title} className="flex gap-3">
+              <span className="grid size-8 flex-none place-items-center rounded-full bg-secondary text-secondary-foreground">
+                <Icon className="size-4" aria-hidden />
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <b className="text-sm font-medium">
+                  {i + 1}. {title}
+                </b>
+                <span className="text-xs/relaxed text-muted-foreground">{text}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
 
         {cards.length > 0 && (
           <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2">
