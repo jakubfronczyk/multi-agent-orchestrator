@@ -52,10 +52,7 @@ async fn a_task_on_team_b_runs_only_team_b_agents(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(StartRequest {
-            team_id: Some(b),
-            ..request("test:delegate")
-        })
+        .start(request(b, "test:delegate"))
         .await
         .expect("start");
     let mut started = Vec::new();
@@ -223,10 +220,7 @@ async fn a_deleted_team_takes_no_new_run(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(StartRequest {
-            team_id: Some(b),
-            ..request("test:hello")
-        })
+        .start(request(b, "test:hello"))
         .await
         .expect("start");
     let events = events_until_finished(&mut rx, root).await;
@@ -263,13 +257,7 @@ async fn a_deleted_team_takes_no_new_run(pool: SqlitePool) {
         .fetch_one(&app.pool)
         .await
         .expect("count");
-    let result = app
-        .engine
-        .start(StartRequest {
-            team_id: Some(b),
-            ..request("test:hello")
-        })
-        .await;
+    let result = app.engine.start(request(b, "test:hello")).await;
     assert!(result.is_err(), "the engine finds no live team");
     // The projection guard holds even for a start that raced the delete.
     use orchestrator_core::store::{RunRef, Store};
@@ -335,15 +323,14 @@ async fn records_and_events_carry_their_team(pool: SqlitePool) {
     .id();
     let a_root = app
         .engine
-        .start(request(r#"test:call:memory_read:{"q":1}"#))
+        .start(request(app.team, r#"test:call:memory_read:{"q":1}"#))
         .await
         .expect("a's task");
     let b_root = app
         .engine
         .start(StartRequest {
-            team_id: Some(b),
             agent_id: Some(b_specialist),
-            ..request(r#"test:call:file_write:{"path":"b.md"}"#)
+            ..request(b, r#"test:call:file_write:{"path":"b.md"}"#)
         })
         .await
         .expect("b's task");
@@ -452,9 +439,9 @@ impl orchestrator_core::store::Store for DeletesTeamFirst {
 
     async fn team(
         &self,
-        team: Option<TeamId>,
+        team: TeamId,
     ) -> Result<
-        Option<(TeamId, Vec<orchestrator_core::agents::AgentSpec>)>,
+        Option<Vec<orchestrator_core::agents::AgentSpec>>,
         orchestrator_core::store::StoreError,
     > {
         self.inner.team(team).await
@@ -480,10 +467,7 @@ async fn a_follow_up_racing_a_team_delete_is_a_conflict(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(StartRequest {
-            team_id: Some(b),
-            ..request("test:hello")
-        })
+        .start(request(b, "test:hello"))
         .await
         .expect("start");
     events_until_finished(&mut rx, root).await;

@@ -21,7 +21,7 @@ async fn run_as(app: &App, slug: &str, scenario: &str) -> Vec<EventEnvelope> {
     let mut rx = app.store.subscribe();
     let start = StartRequest {
         agent_id: Some(agent_id(&app.pool, slug).await),
-        ..request(scenario)
+        ..request(app.team, scenario)
     };
     let root = app.engine.start(start).await.expect("start");
     task_events(&mut rx, root).await

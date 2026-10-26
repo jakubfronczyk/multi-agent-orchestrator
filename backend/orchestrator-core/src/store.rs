@@ -24,12 +24,9 @@ pub enum StoreError {
 #[async_trait]
 pub trait Store: Send + Sync {
     async fn emit(&self, at: RunRef, event: RunEvent) -> Result<EventId, StoreError>;
-    /// A live team's id and live agents, rebuilt through `AgentSpec::validated`; `None` names
-    /// the first live team. `Ok(None)` when the team is unknown or deleted.
-    async fn team(
-        &self,
-        team: Option<TeamId>,
-    ) -> Result<Option<(TeamId, Vec<AgentSpec>)>, StoreError>;
+    /// A team's live agents, rebuilt through `AgentSpec::validated`; `Ok(None)` when the team is
+    /// unknown or deleted.
+    async fn team(&self, team: TeamId) -> Result<Option<Vec<AgentSpec>>, StoreError>;
     /// Every event of the task in commit order, each with its run; empty for an unknown root.
     async fn task_events(&self, root: RunId) -> Result<Vec<(RunId, RunEvent)>, StoreError>;
 }

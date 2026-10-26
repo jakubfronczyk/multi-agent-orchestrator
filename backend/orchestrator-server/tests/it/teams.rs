@@ -160,10 +160,7 @@ async fn a_lead_only_team_runs_a_task(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let run = app
         .engine
-        .start(StartRequest {
-            team_id: Some(team),
-            ..request("test:delegate")
-        })
+        .start(request(team, "test:delegate"))
         .await
         .expect("start");
     let events = events_until_finished(&mut rx, run).await;
@@ -205,9 +202,8 @@ async fn delete_keeps_busy_and_last_teams_and_their_history(pool: SqlitePool) {
     let root = app
         .engine
         .start(StartRequest {
-            team_id: Some(b),
             agent_id: Some(specialist),
-            ..request(r#"test:call:file_write:{"path":"a.md"}"#)
+            ..request(b, r#"test:call:file_write:{"path":"a.md"}"#)
         })
         .await
         .expect("start");

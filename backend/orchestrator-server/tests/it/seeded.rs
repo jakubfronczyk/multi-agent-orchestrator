@@ -41,7 +41,7 @@ async fn run_scenario(seeded: &Seeded, scenario: &str, task: &str) -> (RunId, Ve
     let mut rx = seeded.store.subscribe();
     let request = StartRequest {
         task: task.to_string(),
-        ..request(scenario)
+        ..request(seeded.team, scenario)
     };
     let root = seeded.engine.start(request).await.expect("start");
     (root, task_events(&mut rx, root).await)
@@ -233,7 +233,10 @@ async fn in_a_clean_task_the_writer_saves_without_a_card(pool: SqlitePool) {
     let request = StartRequest {
         agent_id: Some(agent_id(&seeded.pool, "writer").await),
         task: "Save a note".to_string(),
-        ..request(r#"test:call:file_write:{"path":"notes/clean.md","content":"plain"}"#)
+        ..request(
+            seeded.team,
+            r#"test:call:file_write:{"path":"notes/clean.md","content":"plain"}"#,
+        )
     };
     let root = seeded.engine.start(request).await.expect("start");
     let events = task_events(&mut rx, root).await;
@@ -331,7 +334,7 @@ async fn run_as(seeded: &Seeded, slug: &str, scenario: &str) -> Vec<EventEnvelop
     let request = StartRequest {
         agent_id: Some(agent_id(&seeded.pool, slug).await),
         task: "do the step".to_string(),
-        ..request(scenario)
+        ..request(seeded.team, scenario)
     };
     let root = seeded.engine.start(request).await.expect("start");
     task_events(&mut rx, root).await
@@ -865,7 +868,7 @@ async fn scenario_tasks_stay_scripted_when_a_live_provider_is_set(pool: SqlitePo
 
     let mut rx = seeded.store.subscribe();
     let request = StartRequest {
-        team_id: None,
+        team_id: seeded.team,
         agent_id: None,
         task: "Say hello".to_string(),
         title: None,
@@ -929,7 +932,7 @@ async fn records_name_their_task_and_the_list_keeps_the_scenario(pool: SqlitePoo
     let typed = seeded
         .engine
         .start(StartRequest {
-            team_id: None,
+            team_id: seeded.team,
             agent_id: None,
             task: "say hi".to_string(),
             title: None,

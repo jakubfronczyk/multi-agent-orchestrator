@@ -50,8 +50,8 @@ pub struct Config {
 
 #[derive(Debug, Clone)]
 pub struct StartRequest {
-    /// The task's team; the first live team when absent.
-    pub team_id: Option<TeamId>,
+    /// The task's team; the API resolves a request that names none.
+    pub team_id: TeamId,
     /// The root agent, of that team; its Lead when absent.
     pub agent_id: Option<AgentId>,
     pub task: String,
@@ -149,9 +149,10 @@ impl Engine {
         if task_text.is_empty() {
             return Err(StartError::EmptyTask);
         }
-        let (team_id, team) = self
+        let team_id = request.team_id;
+        let team = self
             .inner
-            .team(request.team_id)
+            .team(team_id)
             .await?
             .ok_or(StartError::UnknownTeam)?;
         let agent = match request.agent_id {
@@ -219,9 +220,10 @@ impl Engine {
         if history.open {
             return Err(FollowUpError::Running);
         }
-        let (team_id, team) = self
+        let team_id = history.team_id;
+        let team = self
             .inner
-            .team(Some(history.team_id))
+            .team(team_id)
             .await?
             .ok_or(FollowUpError::TeamDeleted)?;
         let agent = team
@@ -344,15 +346,12 @@ impl Engine {
 }
 
 impl Inner {
-    async fn team(
-        &self,
-        team: Option<TeamId>,
-    ) -> Result<Option<(TeamId, Vec<Arc<AgentSpec>>)>, StoreError> {
+    async fn team(&self, team: TeamId) -> Result<Option<Vec<Arc<AgentSpec>>>, StoreError> {
         Ok(self
             .store
             .team(team)
             .await?
-            .map(|(id, agents)| (id, agents.into_iter().map(Arc::new).collect())))
+            .map(|agents| agents.into_iter().map(Arc::new).collect()))
     }
 
     /// Registers the task as live before its `run_started` commits, so a cancel can never find

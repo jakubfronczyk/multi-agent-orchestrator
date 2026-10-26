@@ -20,7 +20,7 @@ use crate::{
 fn as_specialist(app: &App, scenario: &str) -> StartRequest {
     StartRequest {
         agent_id: Some(app.specialist),
-        ..request(scenario)
+        ..request(app.team, scenario)
     }
 }
 
@@ -428,7 +428,10 @@ async fn a_tainted_result_never_reaches_the_lead(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let run = app
         .engine
-        .start(request(r#"test:call:memory_search:{"query":"payroll"}"#))
+        .start(request(
+            app.team,
+            r#"test:call:memory_search:{"query":"payroll"}"#,
+        ))
         .await
         .expect("start");
     let events = events_until_finished(&mut rx, run).await;

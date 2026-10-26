@@ -52,7 +52,7 @@ pub struct App {
     pub pool: SqlitePool,
     pub store: Arc<SqliteStore>,
     pub engine: Arc<Engine>,
-    /// The one team the harness seeds; requests that name no team run in it.
+    /// The one team the harness seeds.
     pub team: TeamId,
     /// A specialist holding every test tool.
     pub specialist: AgentId,
@@ -254,9 +254,9 @@ pub async fn serve_state(state: AppState) -> String {
     base
 }
 
-pub fn request(scenario: &str) -> StartRequest {
+pub fn request(team: TeamId, scenario: &str) -> StartRequest {
     StartRequest {
-        team_id: None,
+        team_id: team,
         agent_id: None,
         task: "say hello".to_string(),
         title: None,
@@ -433,6 +433,8 @@ pub struct Seeded {
     pub pool: SqlitePool,
     pub store: Arc<SqliteStore>,
     pub engine: Arc<Engine>,
+    /// The seeded team.
+    pub team: TeamId,
     pub temp: TempDir,
 }
 
@@ -449,10 +451,17 @@ impl Seeded {
         );
         let store = Arc::new(SqliteStore::new(pool.clone()));
         let engine = engine_on(&pool, &store, &temp, llm);
+        let mut conn = pool.acquire().await.expect("connection");
+        let team = orchestrator_server::sqlite::teams::first_live(&mut conn)
+            .await
+            .expect("team")
+            .expect("a seeded team");
+        drop(conn);
         Self {
             pool,
             store,
             engine,
+            team,
             temp,
         }
     }

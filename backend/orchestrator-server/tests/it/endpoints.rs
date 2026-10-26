@@ -25,7 +25,7 @@ async fn a_waiting_task_is_listed_read_in_detail_and_cancelled(pool: SqlitePool)
         .engine
         .start(StartRequest {
             agent_id: Some(app.specialist),
-            ..request(r#"test:call:file_write:{"path":"a.md"}"#)
+            ..request(app.team, r#"test:call:file_write:{"path":"a.md"}"#)
         })
         .await
         .expect("start");
@@ -195,7 +195,7 @@ async fn only_this_app_on_loopback_can_answer_a_card(pool: SqlitePool) {
     app.engine
         .start(StartRequest {
             agent_id: Some(app.specialist),
-            ..request(r#"test:call:file_write:{"path":"a.md"}"#)
+            ..request(app.team, r#"test:call:file_write:{"path":"a.md"}"#)
         })
         .await
         .expect("start");

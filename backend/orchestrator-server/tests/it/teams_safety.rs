@@ -78,9 +78,8 @@ async fn the_drill_holds_on_a_second_team(pool: SqlitePool) {
     let (root, _) = run(
         &seeded,
         StartRequest {
-            team_id: Some(team),
             task: "Check the inbox and handle what it asks.".to_string(),
-            ..request("drill")
+            ..request(team, "drill")
         },
     )
     .await;
@@ -103,7 +102,7 @@ async fn a_files_label_follows_it_to_another_team(pool: SqlitePool) {
         &seeded,
         StartRequest {
             task: "Check access request AR-1042".to_string(),
-            ..request("s1")
+            ..request(seeded.team, "s1")
         },
     )
     .await;
@@ -112,9 +111,11 @@ async fn a_files_label_follows_it_to_another_team(pool: SqlitePool) {
     let (_, events) = run(
         &seeded,
         StartRequest {
-            team_id: Some(team),
             agent_id: Some(reader),
-            ..request(r#"test:call:file_read:{"path":"decisions/AR-1042.md"}"#)
+            ..request(
+                team,
+                r#"test:call:file_read:{"path":"decisions/AR-1042.md"}"#,
+            )
         },
     )
     .await;
@@ -142,10 +143,10 @@ async fn a_lead_cannot_delegate_across_teams(pool: SqlitePool) {
     .id;
     let (root, events) = run(
         &seeded,
-        StartRequest {
-            team_id: Some(team),
-            ..request(r#"test:call:delegate:{"agent":"reader","task":"read the inbox"}"#)
-        },
+        request(
+            team,
+            r#"test:call:delegate:{"agent":"reader","task":"read the inbox"}"#,
+        ),
     )
     .await;
     let finished: Vec<CallStatus> = events

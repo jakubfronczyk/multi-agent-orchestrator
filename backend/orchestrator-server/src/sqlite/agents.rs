@@ -239,20 +239,16 @@ pub async fn delete(pool: &SqlitePool, id: AgentId) -> Result<(), AgentError> {
     Ok(())
 }
 
-/// A live team's id and live agents; `None` names the first live team. `None` back when the
-/// team is unknown or deleted. One transaction, so a delete in between cannot split the read.
+/// A team's live agents, `None` when the team is unknown or deleted. One transaction, so a
+/// delete in between cannot split the read.
 pub async fn live_team(
     pool: &SqlitePool,
-    team: Option<TeamId>,
-) -> Result<Option<(TeamId, Vec<AgentSpec>)>, AgentError> {
+    team: TeamId,
+) -> Result<Option<Vec<AgentSpec>>, AgentError> {
     let mut tx = pool.begin().await?;
-    let team = match team {
-        Some(team) => teams::is_live(&mut tx, team).await?.then_some(team),
-        None => teams::first_live(&mut tx).await?,
-    };
-    let Some(team) = team else {
+    if !teams::is_live(&mut tx, team).await? {
         return Ok(None);
-    };
+    }
     let team_text = text(&team)?;
     let ids = sqlx::query_scalar!(
         "SELECT id FROM agents WHERE deleted_at IS NULL AND team_id = ? ORDER BY created_at, id",
@@ -264,7 +260,7 @@ pub async fn live_team(
     for id in ids {
         specs.push(load(&mut tx, &id).await?.ok_or(AgentError::NotFound)?.spec);
     }
-    Ok(Some((team, specs)))
+    Ok(Some(specs))
 }
 
 /// Within the agent's team: the slug is free among live agents, there is at most one live

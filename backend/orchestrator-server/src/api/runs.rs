@@ -22,6 +22,7 @@ use crate::sqlite::teams;
 use crate::tools::workspace::EntryKind;
 
 const DEFAULT_LIMIT: u32 = 50;
+const NO_TEAM: &str = "no live team has this id";
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
@@ -57,20 +58,13 @@ pub async fn start(
 ) -> Result<(StatusCode, Json<StartRunResponse>), ApiError> {
     let team = resolve_team(&state, request.team_id, request.agent_id).await?;
     if let Some(scenario) = request.scenario.as_deref() {
-        let missing = missing_slugs(&state, team, scenario).await?;
-        if !missing.is_empty() {
-            let message = format!(
-                "this team has no {} for the {scenario} demo",
-                missing.join(", ")
-            );
-            return Err(ApiError::conflict(&message));
-        }
+        require_demo_slugs(&state, team, scenario).await?;
     }
     if request.scenario.as_deref() == Some(LAUNDER) {
         require_s1_decision(&state).await?;
     }
     let start = StartRequest {
-        team_id: Some(team),
+        team_id: team,
         agent_id: request.agent_id,
         task: request.task,
         title: request.title,
@@ -78,7 +72,7 @@ pub async fn start(
         scenario: request.scenario,
         draft_only: request.draft_only.unwrap_or(false),
     };
-    let run_id = start_in(&state, team, start).await?;
+    let run_id = start_in(&state, start).await?;
     Ok((StatusCode::ACCEPTED, Json(StartRunResponse { run_id })))
 }
 
@@ -110,18 +104,20 @@ pub(super) async fn resolve_team(
             .then_some(team),
         None => teams::first_live(&mut conn).await.map_err(storage)?,
     };
-    found.ok_or_else(|| ApiError::invalid("team_id", "no live team has this id"))
+    found.ok_or_else(|| ApiError::invalid("team_id", NO_TEAM))
 }
 
-/// The slugs a scripted scenario needs that the team's Lead cannot hand work to.
-pub(super) async fn missing_slugs(
+/// 409 when the team's Lead cannot hand work to every slug the scripted scenario needs;
+/// `refusal` words it from the missing slugs.
+pub(super) async fn require_slugs(
     state: &AppState,
     team: TeamId,
     scenario: &str,
-) -> Result<Vec<&'static str>, ApiError> {
+    refusal: impl FnOnce(&str) -> String,
+) -> Result<(), ApiError> {
     let needed = scenario_slugs(scenario);
     if needed.is_empty() {
-        return Ok(Vec::new());
+        return Ok(());
     }
     let lead = agents::list(&state.pool, Some(team))
         .await?
@@ -137,32 +133,45 @@ pub(super) async fn missing_slugs(
                 .collect()
         })
         .unwrap_or_default();
-    Ok(needed
+    let missing: Vec<&str> = needed
         .iter()
         .copied()
         .filter(|slug| !targets.contains(slug))
-        .collect())
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(ApiError::conflict(&refusal(&missing.join(", "))))
+}
+
+async fn require_demo_slugs(
+    state: &AppState,
+    team: TeamId,
+    scenario: &str,
+) -> Result<(), ApiError> {
+    require_slugs(state, team, scenario, |slugs| {
+        format!("this team has no {slugs} for the {scenario} demo")
+    })
+    .await
 }
 
 /// Starts the task; a storage failure on a team deleted meanwhile reads as that team being gone.
-pub(super) async fn start_in(
-    state: &AppState,
-    team: TeamId,
-    request: StartRequest,
-) -> Result<RunId, ApiError> {
+pub(super) async fn start_in(state: &AppState, request: StartRequest) -> Result<RunId, ApiError> {
+    let team = request.team_id;
     match state.engine.start(request).await {
         Ok(run) => Ok(run),
-        Err(StartError::Store(error)) => {
-            let mut conn = state.pool.acquire().await.map_err(storage)?;
-            if teams::is_live(&mut conn, team).await.map_err(storage)? {
-                tracing::error!(%error, "could not start the run");
-                Err(ApiError::internal())
-            } else {
-                Err(ApiError::invalid("team_id", "no live team has this id"))
-            }
+        Err(StartError::Store(_)) if team_gone(state, team).await? => {
+            Err(ApiError::invalid("team_id", NO_TEAM))
         }
         Err(other) => Err(start_error(other)),
     }
+}
+
+/// Whether the team is unknown or deleted, read after a failed emit to tell a delete from a
+/// storage error.
+async fn team_gone(state: &AppState, team: TeamId) -> Result<bool, ApiError> {
+    let mut conn = state.pool.acquire().await.map_err(storage)?;
+    Ok(!teams::is_live(&mut conn, team).await.map_err(storage)?)
 }
 
 fn storage(error: sqlx::Error) -> ApiError {
@@ -184,7 +193,7 @@ async fn require_s1_decision(state: &AppState) -> Result<(), ApiError> {
 
 fn start_error(error: StartError) -> ApiError {
     match error {
-        StartError::UnknownTeam => ApiError::invalid("team_id", "no live team has this id"),
+        StartError::UnknownTeam => ApiError::invalid("team_id", NO_TEAM),
         StartError::NoLead => ApiError::invalid("agent_id", "the team has no Lead"),
         StartError::UnknownAgent => ApiError::invalid("agent_id", "no live agent has this id"),
         StartError::EmptyTask => ApiError::invalid("task", "must not be empty"),
@@ -215,14 +224,7 @@ pub async fn follow_up(
     let root: RunId = query::path_id(&id)?;
     let team = runs::team_of(&state.pool, root).await?;
     if let (Some(team), Some(scenario)) = (team, body.scenario.as_deref()) {
-        let missing = missing_slugs(&state, team, scenario).await?;
-        if !missing.is_empty() {
-            let message = format!(
-                "this team has no {} for the {scenario} demo",
-                missing.join(", ")
-            );
-            return Err(ApiError::conflict(&message));
-        }
+        require_demo_slugs(&state, team, scenario).await?;
     }
     let request = FollowUpRequest {
         text: body.text,
@@ -234,13 +236,15 @@ pub async fn follow_up(
         // A delete that commits between the engine's team read and its `run_started` makes the
         // emit fail; the team decides whether that is the delete or a real storage error.
         Err(FollowUpError::Store(error)) => {
-            let mut conn = state.pool.acquire().await.map_err(storage)?;
-            match team {
-                Some(team) if !teams::is_live(&mut conn, team).await.map_err(storage)? => {
-                    Err(follow_up_error(FollowUpError::TeamDeleted))
-                }
-                _ => Err(follow_up_error(FollowUpError::Store(error))),
-            }
+            let gone = match team {
+                Some(team) => team_gone(&state, team).await?,
+                None => false,
+            };
+            Err(follow_up_error(if gone {
+                FollowUpError::TeamDeleted
+            } else {
+                FollowUpError::Store(error)
+            }))
         }
         Err(other) => Err(follow_up_error(other)),
     }

@@ -21,7 +21,10 @@ async fn a_turn_is_cancellable_as_soon_as_its_start_is_seen(pool: SqlitePool) {
         .await;
         engine.cancel(root)
     });
-    app.engine.start(request("test:hang")).await.expect("start");
+    app.engine
+        .start(request(app.team, "test:hang"))
+        .await
+        .expect("start");
     assert!(canceller.await.expect("join"), "the started turn was live");
 }
 
@@ -62,7 +65,7 @@ async fn a_retryable_error_is_retried_and_logged(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let run = app
         .engine
-        .start(request("test:retry"))
+        .start(request(app.team, "test:retry"))
         .await
         .expect("start");
     let events = events_until_finished(&mut rx, run).await;
@@ -89,7 +92,7 @@ async fn a_fatal_error_fails_the_run_with_llm_error(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let run = app
         .engine
-        .start(request("test:fatal"))
+        .start(request(app.team, "test:fatal"))
         .await
         .expect("start");
     let events = events_until_finished(&mut rx, run).await;
@@ -114,7 +117,11 @@ async fn a_fatal_error_fails_the_run_with_llm_error(pool: SqlitePool) {
 async fn cancel_during_a_model_call_ends_the_run_cancelled(pool: SqlitePool) {
     let app = app(pool).await;
     let mut rx = app.store.subscribe();
-    let run = app.engine.start(request("test:hang")).await.expect("start");
+    let run = app
+        .engine
+        .start(request(app.team, "test:hang"))
+        .await
+        .expect("start");
 
     wait_for(&mut rx, |envelope| {
         matches!(envelope.event, RunEvent::LlmRequested { .. }).then_some(())
@@ -143,7 +150,11 @@ async fn a_stalled_model_call_times_out_and_fails_after_the_retries(pool: Sqlite
     )
     .await;
     let mut rx = app.store.subscribe();
-    let run = app.engine.start(request("test:hang")).await.expect("start");
+    let run = app
+        .engine
+        .start(request(app.team, "test:hang"))
+        .await
+        .expect("start");
     let events = events_until_finished(&mut rx, run).await;
 
     let retried = events
@@ -169,7 +180,7 @@ async fn each_task_replays_its_script_from_the_first_attempt(pool: SqlitePool) {
     for _ in 0..2 {
         let run = app
             .engine
-            .start(request("test:retry"))
+            .start(request(app.team, "test:retry"))
             .await
             .expect("start");
         let events = events_until_finished(&mut rx, run).await;
@@ -233,7 +244,7 @@ async fn last_event_id_replays_what_was_missed_then_continues_live(pool: SqliteP
     let mut rx = app.store.subscribe();
     let first = app
         .engine
-        .start(request("test:hello"))
+        .start(request(app.team, "test:hello"))
         .await
         .expect("start");
     let mut missed = Vec::new();
@@ -254,7 +265,7 @@ async fn last_event_id_replays_what_was_missed_then_continues_live(pool: SqliteP
     assert_eq!(ids, missed[1..], "everything after the given id, in order");
 
     app.engine
-        .start(request("test:hello"))
+        .start(request(app.team, "test:hello"))
         .await
         .expect("second");
     let live = sse.until("run_finished").await;
@@ -274,14 +285,14 @@ async fn without_last_event_id_the_stream_is_live_only(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let earlier = app
         .engine
-        .start(request("test:hello"))
+        .start(request(app.team, "test:hello"))
         .await
         .expect("start");
     events_until_finished(&mut rx, earlier).await;
 
     let mut sse = SseReader::open(&base, None).await;
     app.engine
-        .start(request("test:hello"))
+        .start(request(app.team, "test:hello"))
         .await
         .expect("second");
     let live = sse.until("run_finished").await;
@@ -305,7 +316,7 @@ async fn an_id_from_before_a_database_reset_is_treated_as_live_only(pool: Sqlite
     let base = crate::serve(&app).await;
     let mut sse = SseReader::open(&base, Some(500)).await;
     app.engine
-        .start(request("test:hello"))
+        .start(request(app.team, "test:hello"))
         .await
         .expect("start");
     let live = sse.until("run_finished").await;

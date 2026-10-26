@@ -75,10 +75,7 @@ impl Store for SqliteStore {
         Ok(id)
     }
 
-    async fn team(
-        &self,
-        team: Option<TeamId>,
-    ) -> Result<Option<(TeamId, Vec<AgentSpec>)>, StoreError> {
+    async fn team(&self, team: TeamId) -> Result<Option<Vec<AgentSpec>>, StoreError> {
         agents::live_team(&self.pool, team).await.map_err(failed)
     }
 

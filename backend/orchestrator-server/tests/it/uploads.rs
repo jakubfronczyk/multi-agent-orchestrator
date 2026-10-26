@@ -193,7 +193,7 @@ async fn reading_an_upload_taints_the_task(pool: SqlitePool) {
             .engine
             .start(StartRequest {
                 agent_id: Some(reader),
-                ..request(script)
+                ..request(served.team, script)
             })
             .await
             .expect("start");

@@ -9,7 +9,7 @@ use orchestrator_core::ids::{RunId, TeamId};
 use serde::Deserialize;
 
 use super::error::ApiError;
-use super::runs::{StartRunResponse, missing_slugs, resolve_team, start_in};
+use super::runs::{StartRunResponse, require_slugs, resolve_team, start_in};
 use super::{AppState, query};
 use crate::config;
 use crate::llm::DRILL;
@@ -28,16 +28,12 @@ pub async fn start(
 ) -> Result<(StatusCode, Json<StartRunResponse>), ApiError> {
     let team = query::id::<TeamId>("team_id", query.team_id)?;
     let team = resolve_team(&state, team, None).await?;
-    let missing = missing_slugs(&state, team, DRILL).await?;
-    if !missing.is_empty() {
-        let message = format!(
-            "this team's Lead cannot hand work to {}; the drill needs them",
-            missing.join(", ")
-        );
-        return Err(ApiError::conflict(&message));
-    }
+    require_slugs(&state, team, DRILL, |slugs| {
+        format!("this team's Lead cannot hand work to {slugs}; the drill needs them")
+    })
+    .await?;
     let request = StartRequest {
-        team_id: Some(team),
+        team_id: team,
         agent_id: None,
         task: config::DRILL_TASK.to_string(),
         title: Some(config::DRILL_TITLE.to_string()),
@@ -45,7 +41,7 @@ pub async fn start(
         scenario: Some(DRILL.to_string()),
         draft_only: false,
     };
-    let run_id = start_in(&state, team, request).await?;
+    let run_id = start_in(&state, request).await?;
     Ok((StatusCode::ACCEPTED, Json(StartRunResponse { run_id })))
 }
 

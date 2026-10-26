@@ -27,7 +27,7 @@ async fn run_s1(seeded: &Seeded, engine: &Engine) -> RunId {
     let mut rx = seeded.store.subscribe();
     let request = StartRequest {
         task: S1_TASK.to_string(),
-        ..request("s1")
+        ..request(seeded.team, "s1")
     };
     let root = engine.start(request).await.expect("start");
     task_events(&mut rx, root).await;
@@ -189,7 +189,11 @@ async fn a_running_task_is_a_conflict_and_a_cancelled_one_takes_a_follow_up(pool
     let base = serve(&app).await;
     let client = reqwest::Client::new();
     let mut rx = app.store.subscribe();
-    let root = app.engine.start(request("test:hang")).await.expect("start");
+    let root = app
+        .engine
+        .start(request(app.team, "test:hang"))
+        .await
+        .expect("start");
     let messages = format!("{base}/api/runs/{root}/messages");
 
     let body = json!({"text": "and then?", "scenario": "test:hello"});
@@ -228,7 +232,7 @@ async fn concurrent_follow_ups_start_one_turn(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:hello"))
+        .start(request(app.team, "test:hello"))
         .await
         .expect("start");
     events_until_finished(&mut rx, root).await;
@@ -255,7 +259,7 @@ async fn follow_ups_need_a_finished_lead_task(pool: SqlitePool) {
         .engine
         .start(StartRequest {
             agent_id: Some(app.specialist),
-            ..request("test:hello")
+            ..request(app.team, "test:hello")
         })
         .await
         .expect("start");
@@ -280,7 +284,7 @@ async fn the_drill_report_is_found_by_root_only(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:hello"))
+        .start(request(app.team, "test:hello"))
         .await
         .expect("start");
     events_until_finished(&mut rx, root).await;
@@ -345,7 +349,7 @@ async fn a_draft_only_turn_changes_nothing_and_a_later_turn_may_act(pool: Sqlite
     let request = StartRequest {
         task: S1_TASK.to_string(),
         draft_only: true,
-        ..crate::request("s1")
+        ..crate::request(seeded.team, "s1")
     };
     let root = engine.start(request).await.expect("start");
     let events: Vec<RunEvent> = task_events(&mut rx, root)

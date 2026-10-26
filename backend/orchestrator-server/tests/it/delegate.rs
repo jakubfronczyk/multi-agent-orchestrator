@@ -51,7 +51,7 @@ async fn the_lead_delegates_twice_and_gets_outputs_in_call_order(pool: SqlitePoo
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:delegate-two"))
+        .start(request(app.team, "test:delegate-two"))
         .await
         .expect("start");
     let events = task_events(&mut rx, root).await;
@@ -98,7 +98,7 @@ async fn parallel_delegated_runs_link_to_the_calls_that_started_them(pool: Sqlit
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:delegate-two"))
+        .start(request(app.team, "test:delegate-two"))
         .await
         .expect("start");
     let events = task_events(&mut rx, root).await;
@@ -165,7 +165,7 @@ async fn a_child_gets_the_preamble_and_only_its_task(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:delegate"))
+        .start(request(app.team, "test:delegate"))
         .await
         .expect("start");
     task_events(&mut rx, root).await;
@@ -208,7 +208,7 @@ async fn delegation_stops_at_the_depth_limit(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:delegate"))
+        .start(request(app.team, "test:delegate"))
         .await
         .expect("start");
     let events = task_events(&mut rx, root).await;
@@ -237,7 +237,7 @@ async fn delegation_stops_at_the_run_limit(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:delegate-two"))
+        .start(request(app.team, "test:delegate-two"))
         .await
         .expect("start");
     let events = task_events(&mut rx, root).await;
@@ -261,7 +261,7 @@ async fn a_failed_child_is_an_error_result_and_the_lead_continues(pool: SqlitePo
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:delegate-fail"))
+        .start(request(app.team, "test:delegate-fail"))
         .await
         .expect("start");
     let events = task_events(&mut rx, root).await;
@@ -285,7 +285,7 @@ async fn a_failed_child_in_a_tainted_task_never_shows_the_lead_its_error(pool: S
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:delegate-tainted-fail"))
+        .start(request(app.team, "test:delegate-tainted-fail"))
         .await
         .expect("start");
     let events = task_events(&mut rx, root).await;
@@ -314,7 +314,7 @@ async fn cancelling_the_task_cancels_the_child(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:delegate-hang"))
+        .start(request(app.team, "test:delegate-hang"))
         .await
         .expect("start");
 
@@ -355,7 +355,11 @@ async fn cancelling_the_task_cancels_the_child(pool: SqlitePool) {
 async fn plan_records_its_steps(pool: SqlitePool) {
     let app = app(pool).await;
     let mut rx = app.store.subscribe();
-    let root = app.engine.start(request("test:plan")).await.expect("start");
+    let root = app
+        .engine
+        .start(request(app.team, "test:plan"))
+        .await
+        .expect("start");
     let events = task_events(&mut rx, root).await;
 
     let steps = events
@@ -381,7 +385,7 @@ async fn a_panicking_child_is_recorded_as_failed_and_the_lead_continues(pool: Sq
     let mut rx = app.store.subscribe();
     let root = app
         .engine
-        .start(request("test:delegate"))
+        .start(request(app.team, "test:delegate"))
         .await
         .expect("start");
     let events = task_events(&mut rx, root).await;
