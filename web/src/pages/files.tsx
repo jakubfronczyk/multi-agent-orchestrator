@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useSearchParams } from "react-router"
 import { ChevronRight, Download, FileText, Folder, Pencil, ShieldCheck, Trash2 } from "lucide-react"
 import { cn } from "cn"
-import { deleteFile, fileQuery, markFileTrusted, refetchFiles, writeFile } from "@/api/files"
+import { deleteFile, fileQuery, markFileTrusted, refetchFiles, uploadFile, writeFile } from "@/api/files"
 import { runsQuery } from "@/api/runs"
 import { Page } from "@/components/page"
 import { Button } from "@/components/ui/button"
@@ -84,93 +84,62 @@ function Workspace({ team }: { team: TeamId }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <NewFile team={team} />
+      <UploadFiles team={team} />
       <div className="flex flex-col gap-0.5 rounded-lg bg-card p-2 ring-1 ring-border">
         {root.error ? (
           <p className="m-0 p-3 text-sm text-destructive">Couldn't load the files. {root.error.message}</p>
-        ) : root.data && entriesOf(root.data).length === 0 ? (
-          <p className="m-0 p-3 text-sm text-muted-foreground">This team's folder is empty.</p>
         ) : (
-          sorted(entriesOf(root.data)).map((entry) => (
-            <TreeEntry key={entry.path} team={team} entry={entry} depth={0} highlighted={highlighted} />
-          ))
+          <>
+            {root.data && !entriesOf(root.data).some((entry) => ownFile(entry.path)) && (
+              <p className="m-0 p-3 text-sm text-muted-foreground">Nothing in this team's folder yet: upload a file.</p>
+            )}
+            {sorted(entriesOf(root.data)).map((entry) => (
+              <TreeEntry key={entry.path} team={team} entry={entry} depth={0} highlighted={highlighted} />
+            ))}
+          </>
         )}
       </div>
     </div>
   )
 }
 
-/** A text file in the person's own words, in the team's own folder; it is trusted because they wrote it. */
-function NewFile({ team }: { team: TeamId }) {
+/** Uploads any files into the team's `uploads/`: spreadsheets, documents and PDFs become text. */
+function UploadFiles({ team }: { team: TeamId }) {
   const client = useQueryClient()
-  const [open, setOpen] = useState(false)
-  const [path, setPath] = useState("")
-  const [content, setContent] = useState("")
+  const input = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const create = useMutation({
-    mutationFn: () => writeFile(team, path.trim(), { content, expected_updated_at: null }),
-    onSuccess: async () => {
-      await refetchFiles(client)
-      setOpen(false)
-      setPath("")
-      setContent("")
-    },
-    onError: (failed) => setError(failure(failed)),
-  })
-  if (!open) {
-    return (
-      <div>
-        <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-          New file
-        </Button>
-      </div>
-    )
+  const upload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setBusy(true)
+    setError(null)
+    const failed: string[] = []
+    for (const file of Array.from(files)) {
+      try {
+        await uploadFile(team, file)
+      } catch (cause) {
+        failed.push(`${file.name}: ${cause instanceof Error ? cause.message : "couldn't upload"}`)
+      }
+    }
+    await refetchFiles(client)
+    setError(failed.length > 0 ? failed.join(". ") : null)
+    setBusy(false)
+    if (input.current) input.current.value = ""
   }
   return (
-    <form
-      className="flex flex-col gap-2 rounded-lg bg-card p-4 ring-1 ring-border"
-      onSubmit={(event) => {
-        event.preventDefault()
-        setError(null)
-        if (path.trim() && !create.isPending) create.mutate()
-      }}
-    >
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium">Path</span>
-        <input
-          autoFocus
-          value={path}
-          onChange={(event) => setPath(event.target.value)}
-          placeholder="notes/plan.md"
-          className={`${field} font-mono`}
-        />
-      </label>
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium">Content</span>
-        <textarea
-          value={content}
-          onChange={(event) => setContent(event.target.value)}
-          rows={5}
-          className={`${field} font-mono`}
-        />
-      </label>
-      <p className="m-0 text-sm text-muted-foreground">
-        Saved in this team's folder and trusted, because you wrote it. Ends in .md, .csv, .json or .txt.
-      </p>
+    <div className="flex flex-col gap-1">
+      <div>
+        <Button size="sm" disabled={busy} onClick={() => input.current?.click()}>
+          {busy ? "Uploading…" : "Upload files"}
+        </Button>
+        <input ref={input} type="file" multiple hidden onChange={(event) => void upload(event.target.files)} />
+      </div>
       {error && (
         <p role="alert" className="m-0 text-sm text-destructive">
           {error}
         </p>
       )}
-      <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={!path.trim() || create.isPending}>
-          Save file
-        </Button>
-        <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
-      </div>
-    </form>
+    </div>
   )
 }
 
@@ -301,8 +270,8 @@ function FileRow({
     try {
       const view = await client.fetchQuery({ ...fileQuery(team, entry.path), staleTime: 0 })
       if (view.kind !== "file") return
-      if (next === "edit" && view.content === null) {
-        setError("Not a text file, so it can't be edited here.")
+      if (next !== "delete" && view.content === null) {
+        setError(`Not a text file, so it can't be ${next === "edit" ? "edited" : "checked"} here.`)
         return
       }
       setSeen(view.updated_at)
@@ -431,6 +400,14 @@ function FileRow({
             Agents will treat {entry.name} as your own words. Only do this if you've read it and nothing in it gives
             instructions. Tasks that already read it stay as they are.
           </span>
+          {/* The text as it was when the action opened; the mark names that version. */}
+          <pre
+            tabIndex={0}
+            aria-label={`Content of ${entry.name}`}
+            className="m-0 max-h-72 overflow-auto rounded-md bg-card px-3 py-2 font-mono text-xs break-words whitespace-pre-wrap ring-1 ring-border ring-inset"
+          >
+            {draft}
+          </pre>
           <div className="flex gap-2">
             <Button size="sm" disabled={vouch.isPending} onClick={() => vouch.mutate()}>
               Mark as trusted
