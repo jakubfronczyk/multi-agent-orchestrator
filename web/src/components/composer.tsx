@@ -32,10 +32,9 @@ export interface SubmitOptions {
 
 /** Why an upload was refused, by the status `POST /files` answers with. */
 function uploadError(error: unknown): string {
-  if (isApiError(error, 409)) return "A file with that name is already in uploads. Rename it and try again."
+  if (isApiError(error, 409)) return "Too many uploads already share that name. Rename the file and try again."
   if (isApiError(error, 413)) return "That file is too big to attach."
-  if (isApiError(error, 415)) return "Only UTF-8 text files can be attached."
-  if (isApiError(error, 422)) return "Use a plain name ending in .csv, .md, .txt or .json: letters, digits, dot, dash or underscore."
+  if (isApiError(error, 415)) return "Agents read text only, so PDFs, images and Office files can't be attached yet."
   return error instanceof Error ? `Couldn't attach that file. ${error.message}` : "Couldn't attach that file."
 }
 
@@ -216,7 +215,6 @@ export function Composer({
                 ref={fileInput}
                 type="file"
                 hidden
-                accept=".csv,.md,.txt,.json"
                 onChange={(event) => {
                   void pick(event.target.files?.[0])
                   event.target.value = ""
