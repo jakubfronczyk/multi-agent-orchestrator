@@ -62,3 +62,60 @@ async fn http_fetch_blocks_private_addresses_and_odd_forms(pool: SqlitePool) {
         "GET only"
     );
 }
+
+/// Live sites, so ignored by default: `cargo test -p orchestrator-server --test it -- --ignored live_`.
+/// A Wikipedia page comes back as its title and readable text, and a redirect to another host
+/// is reported, not followed.
+#[tokio::test]
+#[ignore = "needs the network"]
+async fn live_pages_come_back_as_readable_text() {
+    use orchestrator_core::ids::{AgentId, RunId, TeamId, ToolCallId};
+    use orchestrator_core::policy::Trust;
+    use orchestrator_core::tools::{Tool, ToolCtx};
+    let run = RunId::new();
+    let ctx = ToolCtx {
+        run_id: run,
+        root_run_id: run,
+        call_id: ToolCallId::new(),
+        agent_id: AgentId::new(),
+        team_id: TeamId::new(),
+        role: orchestrator_core::agents::Role::Specialist,
+        trust: Trust::Trusted,
+    };
+    let fetch = HttpFetch::new();
+    let wiki = fetch
+        .run(
+            &ctx,
+            serde_json::json!({"url": "https://en.wikipedia.org/wiki/SQLite"}),
+        )
+        .await
+        .expect("wikipedia")
+        .content;
+    assert_eq!(wiki["status"], 200);
+    assert!(
+        wiki["title"].as_str().is_some_and(|t| t.contains("SQLite")),
+        "{}",
+        wiki["title"]
+    );
+    let text = wiki["text"].as_str().expect("text");
+    assert!(
+        text.contains("Hipp") && !text.contains("<script"),
+        "{}",
+        &text[..text.len().min(400)]
+    );
+    let rust = fetch
+        .run(
+            &ctx,
+            serde_json::json!({"url": "https://www.rust-lang.org/"}),
+        )
+        .await
+        .expect("rust-lang")
+        .content;
+    assert_eq!(
+        (rust["status"].clone(), rust["location"].clone()),
+        (
+            serde_json::json!(301),
+            serde_json::json!("https://rust-lang.org/")
+        )
+    );
+}

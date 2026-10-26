@@ -14,6 +14,7 @@ use crate::sqlite::text::from_text;
 pub mod csv;
 pub mod fetch;
 pub mod files;
+mod html;
 pub mod memory;
 pub mod messages;
 mod sandbox;
