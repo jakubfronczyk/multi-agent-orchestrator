@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useSearchParams } from "react-router"
-import { ChevronRight, Download, FileText, Folder } from "lucide-react"
+import { ChevronRight, Download, FileText, Folder, Pencil, ShieldCheck, Trash2 } from "lucide-react"
 import { cn } from "cn"
-import { fileQuery } from "@/api/files"
+import { deleteFile, fileQuery, markFileTrusted, refetchFiles, writeFile } from "@/api/files"
 import { runsQuery } from "@/api/runs"
 import { Page } from "@/components/page"
+import { Button } from "@/components/ui/button"
 import { useInvalidateOnToolFinished } from "@/events/use-invalidate-on-tool"
 import type { FileEntryView } from "@/generated/FileEntryView"
 import type { FileView } from "@/generated/FileView"
@@ -15,6 +16,21 @@ import { useSelectedTeam, useTeamNames } from "@/lib/selected-team"
 
 // A file list has no `last_event_id`, so a folder refetches whenever it is shown again.
 const folderQuery = (team: TeamId, path: string) => ({ ...fileQuery(team, path), refetchOnMount: "always" as const })
+
+/** The person changes files of the selected team's own folder; `data/` and granted folders are read only. */
+const ownFile = (path: string) => !/^(data|teams)\//i.test(path)
+
+/** Why a file change was refused, in the person's words. */
+function failure(error: unknown): string {
+  if (isApiError(error, 409)) return error.message ? `${error.message[0].toUpperCase()}${error.message.slice(1)}.` : "It changed meanwhile."
+  if (isApiError(error, 422) && error.message) return `Check it: ${error.message}.`
+  return error instanceof Error ? `Couldn't save it. ${error.message}` : "Couldn't save it."
+}
+
+const field =
+  "w-full rounded-md bg-card px-3 py-2 text-sm ring-1 ring-border outline-none ring-inset focus-visible:ring-2 focus-visible:ring-ring"
+const icon =
+  "grid size-8 flex-none place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
 
 /** An upload sits in a team's `uploads/`: this team's own, or one under `teams/<slug>/`. */
 const isUpload = (path: string) => /^(teams\/[^/]+\/)?uploads\//.test(path)
@@ -67,17 +83,94 @@ function Workspace({ team }: { team: TeamId }) {
   const highlighted = params.get("path")
 
   return (
-    <div className="flex flex-col gap-0.5 rounded-lg bg-card p-2 ring-1 ring-border">
-      {root.error ? (
-        <p className="m-0 p-3 text-sm text-destructive">Couldn't load the files. {root.error.message}</p>
-      ) : root.data && entriesOf(root.data).length === 0 ? (
-        <p className="m-0 p-3 text-sm text-muted-foreground">This team's folder is empty.</p>
-      ) : (
-        sorted(entriesOf(root.data)).map((entry) => (
-          <TreeEntry key={entry.path} team={team} entry={entry} depth={0} highlighted={highlighted} />
-        ))
-      )}
+    <div className="flex flex-col gap-3">
+      <NewFile team={team} />
+      <div className="flex flex-col gap-0.5 rounded-lg bg-card p-2 ring-1 ring-border">
+        {root.error ? (
+          <p className="m-0 p-3 text-sm text-destructive">Couldn't load the files. {root.error.message}</p>
+        ) : root.data && entriesOf(root.data).length === 0 ? (
+          <p className="m-0 p-3 text-sm text-muted-foreground">This team's folder is empty.</p>
+        ) : (
+          sorted(entriesOf(root.data)).map((entry) => (
+            <TreeEntry key={entry.path} team={team} entry={entry} depth={0} highlighted={highlighted} />
+          ))
+        )}
+      </div>
     </div>
+  )
+}
+
+/** A text file in the person's own words, in the team's own folder; it is trusted because they wrote it. */
+function NewFile({ team }: { team: TeamId }) {
+  const client = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [path, setPath] = useState("")
+  const [content, setContent] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const create = useMutation({
+    mutationFn: () => writeFile(team, path.trim(), { content, expected_updated_at: null }),
+    onSuccess: async () => {
+      await refetchFiles(client)
+      setOpen(false)
+      setPath("")
+      setContent("")
+    },
+    onError: (failed) => setError(failure(failed)),
+  })
+  if (!open) {
+    return (
+      <div>
+        <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+          New file
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <form
+      className="flex flex-col gap-2 rounded-lg bg-card p-4 ring-1 ring-border"
+      onSubmit={(event) => {
+        event.preventDefault()
+        setError(null)
+        if (path.trim() && !create.isPending) create.mutate()
+      }}
+    >
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="font-medium">Path</span>
+        <input
+          autoFocus
+          value={path}
+          onChange={(event) => setPath(event.target.value)}
+          placeholder="notes/plan.md"
+          className={`${field} font-mono`}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="font-medium">Content</span>
+        <textarea
+          value={content}
+          onChange={(event) => setContent(event.target.value)}
+          rows={5}
+          className={`${field} font-mono`}
+        />
+      </label>
+      <p className="m-0 text-sm text-muted-foreground">
+        Saved in this team's folder and trusted, because you wrote it. Ends in .md, .csv, .json or .txt.
+      </p>
+      {error && (
+        <p role="alert" className="m-0 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={!path.trim() || create.isPending}>
+          Save file
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   )
 }
 
@@ -171,6 +264,11 @@ function FileRow({
   const names = useTeamNames()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [mode, setMode] = useState<"view" | "edit" | "delete" | "trust">("view")
+  const [draft, setDraft] = useState("")
+  // The `updated_at` the person saw when they opened an action; every change names it.
+  const [seen, setSeen] = useState<string | null>(null)
+  const editable = ownFile(entry.path)
   const row = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (highlighted) row.current?.scrollIntoView({ block: "center" })
@@ -188,13 +286,51 @@ function FileRow({
     setError(null)
     try {
       const view = await client.fetchQuery({ ...fileQuery(team, entry.path), staleTime: 0 })
-      if (view.kind === "file") saveAs(entry.name, view.content)
-    } catch (failure) {
-      setError(isApiError(failure, 422) ? "Too large to download here." : `Couldn't download it. ${(failure as Error).message}`)
+      if (view.kind === "file" && view.content !== null) saveAs(entry.name, view.content)
+      else setError("Not a text file, so it can't be downloaded here.")
+    } catch (failed) {
+      setError(isApiError(failed, 422) ? "Too large to download here." : `Couldn't download it. ${(failed as Error).message}`)
     } finally {
       setBusy(false)
     }
   }
+
+  // Each action starts from the file as it is now, so a change never overwrites one made since.
+  const begin = async (next: "edit" | "delete" | "trust") => {
+    setError(null)
+    try {
+      const view = await client.fetchQuery({ ...fileQuery(team, entry.path), staleTime: 0 })
+      if (view.kind !== "file") return
+      if (next === "edit" && view.content === null) {
+        setError("Not a text file, so it can't be edited here.")
+        return
+      }
+      setSeen(view.updated_at)
+      setDraft(view.content ?? "")
+      setMode(next)
+    } catch (failed) {
+      setError(failure(failed))
+    }
+  }
+  const settle = {
+    onSuccess: async () => {
+      await refetchFiles(client)
+      setMode("view")
+    },
+    onError: (failed: unknown) => {
+      setError(failure(failed))
+      if (isApiError(failed, 409)) setMode("view")
+    },
+  }
+  const save = useMutation({
+    mutationFn: () => writeFile(team, entry.path, { content: draft, expected_updated_at: seen }),
+    ...settle,
+  })
+  const remove = useMutation({ mutationFn: () => deleteFile(team, entry.path, seen ?? ""), ...settle })
+  const vouch = useMutation({
+    mutationFn: () => markFileTrusted(team, entry.path, { expected_updated_at: seen ?? "" }),
+    ...settle,
+  })
 
   return (
     <div
@@ -212,6 +348,7 @@ function FileRow({
           Untrusted
         </span>
       )}
+      {entry.written_by_user && <span className="flex-none text-xs text-muted-foreground">Saved by you</span>}
       {writer && (
         <Link
           to={`/tasks/${writer}`}
@@ -232,6 +369,93 @@ function FileRow({
       >
         <Download className="size-4" />
       </button>
+      {editable && (
+        <>
+          <button type="button" aria-label={`Edit ${entry.name}`} title="Edit" onClick={() => begin("edit")} className={icon}>
+            <Pencil className="size-4" />
+          </button>
+          {entry.trust === "untrusted" && (
+            <button
+              type="button"
+              aria-label={`Mark ${entry.name} as trusted`}
+              title="Mark as trusted"
+              onClick={() => begin("trust")}
+              className={icon}
+            >
+              <ShieldCheck className="size-4" />
+            </button>
+          )}
+          <button type="button" aria-label={`Delete ${entry.name}`} title="Delete" onClick={() => begin("delete")} className={icon}>
+            <Trash2 className="size-4" />
+          </button>
+        </>
+      )}
+      {mode === "edit" && (
+        <form
+          className="flex basis-full flex-col gap-2 py-2 pl-7"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!save.isPending) save.mutate()
+          }}
+        >
+          <textarea
+            autoFocus
+            aria-label={`Content of ${entry.name}`}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={8}
+            className={`${field} font-mono`}
+          />
+          {entry.trust === "untrusted" && (
+            <p className="m-0 text-xs text-muted-foreground">
+              Saving keeps it untrusted: it may still hold outside text. Mark it as trusted separately once you've checked it.
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={save.isPending}>
+              Save
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setMode("view")}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+      {mode === "trust" && (
+        <div
+          role="alertdialog"
+          aria-label={`Mark ${entry.name} as trusted`}
+          className="flex basis-full flex-col gap-2 rounded-md bg-muted px-4 py-3 text-sm"
+        >
+          <span>
+            Agents will treat {entry.name} as your own words. Only do this if you've read it and nothing in it gives
+            instructions. Tasks that already read it stay as they are.
+          </span>
+          <div className="flex gap-2">
+            <Button size="sm" disabled={vouch.isPending} onClick={() => vouch.mutate()}>
+              Mark as trusted
+            </Button>
+            <Button size="sm" variant="outline" autoFocus onClick={() => setMode("view")}>
+              Keep untrusted
+            </Button>
+          </div>
+        </div>
+      )}
+      {mode === "delete" && (
+        <div
+          role="alertdialog"
+          aria-label={`Delete ${entry.name}`}
+          className="flex basis-full flex-wrap items-center gap-2 rounded-md bg-muted px-4 py-3 text-sm"
+        >
+          <span className="min-w-[200px] flex-1">Delete {entry.name}? It can't be brought back.</span>
+          <Button size="sm" disabled={remove.isPending} onClick={() => remove.mutate()}>
+            Delete
+          </Button>
+          <Button size="sm" variant="outline" autoFocus onClick={() => setMode("view")}>
+            Keep
+          </Button>
+        </div>
+      )}
       {error && (
         <p role="alert" className="m-0 basis-full pl-7 text-xs text-destructive">
           {error}
