@@ -142,18 +142,36 @@ async fn another_teams_folder_opens_only_by_grant_and_its_labels_follow(pool: Sq
 }
 
 /// A Lead cannot hand work to a slug only another team has: the call is invalid and no run starts.
+/// The Lead has one teammate of its own, so `delegate` is offered and the slug check is what refuses.
 #[sqlx::test]
 async fn a_lead_cannot_delegate_across_teams(pool: SqlitePool) {
     let seeded = Seeded::new(pool).await;
-    let team = teams::create(
+    let created = teams::create(
         &seeded.pool,
         teams::TeamInput {
             name: "Solo".to_string(),
         },
     )
     .await
-    .expect("team")
-    .id;
+    .expect("team");
+    let team = created.id;
+    let writer = agents::get(&seeded.pool, in_team(&seeded, seeded.team, "writer").await)
+        .await
+        .expect("writer");
+    let mut scribe: AgentInput =
+        serde_json::from_value(serde_json::to_value(&writer).expect("json")).expect("input");
+    scribe.team_id = Some(team);
+    scribe.slug = "scribe".to_string();
+    agents::create(&seeded.pool, scribe).await.expect("scribe");
+    let lead = agents::get(&seeded.pool, created.lead_agent_id)
+        .await
+        .expect("lead");
+    let mut input: AgentInput =
+        serde_json::from_value(serde_json::to_value(&lead).expect("json")).expect("input");
+    input.delegate_targets = vec!["scribe".to_string()];
+    agents::replace(&seeded.pool, lead.spec.id(), input)
+        .await
+        .expect("targets");
     let (root, events) = run(
         &seeded,
         request(

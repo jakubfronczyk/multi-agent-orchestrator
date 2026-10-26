@@ -377,3 +377,38 @@ async fn file_access_lists_other_teams_and_sets_each_grant(pool: SqlitePool) {
     );
     assert_eq!(send(&access(&other, json!("write"))).await.0, 422);
 }
+
+/// A Lead with no teammate is never offered `delegate`: its agent list would be empty, which a
+/// provider rejects, so the task would fail before any answer.
+#[sqlx::test]
+async fn a_lead_without_teammates_is_not_offered_delegate(pool: SqlitePool) {
+    let recording = std::sync::Arc::new(crate::recording::Recording::new());
+    let app = crate::app_with_llm(pool, crate::test_config(), recording.clone()).await;
+    let team = orchestrator_server::sqlite::teams::create(
+        &app.pool,
+        orchestrator_server::sqlite::teams::TeamInput {
+            name: "Solo".to_string(),
+        },
+    )
+    .await
+    .expect("team")
+    .id;
+    let mut rx = app.store.subscribe();
+    let run = app
+        .engine
+        .start(request(team, "Summarise the week."))
+        .await
+        .expect("start");
+    events_until_finished(&mut rx, run).await;
+    let offered: Vec<_> = recording
+        .requests()
+        .into_iter()
+        .flat_map(|r| r.tools)
+        .map(|spec| spec.name)
+        .collect();
+    assert!(!offered.is_empty(), "the Lead was asked");
+    assert!(
+        !offered.contains(&orchestrator_core::tools::ToolName::Delegate),
+        "{offered:?}"
+    );
+}

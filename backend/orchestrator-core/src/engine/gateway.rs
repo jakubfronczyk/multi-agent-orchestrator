@@ -155,13 +155,15 @@ impl Checked {
 }
 
 /// A tool is offered when it is in the agent's map and something can run it; `delegate` is
-/// not offered at the depth limit.
+/// not offered at the depth limit, nor with no live teammate to name, since its `agent` enum
+/// would be empty and a provider rejects that schema.
 fn resolve(inner: &Inner, ctx: &RunCtx, name: ToolName) -> Option<Callable> {
     if !ctx.agent.tools().contains_key(&name) {
         return None;
     }
     match name {
         ToolName::Delegate if ctx.depth >= inner.config.max_depth => None,
+        ToolName::Delegate if ctx.task.teammates(ctx.agent.delegate_targets()).is_empty() => None,
         ToolName::Delegate => Some(Callable::Delegate),
         ToolName::Plan => Some(Callable::Plan),
         ToolName::MemoryRead
