@@ -53,6 +53,10 @@ _Avoid_: workspace, drive
 The user's permission for one team to open another team's folder, read or read and write. A grant never changes a file's trust.
 _Avoid_: share, permission
 
+**Mark as trusted**:
+The person's explicit statement that they checked a note or file and it holds no instructions; it is stored trusted from then on. Saving never does this, and it never clears a task's taint.
+_Avoid_: approve, whitelist
+
 **Shared reference**:
 The `data/` folder every team reads and no agent writes.
 
