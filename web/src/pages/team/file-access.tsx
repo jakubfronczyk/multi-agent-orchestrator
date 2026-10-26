@@ -24,8 +24,9 @@ export function FileAccessPanel({ team }: { team: TeamView }) {
         </h3>
         <p className="m-0 text-sm text-muted-foreground">
           {team.name}'s agents always open their own folder and data/. They open another team's folder only if you allow
-          it here, as teams/&lt;its short name&gt;/. Read and write lets them replace that team's files without asking;
-          a task that read outside content still asks first. A change applies to running tasks at their next file step.
+          it here, as teams/&lt;its short name&gt;/. Read and write lets them save into that folder under the same rules as
+          their own; a task that read outside content still asks first. A change applies to running tasks at their next file
+          step.
         </p>
       </div>
       {list.error ? (
@@ -46,11 +47,18 @@ export function FileAccessPanel({ team }: { team: TeamView }) {
 function AccessRow({ team, other }: { team: TeamView; other: FileAccessView }) {
   const client = useQueryClient()
   const [error, setError] = useState<string | null>(null)
+  const refetch = () => client.invalidateQueries({ queryKey: fileAccessQuery(team.id).queryKey })
+  // Pending until the list has refetched, so the choice never flips back to the old value meanwhile.
   const change = useMutation({
-    mutationFn: (access: FileAccess) => setFileAccess(team.id, other.team_id, access),
+    mutationFn: async (access: FileAccess) => {
+      await setFileAccess(team.id, other.team_id, access)
+      await refetch()
+    },
     onMutate: () => setError(null),
-    onSettled: () => client.invalidateQueries({ queryKey: fileAccessQuery(team.id).queryKey }),
-    onError: (failure) => setError(`Couldn't change it. ${failure.message}`),
+    onError: (failure) => {
+      setError(`Couldn't change it. ${failure.message}`)
+      void refetch()
+    },
   })
   const label = `${other.name}'s files`
   return (
@@ -64,9 +72,9 @@ function AccessRow({ team, other }: { team: TeamView; other: FileAccessView }) {
         spacing={0}
         aria-label={label}
         value={change.isPending ? change.variables : other.access}
-        disabled={change.isPending}
-        onValueChange={(value) => value && value !== other.access && change.mutate(value as FileAccess)}
-        className="grid grid-cols-3 gap-0.5 rounded-md bg-secondary p-0.5"
+        // Not disabled while saving: that would drop keyboard focus; a second change waits instead.
+        onValueChange={(value) => value && !change.isPending && value !== other.access && change.mutate(value as FileAccess)}
+        className="flex flex-wrap gap-0.5 rounded-md bg-secondary p-0.5"
       >
         {CHOICES.map(([value, text]) => (
           <ToggleGroupItem

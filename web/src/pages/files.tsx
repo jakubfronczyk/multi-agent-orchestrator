@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQueries, useQuery } from "@tanstack/react-query"
 import { Link, useSearchParams } from "react-router"
 import { ChevronRight, CircleCheck, FileText, Folder, TriangleAlert } from "lucide-react"
@@ -35,6 +35,13 @@ function size(bytes: number): string {
 
 export function FilesPage() {
   const { team } = useSelectedTeam()
+  const [, setParams] = useSearchParams()
+  // A path names a file in one team's view, so another team starts from its own first file.
+  const shown = useRef(team?.id)
+  useEffect(() => {
+    if (shown.current !== undefined && shown.current !== team?.id) setParams({}, { replace: true })
+    shown.current = team?.id
+  }, [team?.id, setParams])
   return (
     <Page
       wide

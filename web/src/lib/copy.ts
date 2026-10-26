@@ -133,7 +133,7 @@ export function ruleText(rule: Rule, ctx: RuleContext): string {
     case "draft_only":
       return "This turn is draft only: saving, notes, sending and opening websites are refused without asking you."
     case "no_access":
-      return "That path is outside what this team can open: another team's folder needs your permission on Your team, and data/ is read only."
+      return "That path is outside what this team can open: another team's folder needs your permission on Your team (Read and write to save there), and data/ is read only."
     default:
       return unreachable(rule)
   }

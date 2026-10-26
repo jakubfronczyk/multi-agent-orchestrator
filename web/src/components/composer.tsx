@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { ArrowUp, ChevronDown, Eye, Paperclip, Shield, Square, X } from "lucide-react"
 import { cn } from "cn"
@@ -88,6 +88,11 @@ export function Composer({
     setAttachedTo(attach)
     setAttachments([])
   }
+  // Read after an upload resolves: a team switch meanwhile must not get the other team's chip.
+  const team = useRef(attach)
+  useEffect(() => {
+    team.current = attach
+  }, [attach])
   const [attachError, setAttachError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -131,7 +136,7 @@ export function Composer({
     try {
       const uploaded = await uploadFile(attach, file)
       uploads.current.set(key, uploaded)
-      add(uploaded)
+      if (team.current === attach) add(uploaded)
       // The upload is now in the team's folder under uploads/.
       void client.invalidateQueries({ queryKey: ["files"] })
     } catch (error) {
