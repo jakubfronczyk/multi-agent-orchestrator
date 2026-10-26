@@ -19,7 +19,7 @@ async fn run(tool: &dyn Tool, ctx: &ToolCtx, args: Value) -> Result<Value, ToolE
 #[sqlx::test]
 async fn file_tools_reject_traversal_and_symlinks(pool: SqlitePool) {
     let app = app(pool.clone()).await;
-    let ctx = tool_ctx(&app, "worker").await;
+    let ctx = tool_ctx(&app, "specialist").await;
     let temp = TempDir::new();
     let workspace = Workspace::new(temp.workspace(), pool);
     let (read, write, list) = (
@@ -70,10 +70,10 @@ async fn file_tools_reject_traversal_and_symlinks(pool: SqlitePool) {
 #[sqlx::test]
 async fn writes_replace_atomically_and_untrusted_files_are_taint_sources(pool: SqlitePool) {
     let app = app(pool.clone()).await;
-    let clean = tool_ctx(&app, "worker").await;
+    let clean = tool_ctx(&app, "specialist").await;
     let tainted = ToolCtx {
         trust: Trust::Untrusted,
-        ..tool_ctx(&app, "worker").await
+        ..tool_ctx(&app, "specialist").await
     };
     let temp = TempDir::new();
     let workspace = Workspace::new(temp.workspace(), pool);
@@ -140,7 +140,7 @@ async fn writes_replace_atomically_and_untrusted_files_are_taint_sources(pool: S
 #[sqlx::test]
 async fn listings_hide_temp_files_and_unrecorded_files_read_untrusted(pool: SqlitePool) {
     let app = app(pool.clone()).await;
-    let clean = tool_ctx(&app, "worker").await;
+    let clean = tool_ctx(&app, "specialist").await;
     let temp = TempDir::new();
     let workspace = Workspace::new(temp.workspace(), pool);
     let (read, list) = (FileRead::new(workspace.clone()), FileList::new(workspace));
@@ -179,7 +179,7 @@ async fn writes_need_a_text_extension_and_at_most_256_kb(pool: SqlitePool) {
 #[sqlx::test]
 async fn csv_query_filters_selects_counts_and_groups(pool: SqlitePool) {
     let app = app(pool.clone()).await;
-    let ctx = tool_ctx(&app, "worker").await;
+    let ctx = tool_ctx(&app, "specialist").await;
     let temp = TempDir::new();
     let workspace = Workspace::new(temp.workspace(), pool);
     let (write, csv) = (FileWrite::new(workspace.clone()), CsvQuery::new(workspace));
@@ -233,7 +233,7 @@ async fn csv_query_filters_selects_counts_and_groups(pool: SqlitePool) {
 #[sqlx::test]
 async fn a_write_whose_final_trust_update_fails_reads_back_untrusted(pool: SqlitePool) {
     let app = app(pool.clone()).await;
-    let ctx = tool_ctx(&app, "worker").await;
+    let ctx = tool_ctx(&app, "specialist").await;
     let temp = TempDir::new();
     let workspace = Workspace::new(temp.workspace(), pool.clone());
     let (read, write) = (FileRead::new(workspace.clone()), FileWrite::new(workspace));
@@ -273,7 +273,7 @@ async fn a_write_whose_final_trust_update_fails_reads_back_untrusted(pool: Sqlit
 #[sqlx::test]
 async fn an_unknown_stored_trust_reads_as_untrusted(pool: SqlitePool) {
     let app = app(pool.clone()).await;
-    let ctx = tool_ctx(&app, "worker").await;
+    let ctx = tool_ctx(&app, "specialist").await;
     let temp = TempDir::new();
     std::fs::write(temp.workspace().join("odd.csv"), "a\n1\n").expect("file");
     sqlx::raw_sql(

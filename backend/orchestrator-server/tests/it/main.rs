@@ -55,7 +55,7 @@ pub struct App {
     /// The one team the harness seeds; requests that name no team run in it.
     pub team: TeamId,
     /// A specialist holding every test tool.
-    pub worker: AgentId,
+    pub specialist: AgentId,
 }
 
 pub fn test_config() -> Config {
@@ -79,7 +79,7 @@ pub async fn app_with(pool: SqlitePool, config: Config) -> App {
     app_with_llm(pool, config, Arc::new(ScriptedProvider::new())).await
 }
 
-/// Seeds a Lead that plans and delegates to `helper` and `helper2`, and the `worker`.
+/// Seeds a Lead that plans and delegates to `helper` and `helper2`, and the `specialist`.
 pub async fn app_with_llm(pool: SqlitePool, config: Config, llm: Arc<dyn LlmProvider>) -> App {
     let team = new_team(&pool, "Test team").await;
     for slug in ["helper", "helper2"] {
@@ -91,9 +91,9 @@ pub async fn app_with_llm(pool: SqlitePool, config: Config, llm: Arc<dyn LlmProv
         agents::create(&pool, agent).await.expect("seed drill team");
     }
     agents::create(&pool, lead()).await.expect("seed lead");
-    let worker = agents::create(&pool, worker())
+    let specialist = agents::create(&pool, specialist())
         .await
-        .expect("seed worker")
+        .expect("seed specialist")
         .spec
         .id();
     let store = Arc::new(SqliteStore::new(pool.clone()));
@@ -103,7 +103,7 @@ pub async fn app_with_llm(pool: SqlitePool, config: Config, llm: Arc<dyn LlmProv
         store,
         engine,
         team,
-        worker,
+        specialist,
     }
 }
 
@@ -205,7 +205,7 @@ fn helper(slug: &str) -> AgentInput {
     }
 }
 
-fn worker() -> AgentInput {
+fn specialist() -> AgentInput {
     let tools = BTreeMap::from([
         (ToolName::MemoryRead, Decision::Allow),
         (ToolName::FileWrite, Decision::Ask),
@@ -219,7 +219,7 @@ fn worker() -> AgentInput {
     ]);
     AgentInput {
         role: Role::Specialist,
-        slug: "worker".to_string(),
+        slug: "specialist".to_string(),
         description: "uses every test tool".to_string(),
         tools,
         delegate_targets: vec![],

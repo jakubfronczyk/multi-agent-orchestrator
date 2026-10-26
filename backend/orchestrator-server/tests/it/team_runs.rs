@@ -320,17 +320,17 @@ async fn records_and_events_carry_their_team(pool: SqlitePool) {
     let b = second_team(&app).await;
     let mut rx = app.store.subscribe();
     let mut asked = app.store.subscribe();
-    let b_worker = agents::create(
+    let b_specialist = agents::create(
         &app.pool,
         serde_json::from_value(json!({
-            "team_id": b, "role": "specialist", "slug": "worker", "name": "w", "description": "d",
+            "team_id": b, "role": "specialist", "slug": "specialist", "name": "w", "description": "d",
             "system_prompt": "p", "model": "grok-4.3", "icon": "i", "colour": "c",
             "tools": {"file_write": "ask", "memory_read": "allow"}, "delegate_targets": []
         }))
         .expect("input"),
     )
     .await
-    .expect("worker")
+    .expect("specialist")
     .spec
     .id();
     let a_root = app
@@ -342,7 +342,7 @@ async fn records_and_events_carry_their_team(pool: SqlitePool) {
         .engine
         .start(StartRequest {
             team_id: Some(b),
-            agent_id: Some(b_worker),
+            agent_id: Some(b_specialist),
             ..request(r#"test:call:file_write:{"path":"b.md"}"#)
         })
         .await

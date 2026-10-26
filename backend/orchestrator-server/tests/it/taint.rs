@@ -49,7 +49,7 @@ async fn a_failed_fetch_taints_before_its_result_is_recorded(pool: SqlitePool) {
     let url = "https://example.com/fail";
     let events = run_as(
         &app,
-        "worker",
+        "specialist",
         &format!(r#"test:call:http_fetch:{{"url":"{url}"}}"#),
     )
     .await;
@@ -81,7 +81,7 @@ async fn a_fetch_taints_even_when_the_tool_reports_no_source(pool: SqlitePool) {
     let url = format!("https://example.com{UNREPORTED_PATH}");
     let events = run_as(
         &app,
-        "worker",
+        "specialist",
         &format!(r#"test:call:http_fetch:{{"url":"{url}"}}"#),
     )
     .await;
@@ -96,7 +96,7 @@ async fn a_denied_fetch_never_taints(pool: SqlitePool) {
     answer_approvals(&app.store, &app.engine, |_| Answer::Deny { note: None });
     let events = run_as(
         &app,
-        "worker",
+        "specialist",
         r#"test:call:http_fetch:{"url":"https://evil.test/x"}"#,
     )
     .await;
@@ -108,14 +108,14 @@ async fn a_denied_fetch_never_taints(pool: SqlitePool) {
 #[sqlx::test]
 async fn inbox_list_taints_once_per_listed_message_in_order(pool: SqlitePool) {
     let app = app(pool).await;
-    let events = run_as(&app, "worker", "test:call:inbox_list:{}").await;
+    let events = run_as(&app, "specialist", "test:call:inbox_list:{}").await;
     assert_eq!(tainted(&events), [inbox("m1"), inbox("m2")]);
 }
 
 #[sqlx::test]
 async fn parallel_reads_of_one_source_taint_once(pool: SqlitePool) {
     let app = app(pool).await;
-    let events = run_as(&app, "worker", r#"test:twice:inbox_read:{"id":"m1"}"#).await;
+    let events = run_as(&app, "specialist", r#"test:twice:inbox_read:{"id":"m1"}"#).await;
 
     assert_eq!(statuses(&events), [CallStatus::Ok, CallStatus::Ok]);
     assert_eq!(tainted(&events), [inbox("m1")]);
@@ -179,7 +179,7 @@ async fn an_expired_card_asks_again_on_retry(pool: SqlitePool) {
     )
     .await;
     let fetch = r#"http_fetch:{"url":"https://evil.test/x"}"#;
-    let events = run_as(&app, "worker", &format!("test:seq:{fetch}|{fetch}")).await;
+    let events = run_as(&app, "specialist", &format!("test:seq:{fetch}|{fetch}")).await;
 
     assert_eq!(cards(&events).len(), 2, "an expiry is not a refusal");
     assert_eq!(
@@ -192,9 +192,9 @@ async fn an_expired_card_asks_again_on_retry(pool: SqlitePool) {
 async fn a_tainting_result_reaches_the_model_marked_and_wrapped(pool: SqlitePool) {
     let recording = Arc::new(Recording::new());
     let app = app_with_llm(pool, test_config(), recording.clone()).await;
-    run_as(&app, "worker", r#"test:call:inbox_read:{"id":"m1"}"#).await;
+    run_as(&app, "specialist", r#"test:call:inbox_read:{"id":"m1"}"#).await;
 
-    let output = tool_output_seen_at_step(&recording, "worker", 1);
+    let output = tool_output_seen_at_step(&recording, "specialist", 1);
     let body: serde_json::Value = serde_json::from_str(&output).expect("valid json");
     assert_eq!(body["trust"], "untrusted");
     assert_eq!(body["source"], "inbox:m1");
@@ -212,12 +212,12 @@ async fn an_oversized_result_is_cut_and_stays_valid_json(pool: SqlitePool) {
     let big = "é".repeat(70_000);
     run_as(
         &app,
-        "worker",
+        "specialist",
         &format!(r#"test:call:memory_read:{{"q":"{big}"}}"#),
     )
     .await;
 
-    let output = tool_output_seen_at_step(&recording, "worker", 1);
+    let output = tool_output_seen_at_step(&recording, "specialist", 1);
     let body: serde_json::Value = serde_json::from_str(&output).expect("valid json");
     assert_eq!(body["truncated"], true);
     assert!(output.chars().count() < 70_000);
@@ -244,7 +244,7 @@ async fn each_call_records_whether_it_brought_outside_content(pool: SqlitePool) 
     let app = app(pool).await;
     let scenario =
         r#"test:seq:inbox_read:{"id":"m1"}|file_read:{"path":"a.md"}|inbox_read:{"id":"m1"}"#;
-    let events = run_as(&app, "worker", scenario).await;
+    let events = run_as(&app, "specialist", scenario).await;
     let flags: Vec<bool> = events
         .iter()
         .filter_map(|e| match &e.event {

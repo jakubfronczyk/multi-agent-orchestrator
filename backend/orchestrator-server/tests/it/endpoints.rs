@@ -24,7 +24,7 @@ async fn a_waiting_task_is_listed_read_in_detail_and_cancelled(pool: SqlitePool)
     let root = app
         .engine
         .start(StartRequest {
-            agent_id: Some(app.worker),
+            agent_id: Some(app.specialist),
             ..request(r#"test:call:file_write:{"path":"a.md"}"#)
         })
         .await
@@ -179,7 +179,7 @@ async fn an_agent_that_sends_without_asking_is_refused(pool: SqlitePool) {
         .filter_map(|a| a["slug"].as_str())
         .collect();
     assert!(
-        slugs.contains(&"worker") && !slugs.contains(&"loud"),
+        slugs.contains(&"specialist") && !slugs.contains(&"loud"),
         "nothing stored: {slugs:?}"
     );
 }
@@ -194,7 +194,7 @@ async fn only_this_app_on_loopback_can_answer_a_card(pool: SqlitePool) {
     let mut rx = app.store.subscribe();
     app.engine
         .start(StartRequest {
-            agent_id: Some(app.worker),
+            agent_id: Some(app.specialist),
             ..request(r#"test:call:file_write:{"path":"a.md"}"#)
         })
         .await
@@ -267,7 +267,7 @@ async fn agents_are_listed_per_team(pool: SqlitePool) {
     let app = app(pool).await;
     let other = crate::new_team(&app.pool, "Other").await;
     let input: orchestrator_core::agents::AgentInput = serde_json::from_value(json!({
-        "team_id": other, "role": "specialist", "slug": "worker", "name": "w", "description": "d",
+        "team_id": other, "role": "specialist", "slug": "specialist", "name": "w", "description": "d",
         "system_prompt": "p", "model": "grok-4.3", "icon": "i", "colour": "c", "tools": {},
         "delegate_targets": []
     }))
@@ -292,7 +292,7 @@ async fn agents_are_listed_per_team(pool: SqlitePool) {
     .await;
     let only = only.as_array().expect("list");
     assert_eq!(only.len(), 1);
-    assert_eq!(only[0]["slug"], "worker");
+    assert_eq!(only[0]["slug"], "specialist");
     assert!(all.len() > only.len());
     let (status, body) = get(&client, &format!("{base}/api/agents?team_id=nope")).await;
     assert_eq!(status, 422);

@@ -17,9 +17,9 @@ use crate::{
     App, Config, app, app_with, app_with_llm, events_until_finished, request, test_config, wait_for,
 };
 
-fn as_worker(app: &App, scenario: &str) -> StartRequest {
+fn as_specialist(app: &App, scenario: &str) -> StartRequest {
     StartRequest {
-        agent_id: Some(app.worker),
+        agent_id: Some(app.specialist),
         ..request(scenario)
     }
 }
@@ -28,7 +28,7 @@ async fn run_to_end(app: &App, scenario: &str) -> Vec<RunEvent> {
     let mut rx = app.store.subscribe();
     let run = app
         .engine
-        .start(as_worker(app, scenario))
+        .start(as_specialist(app, scenario))
         .await
         .expect("start");
     events_until_finished(&mut rx, run).await
@@ -159,7 +159,7 @@ async fn a_call_after_the_cancel_never_starts(pool: SqlitePool) {
         format!(r#"test:batch:file_write:{{"path":"a.md"}}|{read}|{read}|{read}|{read}"#);
     let run = app
         .engine
-        .start(as_worker(&app, &scenario))
+        .start(as_specialist(&app, &scenario))
         .await
         .expect("start");
     wait_for(&mut asked, |e| {
@@ -366,7 +366,10 @@ async fn a_second_answer_over_http_is_a_conflict(pool: SqlitePool) {
     let base = crate::serve(&app).await;
 
     app.engine
-        .start(as_worker(&app, r#"test:call:file_write:{"path":"a.md"}"#))
+        .start(as_specialist(
+            &app,
+            r#"test:call:file_write:{"path":"a.md"}"#,
+        ))
         .await
         .expect("start");
     let approval: ApprovalId = wait_for(&mut rx, |envelope| match envelope.event {

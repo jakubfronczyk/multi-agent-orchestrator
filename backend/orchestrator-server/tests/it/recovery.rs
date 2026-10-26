@@ -56,7 +56,7 @@ async fn a_crashed_task_is_interrupted_child_first_and_recovery_runs_once(pool: 
         (
             at_root,
             RunEvent::RunStarted {
-                agent_id: app.worker,
+                agent_id: app.specialist,
                 team_id: app.team,
                 parent_run_id: None,
                 parent_call_id: None,
@@ -74,7 +74,7 @@ async fn a_crashed_task_is_interrupted_child_first_and_recovery_runs_once(pool: 
         (
             at_child,
             RunEvent::RunStarted {
-                agent_id: app.worker,
+                agent_id: app.specialist,
                 team_id: app.team,
                 parent_run_id: Some(root),
                 parent_call_id: Some(delegate),
@@ -95,7 +95,7 @@ async fn a_crashed_task_is_interrupted_child_first_and_recovery_runs_once(pool: 
                 call_id: write,
                 action: action(),
                 custody: Custody {
-                    agent_path: vec![Slug::new("worker").expect("slug")],
+                    agent_path: vec![Slug::new("specialist").expect("slug")],
                     parent_task: "t".to_string(),
                     parent_task_sources: Vec::new(),
                     rules: Vec::new(),

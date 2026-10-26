@@ -251,22 +251,22 @@ async fn follow_ups_need_a_finished_lead_task(pool: SqlitePool) {
     let base = serve(&app).await;
     let client = reqwest::Client::new();
     let mut rx = app.store.subscribe();
-    let by_worker = app
+    let by_specialist = app
         .engine
         .start(StartRequest {
-            agent_id: Some(app.worker),
+            agent_id: Some(app.specialist),
             ..request("test:hello")
         })
         .await
         .expect("start");
-    events_until_finished(&mut rx, by_worker).await;
+    events_until_finished(&mut rx, by_specialist).await;
 
     let body = json!({"text": "again"});
     let url = |root: RunId| format!("{base}/api/runs/{root}/messages");
-    assert_eq!(post(&client, &url(by_worker), body.clone()).await, 409);
+    assert_eq!(post(&client, &url(by_specialist), body.clone()).await, 409);
     assert_eq!(post(&client, &url(RunId::new()), body).await, 404);
     assert_eq!(
-        post(&client, &url(by_worker), json!({"text": "  "})).await,
+        post(&client, &url(by_specialist), json!({"text": "  "})).await,
         422
     );
 }

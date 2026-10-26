@@ -187,18 +187,18 @@ async fn delete_keeps_busy_and_last_teams_and_their_history(pool: SqlitePool) {
     let client = reqwest::Client::new();
     let delete = |id: &str| client.delete(format!("{base}/api/teams/{id}"));
 
-    // A worker on team B whose file save waits on a card.
-    let worker = orchestrator_server::sqlite::agents::create(
+    // A specialist on team B whose file save waits on a card.
+    let specialist = orchestrator_server::sqlite::agents::create(
         &app.pool,
         serde_json::from_value(json!({
-            "team_id": b, "role": "specialist", "slug": "worker", "name": "w", "description": "d",
+            "team_id": b, "role": "specialist", "slug": "specialist", "name": "w", "description": "d",
             "system_prompt": "p", "model": "grok-4.3", "icon": "i", "colour": "c",
             "tools": {"file_write": "ask"}, "delegate_targets": []
         }))
         .expect("input"),
     )
     .await
-    .expect("worker")
+    .expect("specialist")
     .spec
     .id();
     let mut rx = app.store.subscribe();
@@ -206,7 +206,7 @@ async fn delete_keeps_busy_and_last_teams_and_their_history(pool: SqlitePool) {
         .engine
         .start(StartRequest {
             team_id: Some(b),
-            agent_id: Some(worker),
+            agent_id: Some(specialist),
             ..request(r#"test:call:file_write:{"path":"a.md"}"#)
         })
         .await
